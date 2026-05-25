@@ -1,0 +1,22 @@
+import redis.asyncio as redis_ai
+
+from app.core.config import settings
+
+redis_client: redis_ai.Redis | None = None
+
+
+async def get_redis() -> redis_ai.Redis:
+    global redis_client
+    if redis_client is None:
+        redis_client = redis_ai.from_url(
+            settings.redis_url,
+            decode_responses=True,
+        )
+    return redis_client
+
+
+async def close_redis() -> None:
+    global redis_client
+    if redis_client:
+        await redis_client.close()
+        redis_client = None

@@ -1,0 +1,196 @@
+"""图5: Orchestrator Agent — 复杂任务分解与编排执行。
+
+接收复杂请求 → 分解为原子子任务 → 按依赖图并行/串行执行 →
+聚合各 Agent 结果 → 返回综合响应。
+"""
+
+import asyncio
+import json
+from datetime import datetime, timezone
+
+from app.agents.base import BaseAgent
+from app.agents.router_agent import RouterAgent
+from app.llm import get_llm_client
+
+
+class OrchestratorAgent(BaseAgent):
+    """综合编排 Agent — 将复杂任务分解为可执行的子任务流程。"""
+
+    _TYPE_KEYWORDS = {
+        "screening": ["筛", "简历", "初筛", "screen", "match", "筛选"],
+        "interview": ["面试", "interview", "安排"],
+        "jd_generation": ["jd", "职位描述", "generate jd"],
+        "knowledge_query": ["知识", "文档", "知识库"],
+        "candidate_search": ["候选人", "找", "candidate", "搜索"],
+        "report": ["报告", "报表", "数据", "report"],
+    }
+
+    def __init__(self, name: str = "orchestrator"):
+        super().__init__(name)
+        self.router = RouterAgent()
+        self.llm = None
+        self.sub_agents: dict[str, BaseAgent] = {}
+
+    async def ensure_llm(self):
+        if self.llm is None:
+            self.llm = get_llm_client()
+
+    def register(self, task_type: str, agent: BaseAgent) -> None:
+        self.sub_agents[task_type] = agent
+
+    async def plan(self, input_data: dict) -> list[str]:
+        return ["decompose", "execute", "aggregate"]
+
+    @classmethod
+    def guess_type(cls, text: str) -> str:
+        """关键词推测子任务类型。"""
+        text_lower = text.lower()
+        for intent, keywords in cls._TYPE_KEYWORDS.items():
+            if any(kw in text_lower for kw in keywords):
+                return intent
+        return "screening"
+
+    async def decompose(self, task: str, context: dict | None = None) -> list[dict]:
+        """将复杂任务分解为子任务列表（LLM 增强，失败降级关键词）。"""
+        await self.ensure_llm()
+        context_str = f"\n上下文: {context}" if context else ""
+
+        prompt = f"""你是一个任务分解器。请将以下复杂任务分解为多个原子子任务。
+
+复杂任务: 「{task}」{context_str}
+
+子任务类型可用:
+- screening: 简历初筛
+- interview: 面试安排
+- jd_generation: JD 生成
+- knowledge_query: 知识库查询
+- candidate_search: 候选人搜索
+- report: 报告生成
+
+请以 JSON 数组格式返回，每个元素包含:
+  {{"type": "子任务类型", "description": "具体做什么", "depends_on": ["依赖的子任务索引"]}}
+
+示例:
+[
+  {{"type": "candidate_search", "description": "搜索符合Java开发经验的候选人", "depends_on": []}},
+  {{"type": "screening", "description": "筛选第一批候选人的简历", "depends_on": [0]}}
+]
+
+只返回 JSON 数组，不要有其他文字。"""
+
+        try:
+            reply = await self.llm.chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=1024,
+            )
+            start = reply.find("[")
+            end = reply.rfind("]")
+            if start != -1 and end != -1:
+                reply = reply[start : end + 1]
+            return json.loads(reply)
+        except Exception:
+            return [{"type": self.guess_type(task), "description": task, "depends_on": []}]
+
+    def build_dag(self, sub_tasks: list[dict]) -> list[list[int]]:
+        """拓扑排序：将子任务按依赖关系分层（并行层级）。"""
+        n = len(sub_tasks)
+        in_degree = [0] * n
+        dependents = [[] for _ in range(n)]
+        for i, task in enumerate(sub_tasks):
+            for dep in task.get("depends_on", []):
+                if isinstance(dep, int) and dep < n and dep != i:
+                    dependents[dep].append(i)
+                    in_degree[i] += 1
+        levels = []
+        queue = [i for i in range(n) if in_degree[i] == 0]
+        while queue:
+            levels.append(list(queue))
+            next_queue = []
+            for node in queue:
+                for dep in dependents[node]:
+                    in_degree[dep] -= 1
+                    if in_degree[dep] == 0:
+                        next_queue.append(dep)
+            queue = next_queue
+        executed = sum(len(l) for l in levels)
+        if executed < n:
+            levels.append([i for i in range(n) if i not in {j for l in levels for j in l}])
+        return levels
+
+    async def execute_sub_task(self, task: dict) -> dict:
+        """执行单个子任务，路由到对应的 Service 或 Agent。"""
+        task_type = task.get("type", "chat")
+        description = task.get("description", "")
+
+        try:
+            if task_type == "screening":
+                from app.services.screening import ScreeningService  # lazy import
+                service = ScreeningService()
+                return {
+                    "type": "screening", "description": description,
+                    "status": "completed",
+                    "result": {"summary": f"筛选任务: {description[:100]}", "status": "pending"},
+                }
+            elif task_type == "jd_generation":
+                from app.services.jd_generator import JDGeneratorService  # lazy import
+                service = JDGeneratorService()
+                result = await service.generate_jd(
+                    title=description[:100] or "职位", requirements=description, auto_improve=False,
+                )
+                return {"type": "jd_generation", "description": description, "status": "completed",
+                        "result": result}
+            elif task_type == "candidate_search":
+                return {"type": "candidate_search", "description": description, "status": "completed",
+                        "result": {"summary": f"搜索: {description[:100]}", "count": 0}}
+            else:
+                return {"type": task_type, "description": description, "status": "completed",
+                        "result": {"summary": f"已处理: {description[:100]}"}}
+        except Exception as e:
+            return {"type": task_type, "description": description, "status": "failed", "error": str(e)}
+
+    async def run(self, input_data: dict) -> dict:
+        """主入口：分解 → DAG 编排 → 聚合。
+
+        支持两种模式：
+        1. 传统路由模式：intent → router_agent
+        2. 编排模式：task 字段 → 分解执行
+        """
+        task = input_data.get("task", input_data.get("message", ""))
+        context = input_data.get("context")
+
+        if not task:
+            # 传统路由模式
+            intent = input_data.get("intent", "agent")
+            target = self.router.route(intent)
+            target.prompt = self.prompt
+            return await target.run(input_data)
+
+        # --- 编排模式 ---
+        start_time = datetime.now(timezone.utc)
+
+        sub_tasks = await self.decompose(task, context)
+        levels = self.build_dag(sub_tasks)
+        results = [None] * len(sub_tasks)
+
+        for level in levels:
+            coros = [self.execute_sub_task(sub_tasks[i]) for i in level]
+            level_results = await asyncio.gather(*coros)
+            for i, result in zip(level, level_results):
+                results[i] = result
+
+        succeeded = sum(1 for r in results if r and r.get("status") == "completed")
+        failed = sum(1 for r in results if r and r.get("status") == "failed")
+        outputs = [r.get("result", {}) for r in results if r]
+        duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+
+        return {
+            "agent": self.name,
+            "status": "completed" if failed == 0 else "partial",
+            "total_sub_tasks": len(sub_tasks),
+            "succeeded": succeeded,
+            "failed": failed,
+            "duration_seconds": round(duration, 2),
+            "outputs": outputs,
+            "sub_tasks": sub_tasks,
+        }

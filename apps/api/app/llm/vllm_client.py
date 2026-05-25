@@ -1,0 +1,49 @@
+import logging
+
+from openai import AsyncOpenAI
+
+from app.core.config import settings
+from app.llm.base import LLMClient
+
+logger = logging.getLogger(__name__)
+
+
+class VLLMClient(LLMClient):
+    """vLLM 后端调用"""
+
+    def __init__(self):
+        super().__init__(
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+            model=settings.llm_model,
+        )
+        self.client = AsyncOpenAI(
+            base_url=self.base_url,
+            api_key=self.api_key,
+        )
+
+    async def chat(self, messages: list[dict], **kwargs) -> str:
+        raise_on_error = kwargs.pop("raise_on_error", False)
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                **kwargs,
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.warning("LLM chat failed: %s", e)
+            if raise_on_error:
+                raise
+            return "[LLM unavailable]"
+
+    async def embed(self, text: str) -> list[float]:
+        try:
+            response = await self.client.embeddings.create(
+                model=self.model,
+                input=text,
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            logger.warning("LLM embed failed, using fallback: %s", e)
+            return []

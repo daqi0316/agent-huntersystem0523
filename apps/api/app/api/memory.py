@@ -1,0 +1,207 @@
+"""图5/6: Agent 记忆 API — session 级状态读写。
+
+基于 Redis 的记忆存储，fallback 到内存字典。
+提供自动过期、session 隔离、JSON 序列化。
+"""
+
+import json
+from datetime import datetime, timezone
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from app.core.redis import get_redis
+
+router = APIRouter()
+
+# --- In-memory fallback (when Redis is unavailable) ---
+_fallback_store: dict[str, dict] = {}
+
+DEFAULT_TTL = 3600  # 1 hour
+
+
+class MemoryWriteRequest(BaseModel):
+    session_id: str = Field(..., min_length=1, max_length=256, description="会话 ID")
+    key: str = Field(..., min_length=1, max_length=128, description="记忆键")
+    value: dict = Field(default_factory=dict, description="记忆值（JSON 对象）")
+    ttl: int | None = Field(None, ge=60, le=86400, description="过期秒数，默认 1h")
+
+
+class MemoryReadRequest(BaseModel):
+    session_id: str = Field(..., min_length=1, max_length=256, description="会话 ID")
+    key: str = Field(..., min_length=1, max_length=128, description="记忆键")
+
+
+class MemoryEntryResponse(BaseModel):
+    success: bool = True
+    key: str = ""
+    value: dict = {}
+    created_at: str = ""
+    expires_at: str | None = None
+
+
+class MemoryKeysResponse(BaseModel):
+    success: bool = True
+    session_id: str = ""
+    keys: list[str] = []
+
+
+class MemoryDeleteRequest(BaseModel):
+    session_id: str
+    key: str
+
+
+class MemoryKeysRequest(BaseModel):
+    session_id: str
+
+
+def _redis_key(session_id: str, key: str) -> str:
+    return f"agent_memory:{session_id}:{key}"
+
+
+async def _write_to_redis(session_id: str, key: str, value: dict, ttl: int | None = None) -> dict:
+    r = await get_redis()
+    rkey = _redis_key(session_id, key)
+    payload = {
+        "key": key,
+        "value": value,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    effective_ttl = ttl or DEFAULT_TTL
+    await r.setex(rkey, effective_ttl, json.dumps(payload))
+    payload["expires_at"] = datetime.now(timezone.utc).isoformat()
+    return payload
+
+
+async def _read_from_redis(session_id: str, key: str) -> dict | None:
+    try:
+        r = await get_redis()
+        raw = await r.get(_redis_key(session_id, key))
+        if raw:
+            return json.loads(raw)
+    except ConnectionError:
+        pass
+    return None
+
+
+async def _delete_from_redis(session_id: str, key: str) -> bool:
+    try:
+        r = await get_redis()
+        deleted = await r.delete(_redis_key(session_id, key))
+        return deleted > 0
+    except ConnectionError:
+        return False
+
+
+async def _list_keys_redis(session_id: str) -> list[str]:
+    try:
+        r = await get_redis()
+        pattern = _redis_key(session_id, "*")
+        cursor, keys = await r.scan(cursor=0, match=pattern, count=100)
+        return [k.split(":", 2)[2] for k in keys]
+    except ConnectionError:
+        return []
+
+
+# --- Fallback: in-memory ---
+def _fb_write(session_id: str, key: str, value: dict, ttl: int | None = None):
+    if session_id not in _fallback_store:
+        _fallback_store[session_id] = {}
+    _fallback_store[session_id][key] = {
+        "key": key,
+        "value": value,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _fb_read(session_id: str, key: str) -> dict | None:
+    return _fallback_store.get(session_id, {}).get(key)
+
+
+def _fb_delete(session_id: str, key: str) -> bool:
+    if session_id in _fallback_store and key in _fallback_store[session_id]:
+        del _fallback_store[session_id][key]
+        return True
+    return False
+
+
+def _fb_list_keys(session_id: str) -> list[str]:
+    return list(_fallback_store.get(session_id, {}).keys())
+
+
+@router.post("/read", response_model=MemoryEntryResponse)
+async def memory_read(req: MemoryReadRequest):
+    """读取 agent session 记忆。优先 Redis，fallback 到内存。"""
+    data = await _read_from_redis(req.session_id, req.key)
+    if data is None:
+        data = _fb_read(req.session_id, req.key)
+
+    if data is None:
+        return MemoryEntryResponse(
+            success=True,
+            key=req.key,
+            value={},
+            created_at="",
+        )
+
+    return MemoryEntryResponse(
+        success=True,
+        key=data.get("key", req.key),
+        value=data.get("value", {}),
+        created_at=data.get("created_at", ""),
+        expires_at=data.get("expires_at"),
+    )
+
+
+@router.post("/write", response_model=MemoryEntryResponse)
+async def memory_write(req: MemoryWriteRequest):
+    """写入 agent session 记忆。优先 Redis，fallback 到内存。"""
+    try:
+        r = await get_redis()
+        if r:
+            data = await _write_to_redis(req.session_id, req.key, req.value, req.ttl)
+            return MemoryEntryResponse(
+                success=True,
+                key=data["key"],
+                value=data["value"],
+                created_at=data["created_at"],
+                expires_at=data.get("expires_at"),
+            )
+    except ConnectionError:
+        pass
+
+    _fb_write(req.session_id, req.key, req.value, req.ttl)
+    data = _fb_read(req.session_id, req.key)
+    return MemoryEntryResponse(
+        success=True,
+        key=data["key"],
+        value=data["value"],
+        created_at=data["created_at"],
+    )
+
+
+@router.post("/delete", response_model=MemoryEntryResponse)
+async def memory_delete(req: MemoryDeleteRequest):
+    """删除指定记忆条目。"""
+    ok = await _delete_from_redis(req.session_id, req.key)
+    if not ok:
+        ok = _fb_delete(req.session_id, req.key)
+    return MemoryEntryResponse(
+        success=ok,
+        key=req.key,
+        value={},
+        created_at="",
+    )
+
+
+@router.post("/keys", response_model=MemoryKeysResponse)
+async def memory_keys(req: MemoryKeysRequest):
+    """列出 session 下所有记忆键名。"""
+    keys = await _list_keys_redis(req.session_id)
+    if not keys:
+        keys = _fb_list_keys(req.session_id)
+    return MemoryKeysResponse(
+        success=True,
+        session_id=req.session_id,
+        keys=keys,
+    )

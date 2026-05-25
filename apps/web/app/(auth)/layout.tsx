@@ -1,0 +1,15 @@
+import { ThemeProvider } from "next-themes";
+
+export default function AuthLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      <div className="flex min-h-screen items-center justify-center bg-muted/30">
+        {children}
+      </div>
+    </ThemeProvider>
+  );
+}

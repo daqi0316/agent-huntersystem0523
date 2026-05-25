@@ -1,0 +1,51 @@
+"""知识库 API — 文档管理、向量检索、RAG 问答。"""
+
+from fastapi import APIRouter
+
+from app.schemas.knowledge import (
+    DocumentIngestResponse,
+    DocumentUploadRequest,
+    KnowledgeQueryRequest,
+    KnowledgeQueryResponse,
+)
+from app.services.knowledge import KnowledgeService
+
+router = APIRouter()
+service = KnowledgeService()
+
+
+@router.post("/documents/ingest", response_model=DocumentIngestResponse)
+async def ingest_document(req: DocumentUploadRequest):
+    """上传并索引文档到知识库。"""
+    result = await service.ingest_document(
+        title=req.title,
+        content=req.content,
+    )
+    return DocumentIngestResponse(
+        success=True,
+        document_id=result["document_id"],
+        title=result["title"],
+        chunks_count=result["chunks_count"],
+    )
+
+
+@router.post("/query", response_model=KnowledgeQueryResponse)
+async def query_knowledge(req: KnowledgeQueryRequest):
+    """RAG 问答：基于知识库内容回答用户问题。"""
+    result = await service.query(query=req.query, top_k=req.top_k)
+    return KnowledgeQueryResponse(
+        success=True,
+        answer=result["answer"],
+        sources=result["sources"],
+    )
+
+
+@router.post("/search", response_model=KnowledgeQueryResponse)
+async def search_knowledge(req: KnowledgeQueryRequest):
+    """仅向量检索，不经过 LLM 生成回答。"""
+    sources = await service.search(query=req.query, top_k=req.top_k)
+    return KnowledgeQueryResponse(
+        success=True,
+        answer="",
+        sources=sources,
+    )

@@ -1,0 +1,164 @@
+"""图7: Human-in-Loop 模式 — 需要人类确认的流程（面试安排等）。"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime, timedelta
+
+from app.agents.base import BaseAgent
+from app.llm import get_llm_client
+
+INTERVIEW_SCHEDULE_PROMPT = """你是一位招聘协调员，负责安排面试时间。
+
+候选人: {candidate_name}
+职位: {job_title}
+可用时间段: {available_slots}
+
+请为面试安排推荐最佳时间段并生成面试邀请函。
+输出 JSON（不要输出其他内容）:
+{{
+  "recommended_slot": "推荐的日期时间",
+  "alternatives": ["备选1", "备选2"],
+  "duration_minutes": 60,
+  "interview_type": "技术面/行为面/综合面",
+  "suggested_interviewers": ["面试官建议"],
+  "invitation_draft": "面试邀请函正文"
+}}"""
+
+
+class HumanLoopAgent(BaseAgent):
+    """图7: Human-in-Loop 模式 — 需要人类确认的流程。
+
+    适用于:
+    - 面试安排（生成 → 人类确认 → 发送）
+    - 关键决策审批（AI 建议 → 人类确认 → 执行）
+    """
+
+    def __init__(self, name: str = "human_loop", auto_expire_hours: int = 48):
+        super().__init__(name)
+        self.pending_approvals: dict[str, dict] = {}
+        self.approval_history: list[dict] = []
+        self._llm = None
+        self.auto_expire_hours = auto_expire_hours
+
+    @property
+    def llm(self):
+        if self._llm is None:
+            self._llm = get_llm_client()
+        return self._llm
+
+    async def create_proposal(self, action_type: str, params: dict) -> dict:
+        """AI 生成提案（如面试安排），等待人类确认。"""
+        approval_id = f"appr_{uuid.uuid4().hex[:8]}"
+
+        if action_type == "schedule_interview":
+            proposal = await self._generate_interview_proposal(params)
+        elif action_type == "send_email":
+            proposal = self._generate_email_draft(params)
+        else:
+            proposal = {"action": action_type, "params": params}
+
+        approval_record = {
+            "approval_id": approval_id,
+            "action_type": action_type,
+            "proposal": proposal,
+            "status": "pending",
+            "created_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=self.auto_expire_hours)).isoformat(),
+            "params": params,
+        }
+
+        self.pending_approvals[approval_id] = approval_record
+        return approval_record
+
+    async def confirm(self, approval_id: str, approved: bool, feedback: str | None = None) -> dict:
+        """人类确认或拒绝提案。"""
+        record = self.pending_approvals.pop(approval_id, None)
+        if record is None:
+            return {"error": "approval_not_found", "approval_id": approval_id}
+
+        record["status"] = "approved" if approved else "rejected"
+        record["feedback"] = feedback
+        record["confirmed_at"] = datetime.now(UTC).isoformat()
+        self.approval_history.append(record)
+
+        return {
+            "approval_id": approval_id,
+            "action_type": record["action_type"],
+            "status": record["status"],
+            "proposal": record["proposal"],
+            "feedback": feedback,
+        }
+
+    async def run(self, input_data: dict) -> dict:
+        """运行 Human-in-Loop。"""
+        action_type = input_data.get("action_type", "schedule_interview")
+        params = input_data.get("params", {})
+
+        if input_data.get("confirm"):
+            return await self.confirm(
+                input_data["approval_id"],
+                input_data.get("approved", False),
+                input_data.get("feedback"),
+            )
+
+        proposal = await self.create_proposal(action_type, params)
+        return {
+            "agent": self.name,
+            "status": "awaiting_approval",
+            "approval": proposal,
+        }
+
+    async def _generate_interview_proposal(self, params: dict) -> dict:
+        """AI 生成面试安排建议。"""
+        messages = [
+            {"role": "system", "content": INTERVIEW_SCHEDULE_PROMPT.format(
+                candidate_name=params.get("candidate_name", "候选人"),
+                job_title=params.get("job_title", "职位"),
+                available_slots=str(params.get("available_slots", ["无可用时间段"])),
+            )},
+            {"role": "user", "content": "请生成面试安排建议。"},
+        ]
+
+        result = await self.llm.chat(messages, temperature=0.4, max_tokens=1024)
+        import json
+        try:
+            parsed = json.loads(
+                result.strip().removeprefix("```json").removesuffix("```").strip()
+            )
+        except (json.JSONDecodeError, AttributeError):
+            parsed = {"raw": result, "error": "parse_failed"}
+        return parsed
+
+    @staticmethod
+    def _generate_email_draft(params: dict) -> dict:
+        """生成邮件草稿。"""
+        return {
+            "to": params.get("to", ""),
+            "subject": params.get("subject", ""),
+            "body": params.get("body", ""),
+        }
+
+    def get_pending_count(self) -> int:
+        """获取待审批数量。"""
+        self._clean_expired()
+        return len(self.pending_approvals)
+
+    def _pending_purge_all(self) -> None:
+        """清除所有待审批项（紧急停止用）。"""
+        now = datetime.now(UTC).isoformat()
+        for aid, rec in list(self.pending_approvals.items()):
+            rec["status"] = "emergency_stopped"
+            rec["stopped_at"] = now
+            self.approval_history.append(rec)
+        self.pending_approvals.clear()
+
+    def _clean_expired(self) -> None:
+        now = datetime.now(UTC)
+        expired = [
+            aid for aid, rec in self.pending_approvals.items()
+            if rec.get("expires_at") and rec["expires_at"] < now.isoformat()
+        ]
+        for aid in expired:
+            self.pending_approvals[aid]["status"] = "expired"
+            self.approval_history.append(self.pending_approvals.pop(aid))

@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.next/
+*.pyc
+__pycache__/
+.venv/
+venv/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-data/
+
+# Turbo
+.turbo/
+
+# Playwright
+.auth/
+playwright-report/
+test-results/

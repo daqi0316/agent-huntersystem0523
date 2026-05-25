@@ -1,0 +1,66 @@
+"""JD 生成服务 — 使用 Gen-Eval 循环迭代生成职位描述。"""
+
+from app.agents.gen_eval_loop import GenEvalLoop
+from app.core.config import settings
+
+
+class JDGeneratorService:
+    """JD 生成与优化服务"""
+
+    def __init__(self):
+        self.agent = GenEvalLoop(
+            name="jd_generator",
+            max_iterations=settings.jd_gen_max_iterations,
+            threshold=settings.jd_gen_threshold,
+        )
+
+    async def generate_jd(
+        self,
+        title: str,
+        requirements: str,
+        preferences: str = "",
+        auto_improve: bool = True,
+    ) -> dict:
+        """生成 JD，可启用 Gen-Eval 迭代优化。
+
+        Args:
+            title: 职位名称
+            requirements: 核心要求
+            preferences: 偏好/补充说明
+            auto_improve: 是否启用 Gen-Eval 迭代优化
+
+        Returns:
+            包含 final_output 和迭代历史的结果字典
+        """
+        if auto_improve:
+            result = await self.agent.run({
+                "title": title,
+                "requirements": requirements,
+                "preferences": preferences,
+            })
+        else:
+            # 单次生成，不经过评估循环
+            output = await self.agent.generate({
+                "title": title,
+                "requirements": requirements,
+                "preferences": preferences,
+            })
+            result = {
+                "agent": "jd_generator",
+                "status": "completed",
+                "final_output": output,
+                "iterations": [{"iteration": 1, "generated": output, "passed": True}],
+                "total_iterations": 1,
+                "passed": True,
+                "threshold": settings.jd_gen_threshold,
+            }
+
+        return result
+
+    async def improve_jd(self, jd_content: str, feedback: str) -> dict:
+        """根据反馈改进已有的 JD。"""
+        improved = await self.agent.generate(
+            {"title": "", "requirements": "", "preferences": ""},
+            feedback=f"原始 JD:\n{jd_content}\n\n改进意见:\n{feedback}",
+        )
+        return {"jd_content": improved, "original": jd_content, "feedback": feedback}

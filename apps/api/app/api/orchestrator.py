@@ -1,0 +1,75 @@
+"""图5: Orchestrator API — 综合编排入口。
+
+接收复杂任务 → OrchestratorAgent 分解执行 → 返回聚合结果。
+"""
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from app.agents.orchestrator_agent import OrchestratorAgent
+
+router = APIRouter()
+agent = OrchestratorAgent(name="orchestrator")
+
+
+class AnalyzeRequest(BaseModel):
+    task: str = Field(..., min_length=1, max_length=4000, description="复杂任务描述")
+    context: dict | None = Field(None, description="上下文信息（可选）")
+
+
+class SubTaskResult(BaseModel):
+    type: str = ""
+    description: str = ""
+    status: str = ""
+    error: str | None = None
+    result: dict = {}
+
+
+class AnalyzeResponse(BaseModel):
+    success: bool = True
+    status: str = ""
+    total_sub_tasks: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    duration_seconds: float = 0.0
+    summary: str = ""
+    sub_tasks: list[SubTaskResult] = []
+
+
+@router.post("/analyze", response_model=AnalyzeResponse)
+async def analyze(req: AnalyzeRequest):
+    """图5: 综合分析 — 接收复杂任务，自动分解并编排执行。"""
+    result = await agent.run({"task": req.task, "context": req.context or {}})
+
+    sub_tasks_out = []
+    for st in result.get("sub_tasks", []):
+        sub_tasks_out.append(
+            SubTaskResult(
+                type=st.get("type", ""),
+                description=st.get("description", ""),
+                status=st.get("status", "unknown"),
+            )
+        )
+
+    total = result.get("total_sub_tasks", 0)
+    succeeded = result.get("succeeded", 0)
+    failed = result.get("failed", 0)
+    status = result.get("status", "unknown")
+
+    if status == "completed":
+        summary = f"编排完成: {total} 个子任务全部成功 ({result.get('duration_seconds', 0)}s)"
+    elif status == "partial":
+        summary = f"编排部分完成: {succeeded}/{total} 成功, {failed} 失败 ({result.get('duration_seconds', 0)}s)"
+    else:
+        summary = "编排执行异常"
+
+    return AnalyzeResponse(
+        success=status != "failed",
+        status=status,
+        total_sub_tasks=total,
+        succeeded=succeeded,
+        failed=failed,
+        duration_seconds=result.get("duration_seconds", 0.0),
+        summary=summary,
+        sub_tasks=sub_tasks_out,
+    )

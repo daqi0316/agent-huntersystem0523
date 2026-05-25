@@ -1,0 +1,98 @@
+# Production Docker Compose - extend dev with vLLM inference
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    extends:
+      file: docker-compose.dev.yml
+      service: postgres
+
+  qdrant:
+    extends:
+      file: docker-compose.dev.yml
+      service: qdrant
+
+  redis:
+    extends:
+      file: docker-compose.dev.yml
+      service: redis
+
+  minio:
+    extends:
+      file: docker-compose.dev.yml
+      service: minio
+
+  rabbitmq:
+    extends:
+      file: docker-compose.dev.yml
+      service: rabbitmq
+
+  api:
+    extends:
+      file: docker-compose.dev.yml
+      service: api
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    profiles:
+      - gpu
+      - production
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: ai-recruitment-web
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+    depends_on:
+      - api
+    logging: *default-logging
+    profiles:
+      - gpu
+      - production
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: ai-recruitment-vllm
+    ports:
+      - "8001:8000"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    command:
+      - "--model"
+      - "Qwen/Qwen3.6-7B-Instruct"
+      - "--max-model-len"
+      - "8192"
+      - "--gpu-memory-utilization"
+      - "0.9"
+      - "--port"
+      - "8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    logging: *default-logging
+    profiles:
+      - gpu
+      - production
+
+volumes:
+  pgdata:
+  qdrant_data:
+  redis_data:
+  minio_data:
+  rabbitmq_data:

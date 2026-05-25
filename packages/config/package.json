@@ -1,0 +1,11 @@
+{
+  "name": "@ai-recruitment/config",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./eslint-preset.js",
+  "exports": {
+    "./eslint-preset": "./eslint-preset.js",
+    "./typescript-config.json": "./typescript-config.json"
+  }
+}

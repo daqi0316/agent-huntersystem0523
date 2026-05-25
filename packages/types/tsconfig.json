@@ -1,0 +1,7 @@
+{
+  "extends": "@ai-recruitment/config/typescript-config.json",
+  "compilerOptions": {
+    "outDir": "./dist"
+  },
+  "include": ["src"]
+}
