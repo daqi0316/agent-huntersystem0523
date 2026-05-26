@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.response import success
 from app.schemas.candidate import CandidateCreate, CandidateRead, CandidateUpdate
 from app.schemas.common import ListResponse
 from app.services.candidate import CandidateService
@@ -25,24 +26,24 @@ async def list_candidates(
     return ListResponse(items=items, total=total, skip=skip, limit=limit)
 
 
-@router.get("/{candidate_id}", response_model=CandidateRead)
+@router.get("/{candidate_id}")
 async def get_candidate(candidate_id: str, db: AsyncSession = Depends(get_db)):
     """获取候选人详情"""
     service = CandidateService(db)
     candidate = await service.get_by_id(candidate_id)
     if not candidate:
         raise HTTPException(404, detail="候选人不存在")
-    return candidate
+    return success(candidate)
 
 
-@router.post("", response_model=CandidateRead, status_code=201)
+@router.post("", status_code=201)
 async def create_candidate(data: CandidateCreate, db: AsyncSession = Depends(get_db)):
     """创建候选人"""
     service = CandidateService(db)
-    return await service.create(data)
+    return success(await service.create(data))
 
 
-@router.put("/{candidate_id}", response_model=CandidateRead)
+@router.put("/{candidate_id}")
 async def update_candidate(
     candidate_id: str, data: CandidateUpdate, db: AsyncSession = Depends(get_db)
 ):
@@ -51,7 +52,7 @@ async def update_candidate(
     candidate = await service.update(candidate_id, data)
     if not candidate:
         raise HTTPException(404, detail="候选人不存在")
-    return candidate
+    return success(candidate)
 
 
 @router.delete("/{candidate_id}")
@@ -61,4 +62,4 @@ async def delete_candidate(candidate_id: str, db: AsyncSession = Depends(get_db)
     ok = await service.delete(candidate_id)
     if not ok:
         raise HTTPException(404, detail="候选人不存在")
-    return {"success": True, "message": "候选人已删除"}
+    return success({"message": "候选人已删除"})

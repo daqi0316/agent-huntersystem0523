@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.response import success
 from app.schemas.application import ApplicationCreate, ApplicationRead, ApplicationUpdate
 from app.schemas.common import ListResponse
 from app.services.application import ApplicationService
@@ -28,24 +29,24 @@ async def list_applications(
     return ListResponse(items=items, total=total, skip=skip, limit=limit)
 
 
-@router.get("/{application_id}", response_model=ApplicationRead)
+@router.get("/{application_id}")
 async def get_application(application_id: str, db: AsyncSession = Depends(get_db)):
     """获取申请详情"""
     service = ApplicationService(db)
     application = await service.get_by_id(application_id)
     if not application:
         raise HTTPException(404, detail="申请不存在")
-    return application
+    return success(application)
 
 
-@router.post("", response_model=ApplicationRead, status_code=201)
+@router.post("", status_code=201)
 async def create_application(data: ApplicationCreate, db: AsyncSession = Depends(get_db)):
     """创建申请"""
     service = ApplicationService(db)
-    return await service.create(data)
+    return success(await service.create(data))
 
 
-@router.put("/{application_id}", response_model=ApplicationRead)
+@router.put("/{application_id}")
 async def update_application(
     application_id: str, data: ApplicationUpdate, db: AsyncSession = Depends(get_db)
 ):
@@ -54,7 +55,7 @@ async def update_application(
     application = await service.update(application_id, data)
     if not application:
         raise HTTPException(404, detail="申请不存在")
-    return application
+    return success(application)
 
 
 @router.delete("/{application_id}")
@@ -64,4 +65,4 @@ async def delete_application(application_id: str, db: AsyncSession = Depends(get
     ok = await service.delete(application_id)
     if not ok:
         raise HTTPException(404, detail="申请不存在")
-    return {"success": True, "message": "申请已删除"}
+    return success({"message": "申请已删除"})

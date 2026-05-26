@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from app.core.response import error, success
 from app.schemas.screening import MultiEvaluateRequest, MultiEvaluateResponse
 from app.services.screening import ScreeningService
 
@@ -43,7 +44,7 @@ async def data_aggregate(body: dict):
     """
     dimension_results = body.get("dimension_results", [])
     if not dimension_results:
-        return {"success": False, "error": "dimension_results 为必填"}
+        return error("dimension_results 为必填")
 
     scores = {}
     total = 0
@@ -58,7 +59,7 @@ async def data_aggregate(body: dict):
             count += 1
 
     if count == 0:
-        return {"success": False, "error": "无可聚合的维度数据"}
+        return error("无可聚合的维度数据")
 
     avg = total / count
     max_score = max(scores.values())
@@ -78,14 +79,11 @@ async def data_aggregate(body: dict):
         else:
             distribution["<60"] += 1
 
-    return {
-        "success": True,
-        "data": {
-            "average_score": round(avg, 1),
-            "max_score": max_score,
-            "min_score": min_score,
-            "dimensions": scores,
-            "distribution": distribution,
-            "total_dimensions": count,
-        },
-    }
+    return success({
+        "average_score": round(avg, 1),
+        "max_score": max_score,
+        "min_score": min_score,
+        "dimensions": scores,
+        "distribution": distribution,
+        "total_dimensions": count,
+    })

@@ -1,11 +1,27 @@
-"""面试 CRUD API — 安排、确认、取消、完成。"""
+"""面试 CRUD API — 安排、确认、取消、完成（含状态机闭环）。"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.response import success
+from app.schemas.application import ApplicationUpdate
 from app.schemas.common import ListResponse
+from app.services.application import ApplicationService
+from app.services.candidate import CandidateService
 from app.services.interview import InterviewService
+
+
+class InterviewFromProposalRequest(BaseModel):
+    """从 HumanLoop 面试提案创建面试记录。"""
+    candidate_id: str = Field(..., description="候选人 ID")
+    job_id: str = Field(..., description="职位 ID")
+    scheduled_at: str | None = Field(None, description="ISO 8601 面试时间")
+    type: str = Field("video", description="面试类型")
+    duration_minutes: int = Field(60, ge=15)
+    location: str | None = Field(None)
+    notes: str | None = Field(None)
 
 router = APIRouter()
 
@@ -30,7 +46,7 @@ async def get_interview(interview_id: str, db: AsyncSession = Depends(get_db)):
     interview = await service._get_by_id(interview_id)
     if not interview:
         raise HTTPException(404, detail="面试不存在")
-    return service._to_dict(interview)
+    return success(service._to_dict(interview))
 
 
 @router.post("", status_code=201)
@@ -60,7 +76,7 @@ async def create_interview(
         raise HTTPException(404, detail="候选人不存在")
     if result.get("error"):
         raise HTTPException(409, detail=result["message"])
-    return result
+    return success(result)
 
 
 @router.patch("/{interview_id}/confirm")
@@ -70,7 +86,7 @@ async def confirm_interview(interview_id: str, db: AsyncSession = Depends(get_db
     result = await service.confirm(interview_id)
     if not result:
         raise HTTPException(404, detail="面试不存在")
-    return result
+    return success(result)
 
 
 @router.patch("/{interview_id}/cancel")
@@ -80,7 +96,7 @@ async def cancel_interview(interview_id: str, db: AsyncSession = Depends(get_db)
     result = await service.cancel(interview_id)
     if not result:
         raise HTTPException(404, detail="面试不存在")
-    return result
+    return success(result)
 
 
 @router.patch("/{interview_id}/complete")
@@ -89,9 +105,87 @@ async def complete_interview(
     feedback: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """完成面试（附带反馈）"""
-    service = InterviewService(db)
-    result = await service.complete(interview_id, feedback or "")
+    """完成面试（附带反馈），自动流转候选人/申请状态机。
+
+    闭环流程:
+      面试 completed → 候选人 in_interview → completed
+                     → 申请 interview → offer
+    """
+    interview_svc = InterviewService(db)
+    result = await interview_svc.complete(interview_id, feedback or "")
     if not result:
         raise HTTPException(404, detail="面试不存在")
-    return result
+
+    candidate_svc = CandidateService(db)
+    try:
+        await candidate_svc.complete_interview(result.get("candidate_id", ""))
+    except ValueError:
+        pass
+
+    app_svc = ApplicationService(db)
+    apps, _ = await app_svc.list(
+        candidate_id=result.get("candidate_id", ""),
+        status="interview",
+        limit=1,
+    )
+    if apps:
+        await app_svc.update(apps[0]["id"], ApplicationUpdate(status="offer"))
+
+    return success(result)
+
+
+@router.post("/from-proposal", status_code=201)
+async def create_interview_from_proposal(
+    body: InterviewFromProposalRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """从 HumanLoop 面试提案创建面试记录 + 状态流转 evaluated → in_interview。
+
+    流程: HumanLoop 提案审批通过后调用此接口，
+    创建面试记录同时自动更新候选人状态。
+    """
+    try:
+        candidate_svc = CandidateService(db)
+        if not await candidate_svc.move_to_interview(body.candidate_id):
+            raise HTTPException(404, detail="候选人不存在")
+
+        import uuid
+        application_id = ""
+        try:
+            uuid.UUID(body.candidate_id)
+            uuid.UUID(body.job_id)
+            from app.models.application import Application
+            from sqlalchemy import select
+            app_row = await db.execute(
+                select(Application).where(
+                    Application.candidate_id == body.candidate_id,
+                    Application.job_id == body.job_id,
+                )
+            )
+            application = app_row.scalar_one_or_none()
+            application_id = str(application.id) if application else ""
+        except (ValueError, Exception):
+            pass
+
+        interview_svc = InterviewService(db)
+        slot = {
+            "type": body.type,
+            "scheduled_at": body.scheduled_at or "",
+            "duration_minutes": body.duration_minutes,
+            "location": body.location or "",
+            "notes": body.notes or "",
+            "application_id": application_id,
+        }
+        result = await interview_svc.schedule(body.candidate_id, body.job_id, slot)
+        if result is None:
+            raise HTTPException(404, detail="候选人不存在")
+        if result.get("error"):
+            raise HTTPException(409, detail=result["message"])
+
+        if application_id:
+            app_svc = ApplicationService(db)
+            await app_svc.update(application_id, ApplicationUpdate(status="interview"))
+
+        return success(result)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))

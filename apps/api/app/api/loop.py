@@ -2,11 +2,10 @@
 
 from fastapi import APIRouter
 
+from app.core.response import success
 from app.schemas.jd_generator import (
     JDGenerateRequest,
-    JDGenerateResponse,
     JDImproveRequest,
-    JDImproveResponse,
 )
 from app.services.jd_generator import JDGeneratorService
 
@@ -14,7 +13,7 @@ router = APIRouter()
 service = JDGeneratorService()
 
 
-@router.post("/jd-generate", response_model=JDGenerateResponse)
+@router.post("/jd-generate")
 async def generate_jd(req: JDGenerateRequest):
     """图6 Gen-Eval: 生成 JD，支持多轮迭代优化。"""
     result = await service.generate_jd(
@@ -23,24 +22,22 @@ async def generate_jd(req: JDGenerateRequest):
         preferences=req.preferences or "",
         auto_improve=req.auto_improve,
     )
-    return JDGenerateResponse(
-        success=True,
-        data=result["final_output"],
-        iterations=result["iterations"],
-        total_iterations=result["total_iterations"],
-        passed=result["passed"],
-    )
+    return success({
+        "final_output": result["final_output"],
+        "iterations": result["iterations"],
+        "total_iterations": result["total_iterations"],
+        "passed": result["passed"],
+    })
 
 
-@router.post("/jd-improve", response_model=JDImproveResponse)
+@router.post("/jd-improve")
 async def improve_jd(req: JDImproveRequest):
     """根据反馈改进已有 JD。"""
     result = await service.improve_jd(
         jd_content=req.jd_content,
         feedback=req.feedback,
     )
-    return JDImproveResponse(
-        success=True,
-        jd_content=result["jd_content"],
-        original=result["original"],
-    )
+    return success({
+        "jd_content": result["jd_content"],
+        "original": result["original"],
+    })

@@ -3,32 +3,17 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
-from app.core.rate_limit import RateLimitMiddleware
+from app.core.rate_limit import create_rate_limit_middleware
 from app.core.redis import close_redis
 from app.core.qdrant import close_qdrant
 from app.api.router import api_router
 
 logger = logging.getLogger(__name__)
-
-
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        start = time.monotonic()
-        response = await call_next(request)
-        elapsed = time.monotonic() - start
-        logger.info(
-            "%s %s → %s (%.0fms)",
-            request.method,
-            request.url.path,
-            response.status_code,
-            elapsed * 1000,
-        )
-        return response
 
 
 @asynccontextmanager
@@ -48,7 +33,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(RequestLoggingMiddleware)
+
+# ── Middleware (decorator-based — avoids Starlette #1334 BaseHTTPMiddleware) ──
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    """Log each request method, path, status, and duration."""
+    start = time.monotonic()
+    response = await call_next(request)
+    elapsed = time.monotonic() - start
+    logger.info(
+        "%s %s → %s (%.0fms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed * 1000,
+    )
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -58,7 +61,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.add_middleware(RateLimitMiddleware, limit=100, window=60)
+app.middleware("http")(create_rate_limit_middleware(limit=100, window=60))
 
 
 # ── Unified error response ────────────────────────────────────────────
@@ -68,6 +71,27 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"success": False, "error": exc.detail},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """将 Pydantic 校验错误（422）统一为 {success: false, error, details} 格式。"""
+    errors = exc.errors()
+    first_msg = errors[0]["msg"] if errors else "请求参数校验失败"
+    logger.warning(
+        "%s %s → 422: %s", request.method, request.url.path, first_msg
+    )
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "error": first_msg,
+            "details": [
+                {"loc": e["loc"], "msg": e["msg"], "type": e["type"]}
+                for e in errors
+            ],
+        },
     )
 
 

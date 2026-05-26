@@ -6,12 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.setting import Setting
+from app.core.response import success
 from app.schemas.setting import SettingCreate, SettingRead, SettingUpdate
 
 router = APIRouter()
 
 
-@router.get("", response_model=list[SettingRead])
+@router.get("")
 async def list_settings(
     user_id: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -22,10 +23,10 @@ async def list_settings(
         query = query.where(Setting.user_id == user_id)
     query = query.order_by(Setting.key)
     result = await db.execute(query)
-    return list(result.scalars().all())
+    return success(list(result.scalars().all()))
 
 
-@router.get("/{key}", response_model=SettingRead)
+@router.get("/{key}")
 async def get_setting(key: str, db: AsyncSession = Depends(get_db)):
     """获取单个设置"""
     result = await db.execute(
@@ -34,10 +35,10 @@ async def get_setting(key: str, db: AsyncSession = Depends(get_db)):
     setting = result.scalar_one_or_none()
     if not setting:
         raise HTTPException(404, detail="设置不存在")
-    return setting
+    return success(setting)
 
 
-@router.put("/{key}", response_model=SettingRead)
+@router.put("/{key}")
 async def upsert_setting(
     key: str, data: SettingUpdate, db: AsyncSession = Depends(get_db)
 ):
@@ -57,7 +58,7 @@ async def upsert_setting(
         await db.commit()
         await db.refresh(setting)
 
-    return setting
+    return success(setting)
 
 
 @router.delete("/{key}")
@@ -72,4 +73,4 @@ async def delete_setting(key: str, db: AsyncSession = Depends(get_db)):
 
     await db.delete(setting)
     await db.commit()
-    return {"success": True, "message": "设置已删除"}
+    return success({"message": "设置已删除"})

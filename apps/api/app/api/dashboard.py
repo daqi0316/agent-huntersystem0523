@@ -23,7 +23,7 @@ async def dashboard_stats(
 ):
     """数据看板聚合统计 — 一次返回所有 KPI + 趋势 + 动态。"""
     total_candidates = await _count(db, "candidates")
-    total_jobs = await _count(db, "jobs")
+    total_jobs = await _count(db, "job_positions")
     active_interviews = await _count_with_condition(db, "interviews", "status", "scheduled")
     monthly_onboards = await _count_this_month(db, "candidates", "hired")
 
@@ -104,7 +104,7 @@ async def _recent_activities(db: AsyncSession, limit: int = 6) -> list[dict]:
     try:
         rows = await db.execute(
             text(
-                "SELECT 'job', title, created_at FROM jobs "
+                "SELECT 'job', title, created_at FROM job_positions "
                 "ORDER BY created_at DESC LIMIT :lim"
             ),
             {"lim": limit},

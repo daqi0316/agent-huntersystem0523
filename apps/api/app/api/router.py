@@ -21,6 +21,7 @@ from app.api.interviews import router as interviews_router
 from app.api.evaluations import router as evaluations_router
 from app.api.dashboard_reports import router as dashboard_reports_router
 from app.api.resume import router as resume_router
+from app.api.summaries import router as summaries_router
 
 api_router = APIRouter()
 
@@ -81,6 +82,9 @@ api_router.include_router(interviews_router, prefix="/interviews", tags=["Interv
 
 # Evaluations
 api_router.include_router(evaluations_router, prefix="/evaluations", tags=["Evaluations"])
+
+# Cross-session memory summaries
+api_router.include_router(summaries_router, prefix="/summaries", tags=["Summaries"])
 
 # Dashboard Reports (extended)
 api_router.include_router(dashboard_reports_router, prefix="/dashboard", tags=["Dashboard"])

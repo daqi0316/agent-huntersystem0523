@@ -121,10 +121,12 @@ class HumanLoopAgent(BaseAgent):
         ]
 
         result = await self.llm.chat(messages, temperature=0.4, max_tokens=1024)
-        import json
+        import json, re
         try:
+            json_match = re.search(r"\{.*\}", result, re.DOTALL)
+            text = json_match.group() if json_match else result
             parsed = json.loads(
-                result.strip().removeprefix("```json").removesuffix("```").strip()
+                text.strip().removeprefix("```json").removesuffix("```").strip()
             )
         except (json.JSONDecodeError, AttributeError):
             parsed = {"raw": result, "error": "parse_failed"}
@@ -143,6 +145,30 @@ class HumanLoopAgent(BaseAgent):
         """获取待审批数量。"""
         self._clean_expired()
         return len(self.pending_approvals)
+
+    def get_pending_proposals(self) -> list[dict]:
+        """获取所有待审批提案列表。"""
+        self._clean_expired()
+        return [
+            {
+                "approval_id": rec["approval_id"],
+                "action_type": rec["action_type"],
+                "proposal": rec["proposal"],
+                "params": rec.get("params", {}),
+                "status": rec["status"],
+                "created_at": rec["created_at"],
+                "expires_at": rec["expires_at"],
+            }
+            for rec in sorted(
+                self.pending_approvals.values(),
+                key=lambda r: r["created_at"],
+                reverse=True,
+            )
+        ]
+
+    def get_approval_history(self, limit: int = 50) -> list[dict]:
+        """获取已处理的审批历史。"""
+        return sorted(self.approval_history, key=lambda r: r.get("confirmed_at", r["created_at"]), reverse=True)[:limit]
 
     def _pending_purge_all(self) -> None:
         """清除所有待审批项（紧急停止用）。"""

@@ -8,6 +8,7 @@ from sqlalchemy.orm import joinedload
 from app.core.database import get_db
 from app.models.application import Application
 from app.models.candidate import Candidate
+from app.core.response import success
 from app.schemas.common import ListResponse
 
 router = APIRouter()
@@ -75,6 +76,7 @@ async def list_evaluations(
             {
                 "id": app.candidate_id,
                 "candidate_id": app.candidate_id,
+                "job_id": app.job_id,
                 "name": candidate.name if candidate else "",
                 "job_title": app.job.title if app.job else "",
                 "skills": candidate.skills if candidate else [],
@@ -109,10 +111,11 @@ async def get_candidate_evaluation(
         raise HTTPException(404, detail="未找到该候选人的评估记录")
 
     candidate = app.candidate
-    return {
+    return success({
         "id": app.candidate_id,
+        "candidate_id": app.candidate_id,
+        "job_id": app.job_id,
         "name": candidate.name if candidate else "",
-        "skills": candidate.skills if candidate else [],
         "status": app.status.value if hasattr(app.status, "value") else str(app.status),
         "overall_score": app.match_score or 0,
         "scores": _build_dimension_scores(app.match_score),
@@ -120,7 +123,7 @@ async def get_candidate_evaluation(
         "date": (
             app.created_at.isoformat() if hasattr(app.created_at, "isoformat") else str(app.created_at)
         ),
-    }
+    })
 
 
 def _build_dimension_scores(match_score: float | None) -> list[dict]:

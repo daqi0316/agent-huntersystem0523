@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.response import success
 from app.schemas.job import JobCreate, JobRead, JobUpdate
 from app.schemas.common import ListResponse
 from app.services.job import JobService
@@ -25,31 +26,31 @@ async def list_jobs(
     return ListResponse(items=items, total=total, skip=skip, limit=limit)
 
 
-@router.get("/{job_id}", response_model=JobRead)
+@router.get("/{job_id}")
 async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
     """获取职位详情"""
     service = JobService(db)
     job = await service.get_by_id(job_id)
     if not job:
         raise HTTPException(404, detail="职位不存在")
-    return job
+    return success(job)
 
 
-@router.post("", response_model=JobRead, status_code=201)
+@router.post("", status_code=201)
 async def create_job(data: JobCreate, db: AsyncSession = Depends(get_db)):
     """创建职位"""
     service = JobService(db)
-    return await service.create(data)
+    return success(await service.create(data))
 
 
-@router.put("/{job_id}", response_model=JobRead)
+@router.put("/{job_id}")
 async def update_job(job_id: str, data: JobUpdate, db: AsyncSession = Depends(get_db)):
     """更新职位"""
     service = JobService(db)
     job = await service.update(job_id, data)
     if not job:
         raise HTTPException(404, detail="职位不存在")
-    return job
+    return success(job)
 
 
 @router.delete("/{job_id}")
@@ -59,4 +60,4 @@ async def delete_job(job_id: str, db: AsyncSession = Depends(get_db)):
     ok = await service.delete(job_id)
     if not ok:
         raise HTTPException(404, detail="职位不存在")
-    return {"success": True, "message": "职位已删除"}
+    return success({"message": "职位已删除"})
