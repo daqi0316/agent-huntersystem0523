@@ -1,0 +1,16 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "AI Recruitment System" [level=1] [ref=e5]
+      - paragraph [ref=e6]: 登录您的账户
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - text: 邮箱
+        - textbox "邮箱" [ref=e9]:
+          - /placeholder: name@example.com
+      - generic [ref=e10]:
+        - text: 密码
+        - textbox "密码" [ref=e11]:
+          - /placeholder: ••••••••
+      - button "登录" [ref=e12] [cursor=pointer]
+  - alert [ref=e13]

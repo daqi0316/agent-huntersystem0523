@@ -1,0 +1,112 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: AI Recruitment System
+        - button "收起侧栏" [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+      - navigation [ref=e9]:
+        - link "AI 助手" [ref=e10] [cursor=pointer]:
+          - /url: /agent
+          - img [ref=e11]
+          - generic [ref=e13]: AI 助手
+        - link "数据看板" [ref=e14] [cursor=pointer]:
+          - /url: /dashboard
+          - img [ref=e15]
+          - generic [ref=e20]: 数据看板
+        - link "职位管理" [ref=e21] [cursor=pointer]:
+          - /url: /jobs
+          - img [ref=e22]
+          - generic [ref=e25]: 职位管理
+        - link "候选人库" [ref=e26] [cursor=pointer]:
+          - /url: /candidates
+          - img [ref=e27]
+          - generic [ref=e32]: 候选人库
+        - link "AI初筛" [ref=e33] [cursor=pointer]:
+          - /url: /screening
+          - img [ref=e34]
+          - generic [ref=e36]: AI初筛
+        - link "面试安排" [ref=e37] [cursor=pointer]:
+          - /url: /interview
+          - img [ref=e38]
+          - generic [ref=e40]: 面试安排
+        - link "评估报告" [ref=e41] [cursor=pointer]:
+          - /url: /evaluation
+          - img [ref=e42]
+          - generic [ref=e45]: 评估报告
+        - link "人才画像" [ref=e46] [cursor=pointer]:
+          - /url: /talent-profile
+          - img [ref=e47]
+          - generic [ref=e51]: 人才画像
+        - link "JD生成器" [ref=e52] [cursor=pointer]:
+          - /url: /jd-generator
+          - img [ref=e53]
+          - generic [ref=e57]: JD生成器
+        - link "数据报表" [ref=e58] [cursor=pointer]:
+          - /url: /reports
+          - img [ref=e59]
+          - generic [ref=e61]: 数据报表
+        - link "知识库" [ref=e62] [cursor=pointer]:
+          - /url: /knowledge
+          - img [ref=e63]
+          - generic [ref=e65]: 知识库
+        - link "系统设置" [ref=e66] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e67]
+          - generic [ref=e70]: 系统设置
+    - generic [ref=e71]:
+      - banner [ref=e72]:
+        - generic [ref=e74]: E2E Tester|hr
+        - generic [ref=e75]:
+          - button [ref=e76] [cursor=pointer]:
+            - img [ref=e77]
+          - button [ref=e80] [cursor=pointer]:
+            - img [ref=e81]
+          - button "退出登录" [ref=e83] [cursor=pointer]:
+            - img [ref=e84]
+      - main [ref=e87]:
+        - generic [ref=e88]:
+          - heading "评估报告" [level=1] [ref=e90]
+          - paragraph [ref=e91]: 查看 AI 生成的候选人评估报告
+          - generic [ref=e92]:
+            - img [ref=e93]
+            - textbox "搜索候选人..." [ref=e96]
+          - generic [ref=e97]:
+            - generic [ref=e100] [cursor=pointer]:
+              - generic [ref=e102]:
+                - heading "张三 E2E" [level=3] [ref=e103]
+                - paragraph [ref=e104]: 高级前端工程师
+              - generic [ref=e105]:
+                - generic [ref=e106]: 0 分
+                - generic [ref=e107]: screening
+                - generic [ref=e108]: 2026-05-26T10:47:12.465182+00:00
+                - img [ref=e109]
+            - generic [ref=e113] [cursor=pointer]:
+              - generic [ref=e115]:
+                - heading "Carol Liu" [level=3] [ref=e116]
+                - paragraph [ref=e117]: Product Manager - AI Products
+              - generic [ref=e118]:
+                - generic [ref=e119]: 0.85 分
+                - generic [ref=e120]: interview
+                - generic [ref=e121]: 2026-05-22T18:22:18.709788+00:00
+                - img [ref=e122]
+            - generic [ref=e126] [cursor=pointer]:
+              - generic [ref=e128]:
+                - heading "Bob Chen" [level=3] [ref=e129]
+                - paragraph [ref=e130]: Backend ML Engineer
+              - generic [ref=e131]:
+                - generic [ref=e132]: 0.88 分
+                - generic [ref=e133]: pending
+                - generic [ref=e134]: 2026-05-22T06:22:18.709761+00:00
+                - img [ref=e135]
+            - generic [ref=e139] [cursor=pointer]:
+              - generic [ref=e141]:
+                - heading "Alice Zhang" [level=3] [ref=e142]
+                - paragraph [ref=e143]: Senior Frontend Engineer
+              - generic [ref=e144]:
+                - generic [ref=e145]: 0.92 分
+                - generic [ref=e146]: screening
+                - generic [ref=e147]: 2026-05-21T06:22:18.709717+00:00
+                - img [ref=e148]
+  - region "Notifications alt+T"
+  - alert [ref=e150]

@@ -1,0 +1,122 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: AI Recruitment System
+        - button "收起侧栏" [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+      - navigation [ref=e9]:
+        - link "AI 助手" [ref=e10] [cursor=pointer]:
+          - /url: /agent
+          - img [ref=e11]
+          - generic [ref=e13]: AI 助手
+        - link "数据看板" [ref=e14] [cursor=pointer]:
+          - /url: /dashboard
+          - img [ref=e15]
+          - generic [ref=e20]: 数据看板
+        - link "职位管理" [ref=e21] [cursor=pointer]:
+          - /url: /jobs
+          - img [ref=e22]
+          - generic [ref=e25]: 职位管理
+        - link "候选人库" [ref=e26] [cursor=pointer]:
+          - /url: /candidates
+          - img [ref=e27]
+          - generic [ref=e32]: 候选人库
+        - link "AI初筛" [ref=e33] [cursor=pointer]:
+          - /url: /screening
+          - img [ref=e34]
+          - generic [ref=e36]: AI初筛
+        - link "面试安排" [ref=e37] [cursor=pointer]:
+          - /url: /interview
+          - img [ref=e38]
+          - generic [ref=e40]: 面试安排
+        - link "评估报告" [ref=e41] [cursor=pointer]:
+          - /url: /evaluation
+          - img [ref=e42]
+          - generic [ref=e45]: 评估报告
+        - link "人才画像" [ref=e46] [cursor=pointer]:
+          - /url: /talent-profile
+          - img [ref=e47]
+          - generic [ref=e51]: 人才画像
+        - link "JD生成器" [ref=e52] [cursor=pointer]:
+          - /url: /jd-generator
+          - img [ref=e53]
+          - generic [ref=e57]: JD生成器
+        - link "数据报表" [ref=e58] [cursor=pointer]:
+          - /url: /reports
+          - img [ref=e59]
+          - generic [ref=e61]: 数据报表
+        - link "知识库" [ref=e62] [cursor=pointer]:
+          - /url: /knowledge
+          - img [ref=e63]
+          - generic [ref=e65]: 知识库
+        - link "系统设置" [ref=e66] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e67]
+          - generic [ref=e70]: 系统设置
+    - generic [ref=e71]:
+      - banner [ref=e72]:
+        - generic [ref=e74]: E2E Tester|hr
+        - generic [ref=e75]:
+          - button [ref=e76] [cursor=pointer]:
+            - img [ref=e77]
+          - button [ref=e80] [cursor=pointer]:
+            - img [ref=e81]
+          - button "退出登录" [ref=e83] [cursor=pointer]:
+            - img [ref=e84]
+      - main [ref=e87]:
+        - generic [ref=e88]:
+          - generic [ref=e89]:
+            - generic [ref=e91]:
+              - heading "面试管理" [level=1] [ref=e92]
+              - paragraph [ref=e93]: 管理面试安排与进度追踪（Human-in-Loop 审批流程）
+            - generic [ref=e94]:
+              - button "审批历史" [ref=e95] [cursor=pointer]:
+                - img [ref=e96]
+                - text: 审批历史
+              - button "日历视图" [ref=e100] [cursor=pointer]:
+                - img [ref=e101]
+                - text: 日历视图
+              - button "安排面试" [ref=e103] [cursor=pointer]:
+                - img [ref=e104]
+                - text: 安排面试
+          - generic [ref=e105]:
+            - generic [ref=e106]:
+              - generic [ref=e107]:
+                - heading "总面试" [level=3] [ref=e108]
+                - img [ref=e109]
+              - paragraph [ref=e115]: "1"
+            - generic [ref=e116]:
+              - generic [ref=e117]:
+                - heading "待确认" [level=3] [ref=e118]
+                - img [ref=e119]
+              - paragraph [ref=e123]: "0"
+            - generic [ref=e124]:
+              - generic [ref=e125]:
+                - heading "今日面试" [level=3] [ref=e126]
+                - img [ref=e127]
+              - paragraph [ref=e130]: "0"
+            - generic [ref=e131]:
+              - generic [ref=e132]:
+                - heading "已完成" [level=3] [ref=e133]
+                - img [ref=e134]
+              - paragraph [ref=e137]: "1"
+          - table [ref=e139]:
+            - rowgroup [ref=e140]:
+              - row "候选人 职位 面试时间 面试官 状态 操作" [ref=e141]:
+                - columnheader "候选人" [ref=e142] [cursor=pointer]
+                - columnheader "职位" [ref=e148] [cursor=pointer]
+                - columnheader "面试时间" [ref=e154] [cursor=pointer]
+                - columnheader "面试官" [ref=e160] [cursor=pointer]
+                - columnheader "状态" [ref=e166] [cursor=pointer]
+                - columnheader "操作" [ref=e172]
+            - rowgroup [ref=e174]:
+              - row "8684a66e technical 05/27 10:00 Online 已完成 反馈" [ref=e175]:
+                - cell "8684a66e" [ref=e176]
+                - cell "technical" [ref=e177]
+                - cell "05/27 10:00" [ref=e178]
+                - cell "Online" [ref=e179]
+                - cell "已完成" [ref=e180]
+                - cell "反馈" [ref=e182]
+  - region "Notifications alt+T"
+  - alert [ref=e185]
