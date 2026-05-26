@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, ChevronDown, ChevronUp, Loader2, AlertCircle } from "lucide-react";
+import { Search, ChevronDown, ChevronUp, Loader2, AlertCircle, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { api } from "@/lib/trpc";
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip,
@@ -13,6 +14,8 @@ import {
 
 interface EvaluationItem {
   id: string;
+  candidateId: string;
+  jobId: string;
   name: string;
   title: string;
   company: string;
@@ -28,6 +31,8 @@ interface EvalApiResponse {
   success: boolean;
   items: {
     id: string;
+    candidate_id: string;
+    job_id: string;
     name: string;
     job_title: string;
     skills: string[];
@@ -49,6 +54,8 @@ function scoreColor(s: number) {
 const mockEvaluations: EvaluationItem[] = [
   {
     id: "1",
+    candidateId: "cand-1",
+    jobId: "job-1",
     name: "张明",
     title: "高级前端工程师",
     company: "",
@@ -67,6 +74,8 @@ const mockEvaluations: EvaluationItem[] = [
   },
   {
     id: "2",
+    candidateId: "cand-2",
+    jobId: "job-2",
     name: "李华",
     title: "后端架构师",
     company: "",
@@ -85,6 +94,8 @@ const mockEvaluations: EvaluationItem[] = [
   },
   {
     id: "3",
+    candidateId: "cand-3",
+    jobId: "job-3",
     name: "王芳",
     title: "产品经理",
     company: "",
@@ -103,6 +114,8 @@ const mockEvaluations: EvaluationItem[] = [
   },
   {
     id: "4",
+    candidateId: "cand-4",
+    jobId: "job-4",
     name: "陈静",
     title: "UI/UX 设计师",
     company: "",
@@ -121,6 +134,8 @@ const mockEvaluations: EvaluationItem[] = [
   },
   {
     id: "5",
+    candidateId: "cand-5",
+    jobId: "job-5",
     name: "赵岩",
     title: "DevOps 工程师",
     company: "",
@@ -145,6 +160,7 @@ export default function EvaluationPage() {
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [evaluations, setEvaluations] = useState<EvaluationItem[]>(mockEvaluations);
+  const [schedulingId, setSchedulingId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -155,6 +171,8 @@ export default function EvaluationPage() {
           setEvaluations(
             items.map((item) => ({
               id: item.id,
+              candidateId: item.candidate_id,
+              jobId: item.job_id,
               name: item.name,
               title: item.job_title,
               company: "",
@@ -180,6 +198,35 @@ export default function EvaluationPage() {
   const filtered = evaluations.filter(
     (e) => e.name.includes(search) || (e.title || "").includes(search)
   );
+
+  const handleScheduleInterview = async (ev: EvaluationItem) => {
+    setSchedulingId(ev.id);
+    try {
+      const result = await api.post<{ success: boolean; status?: string; approval?: Record<string, unknown> }>(
+        "/human-loop/schedule",
+        {
+          action_type: "schedule_interview",
+          params: {
+            candidate_id: ev.candidateId,
+            job_id: ev.jobId,
+            candidate_name: ev.name,
+            job_title: ev.title,
+            evaluation_score: ev.overall,
+            evaluation_summary: ev.summary,
+          },
+        }
+      );
+      if (result?.success) {
+        toast.success(`已为 ${ev.name} 发起面试提议，等待审批`);
+      } else {
+        toast.error("面试提议创建失败");
+      }
+    } catch {
+      toast.error("面试提议创建失败，请确认后端已启动");
+    } finally {
+      setSchedulingId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -275,7 +322,18 @@ export default function EvaluationPage() {
                     </div>
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" size="sm">查看详情</Button>
-                      <Button size="sm">进入面试</Button>
+                      <Button
+                        size="sm"
+                        disabled={schedulingId === ev.id}
+                        onClick={() => handleScheduleInterview(ev)}
+                      >
+                        {schedulingId === ev.id ? (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Calendar className="mr-1 h-3 w-3" />
+                        )}
+                        安排面试
+                      </Button>
                     </div>
                   </div>
                 </div>

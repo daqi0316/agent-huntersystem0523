@@ -1,11 +1,29 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Save, Key, Bot, Bell, Globe, Loader2, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Save, Key, Bot, Bell, Globe, Loader2, CheckCircle2, Eye, EyeOff, History, Pencil, Trash2, Check, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { api } from "@/lib/trpc";
+
+interface MemoryItem {
+  id: string;
+  session_id: string;
+  summary: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+interface MemoryListResponse {
+  success: boolean;
+  data: MemoryItem[];
+  total: number;
+  skip: number;
+  limit: number;
+}
 
 interface Settings {
   llmProvider: string;
@@ -56,6 +74,33 @@ export default function SettingsPage() {
       // ignore corrupt local storage
     }
   }, []);
+
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [memoryTotal, setMemoryTotal] = useState(0);
+  const [memorySkip, setMemorySkip] = useState(0);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+
+  const fetchMemories = useCallback(async (skip: number) => {
+    setMemoryLoading(true);
+    try {
+      const res = await api.get<MemoryListResponse>(`/summaries?skip=${skip}&limit=20`);
+      if (res && res.success) {
+        setMemories(res.data || []);
+        setMemoryTotal(res.total || 0);
+        setMemorySkip(res.skip || 0);
+      }
+    } catch {
+      setMemories([]);
+    } finally {
+      setMemoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMemories(0);
+  }, [fetchMemories]);
 
   const handleSave = () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
@@ -242,6 +287,130 @@ export default function SettingsPage() {
               </button>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <History className="h-5 w-5 text-primary" />
+            <CardTitle className="text-base">历史记忆管理</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {memoryLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : memories.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">暂无历史记忆</p>
+          ) : (
+            <>
+              {memories.map((m) => (
+                <div key={m.id} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono text-muted-foreground">
+                      {m.session_id.slice(0, 8)}...
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {m.updated_at ? new Date(m.updated_at).toLocaleDateString("zh-CN") : ""}
+                    </span>
+                  </div>
+                  {editingId === m.id ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        rows={3}
+                      />
+                      <div className="flex gap-2 justify-end">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setEditingId(null)}
+                        >
+                          <X className="h-3 w-3 mr-1" />
+                          取消
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              await api.put(`/summaries/${m.id}`, { summary: editText });
+                              setEditingId(null);
+                              fetchMemories(memorySkip);
+                            } catch {
+                              setEditingId(null);
+                            }
+                          }}
+                        >
+                          <Check className="h-3 w-3 mr-1" />
+                          保存
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm line-clamp-2 flex-1">{m.summary}</p>
+                      <div className="flex gap-1 shrink-0">
+                        <button
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            setEditText(m.summary);
+                            setEditingId(m.id);
+                          }}
+                          title="编辑"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive"
+                          onClick={async () => {
+                            if (window.confirm("确定删除这条记忆？")) {
+                              try {
+                                await api.delete(`/summaries/${m.id}`);
+                                fetchMemories(memorySkip);
+                              } catch {
+                                // ignore
+                              }
+                            }
+                          }}
+                          title="删除"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {memoryTotal > 20 && (
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-xs text-muted-foreground">
+                    共 {memoryTotal} 条，第 {memorySkip / 20 + 1} 页
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={memorySkip === 0}
+                      onClick={() => fetchMemories(memorySkip - 20)}
+                    >
+                      上一页
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={memorySkip + 20 >= memoryTotal}
+                      onClick={() => fetchMemories(memorySkip + 20)}
+                    >
+                      下一页
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

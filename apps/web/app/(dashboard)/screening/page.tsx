@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { StepIndicator } from "@/components/features/screening/step-indicator";
 import { api } from "@/lib/trpc";
 
 interface ScreeningPipelineResult {
@@ -28,6 +29,8 @@ interface ScreeningPipelineResult {
   recommendation: string;
   summary: string;
   steps: Record<string, unknown>[];
+  report: Record<string, unknown> | null;
+  candidate_status: string;
 }
 
 interface MultiEvaluateResult {
@@ -47,11 +50,13 @@ export default function ScreeningPage() {
   // --- Pipeline tab ---
   const [candidateId, setCandidateId] = useState("");
   const [jobId, setJobId] = useState("");
+  const [applicationId, setApplicationId] = useState("");
   const [resumeText, setResumeText] = useState("");
   const [jobReqs, setJobReqs] = useState("");
   const [pipelineLoading, setPipelineLoading] = useState(false);
   const [pipelineResult, setPipelineResult] = useState<ScreeningPipelineResult | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [pipelineTaskId, setPipelineTaskId] = useState<string | null>(null);
 
   // --- Multi-Evaluate tab ---
   const [candidateInfo, setCandidateInfo] = useState("");
@@ -68,6 +73,9 @@ export default function ScreeningPage() {
 
   const handlePipelineSubmit = async () => {
     if (!candidateId || !jobId || !resumeText || !jobReqs) return;
+    // Generate a local taskId for SSE progress visualization before the POST completes
+    const taskId = crypto.randomUUID();
+    setPipelineTaskId(taskId);
     setPipelineLoading(true);
     setPipelineResult(null);
     setPipelineError(null);
@@ -77,6 +85,8 @@ export default function ScreeningPage() {
         job_id: jobId,
         resume_text: resumeText,
         job_requirements: jobReqs,
+        pipeline_task_id: taskId,
+        application_id: applicationId || undefined,
       });
       setPipelineResult(result);
     } catch (err) {
@@ -186,6 +196,12 @@ export default function ScreeningPage() {
                   <label className="mb-1 block text-sm font-medium">职位 ID</label>
                   <Input value={jobId} onChange={(e) => setJobId(e.target.value)} placeholder="job_001" />
                 </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    申请 ID <span className="text-xs text-muted-foreground">(可选)</span>
+                  </label>
+                  <Input value={applicationId} onChange={(e) => setApplicationId(e.target.value)} placeholder="app_001" />
+                </div>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">简历文本</label>
@@ -221,6 +237,12 @@ export default function ScreeningPage() {
                 </div>
               )}
 
+              {pipelineTaskId && (
+                <div className="mb-4">
+                  <StepIndicator taskId={pipelineTaskId} />
+                </div>
+              )}
+
               {pipelineResult && (
                 <div className="space-y-4">
                   <Separator />
@@ -243,6 +265,14 @@ export default function ScreeningPage() {
                         ) : (
                           <Badge className="mt-1 bg-red-500">未通过</Badge>
                         )}
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4 text-center">
+                        <p className="text-xs text-muted-foreground">候选人状态</p>
+                        <Badge className="mt-1" variant="outline">
+                          {pipelineResult.candidate_status}
+                        </Badge>
                       </CardContent>
                     </Card>
                     <Card>
@@ -307,6 +337,15 @@ export default function ScreeningPage() {
                     <p className="text-sm font-medium">摘要</p>
                     <p className="mt-1 text-sm text-muted-foreground">{pipelineResult.summary || "暂无"}</p>
                   </div>
+
+                  {pipelineResult.report && (
+                    <div className="rounded-lg border p-4">
+                      <p className="text-sm font-medium">评估报告</p>
+                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">
+                        {JSON.stringify(pipelineResult.report, null, 2)}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
