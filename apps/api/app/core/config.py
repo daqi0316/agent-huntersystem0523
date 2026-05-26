@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     # Qdrant
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "resumes"
+    qdrant_memory_collection: str = "session_summaries"
+    qdrant_vector_size: int | None = None  # auto-detected at runtime if None
 
     # MinIO
     minio_endpoint: str = "localhost:9000"

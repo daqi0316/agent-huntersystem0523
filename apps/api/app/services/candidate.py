@@ -82,6 +82,77 @@ class CandidateService:
         await self.db.refresh(candidate)
         return candidate
 
+    # ── 初筛状态机 ──────────────────────────────────────────
+
+    _ALLOWED_START_SCREENING = {
+        CandidateStatus.ACTIVE,
+        CandidateStatus.PENDING_EVAL,
+    }
+    _ALLOWED_SCREENING_FAILED = {
+        CandidateStatus.EVALUATING,
+        CandidateStatus.EVALUATED,
+    }
+
+    async def start_screening(self, candidate_id: str) -> Candidate | None:
+        """开始初筛：状态机校验 → 更新为 evaluating。"""
+        candidate = await self.get_by_id(candidate_id)
+        if not candidate:
+            return None
+        if candidate.status not in self._ALLOWED_START_SCREENING:
+            raise ValueError(
+                f"候选人状态 '{candidate.status.value}' 不允许开始初筛 "
+                f"(仅允许: {[s.value for s in self._ALLOWED_START_SCREENING]})"
+            )
+        candidate.status = CandidateStatus.EVALUATING
+        await self.db.commit()
+        await self.db.refresh(candidate)
+        return candidate
+
+    async def complete_screening(self, candidate_id: str, passed: bool) -> Candidate | None:
+        """完成初筛：更新候选人状态为 evaluated / failed。"""
+        candidate = await self.get_by_id(candidate_id)
+        if not candidate:
+            return None
+        new_status = CandidateStatus.EVALUATED if passed else CandidateStatus.FAILED
+        # 允许从 evaluating 直接完成，也允许从 evaluated 重试到 failed
+        if candidate.status == CandidateStatus.EVALUATING or (
+            not passed and candidate.status in self._ALLOWED_SCREENING_FAILED
+        ):
+            candidate.status = new_status
+            await self.db.commit()
+            await self.db.refresh(candidate)
+        return candidate
+
+    async def move_to_interview(self, candidate_id: str) -> Candidate | None:
+        """进入面试阶段：状态机 eveluated/in_interview → in_interview。"""
+        candidate = await self.get_by_id(candidate_id)
+        if not candidate:
+            return None
+        if candidate.status not in (CandidateStatus.EVALUATED, CandidateStatus.IN_INTERVIEW):
+            raise ValueError(
+                f"候选人状态 '{candidate.status.value}' 不允许安排面试 "
+                "(仅允许: evaluated, in_interview)"
+            )
+        candidate.status = CandidateStatus.IN_INTERVIEW
+        await self.db.commit()
+        await self.db.refresh(candidate)
+        return candidate
+
+    async def complete_interview(self, candidate_id: str) -> Candidate | None:
+        """完成面试：状态机 in_interview → completed。"""
+        candidate = await self.get_by_id(candidate_id)
+        if not candidate:
+            return None
+        if candidate.status != CandidateStatus.IN_INTERVIEW:
+            raise ValueError(
+                f"候选人状态 '{candidate.status.value}' 不允许完成面试 "
+                "(仅允许: in_interview)"
+            )
+        candidate.status = CandidateStatus.COMPLETED
+        await self.db.commit()
+        await self.db.refresh(candidate)
+        return candidate
+
     async def delete(self, candidate_id: str) -> bool:
         """删除候选人"""
         candidate = await self.get_by_id(candidate_id)

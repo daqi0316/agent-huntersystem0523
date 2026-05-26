@@ -4,5 +4,6 @@ from app.models.application import Application
 from app.models.interview import Interview
 from app.models.user import User, UserRole
 from app.models.setting import Setting
+from app.models.session_summary import SessionSummary
 
-__all__ = ["Candidate", "JobPosition", "Application", "Interview", "User", "UserRole", "Setting"]
+__all__ = ["Candidate", "JobPosition", "Application", "Interview", "User", "UserRole", "Setting", "SessionSummary"]

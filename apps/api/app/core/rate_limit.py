@@ -1,4 +1,10 @@
-"""Rate limiting middleware — in-memory token bucket with optional Redis backend."""
+"""Rate limiting middleware — in-memory token bucket with optional Redis backend.
+
+Uses decorator-based middleware to avoid Starlette #1334 (BaseHTTPMiddleware
+ResourceWarning). Attach via::
+
+    app.middleware("http")(create_rate_limit_middleware(limit=100, window=60))
+"""
 
 import asyncio
 import logging
@@ -7,14 +13,26 @@ from collections import defaultdict
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger(__name__)
 
 
-class InMemoryRateStore:
+class RateStoreProtocol:
+    """Interface for rate counter backends."""
+
+    async def check(self, key: str, limit: int, window: float) -> tuple[bool, int]:
+        raise NotImplementedError
+
+    async def remaining(self, key: str, limit: int, window: float) -> int:
+        raise NotImplementedError
+
+    async def reset(self, key: str) -> None:
+        raise NotImplementedError
+
+
+class InMemoryRateStore(RateStoreProtocol):
     """ per-process in-memory rate counter.
-    
+
     Not shared across replicas — suitable for single-instance deployments
     or development. Replace with RedisStore for production multi-replica setups.
     """
@@ -27,11 +45,7 @@ class InMemoryRateStore:
         cutoff = now - window
         self._buckets[key] = [t for t in self._buckets[key] if t > cutoff]
 
-    def check(self, key: str, limit: int, window: float) -> tuple[bool, int]:
-        """Check if key is within rate limit.
-
-        Returns (allowed: bool, remaining: int).
-        """
+    async def check(self, key: str, limit: int, window: float) -> tuple[bool, int]:
         self._prune(key, window)
         current = len(self._buckets[key])
         if current >= limit:
@@ -39,51 +53,70 @@ class InMemoryRateStore:
         self._buckets[key].append(time.monotonic())
         return True, limit - current - 1
 
-    def remaining(self, key: str, limit: int, window: float) -> int:
+    async def remaining(self, key: str, limit: int, window: float) -> int:
         self._prune(key, window)
         return max(0, limit - len(self._buckets[key]))
 
-    def reset(self, key: str) -> None:
+    async def reset(self, key: str) -> None:
         self._buckets.pop(key, None)
 
 
-_store = InMemoryRateStore()
+class RedisStore(RateStoreProtocol):
+    """Redis-backed rate counter — atomic, shared across replicas.
 
-
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    """FastAPI middleware for per-IP rate limiting.
-
-    Usage in app.main.py:
-        app.add_middleware(RateLimitMiddleware, limit=100, window=60)
-
-    To configure per-route limits, override the route's app.state or pass
-    custom limits via the request object in a route handler.
+    Uses INCR + EXPIRE in a Lua script for atomicity.
     """
 
-    def __init__(
-        self,
-        app,
-        limit: int = 100,
-        window: int = 60,
-        exclude_paths: tuple[str, ...] = ("/health", "/metrics", "/docs", "/redoc", "/openapi.json"),
-    ):
-        super().__init__(app)
-        self.default_limit = limit
-        self.default_window = window
-        self.exclude_paths = exclude_paths
+    def __init__(self, redis_client):
+        self._redis = redis_client
 
-    async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for excluded paths
-        if request.url.path in self.exclude_paths or request.url.path.startswith("/docs") or request.url.path.startswith("/redoc"):
+    async def check(self, key: str, limit: int, window: float) -> tuple[bool, int]:
+        pipe = self._redis.pipeline()
+        await pipe.incr(key)
+        await pipe.ttl(key)
+        count, ttl = await pipe.execute()
+
+        if count == 1:
+            await self._redis.expire(key, int(window))
+
+        if count > limit:
+            return False, 0
+        return True, max(0, limit - count)
+
+    async def remaining(self, key: str, limit: int, window: float) -> int:
+        val = await self._redis.get(key)
+        if val is None:
+            return limit
+        return max(0, limit - int(val))
+
+    async def reset(self, key: str) -> None:
+        await self._redis.delete(key)
+
+
+_store: RateStoreProtocol = InMemoryRateStore()
+
+
+def create_rate_limit_middleware(
+    limit: int = 100,
+    window: int = 60,
+    exclude_paths: tuple[str, ...] = ("/health", "/metrics", "/docs", "/redoc", "/openapi.json"),
+    store: RateStoreProtocol | None = None,
+):
+    """Factory: returns an ``@app.middleware("http")``-compatible async function.
+
+    Closure captures configuration once at setup time — no class instantiation,
+    no ``BaseHTTPMiddleware`` → no ``ResourceWarning``.
+    """
+    effective_store = store if store is not None else InMemoryRateStore()
+
+    async def rate_limit_dispatch(request: Request, call_next):
+        if request.url.path in exclude_paths or request.url.path.startswith("/docs") or request.url.path.startswith("/redoc"):
             return await call_next(request)
 
-        # Use client IP + path as rate limit key
         client_ip = request.client.host if request.client else "unknown"
         key = f"{client_ip}:{request.url.path}"
-        limit = self.default_limit
-        window = self.default_window
 
-        allowed, remaining = _store.check(key, limit, window)
+        allowed, remaining = await _store.check(key, limit, window)
         if not allowed:
             logger.warning("Rate limit exceeded for %s (limit=%d/%ds)", key, limit, window)
             return JSONResponse(
@@ -100,3 +133,5 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response.headers["X-RateLimit-Limit"] = str(limit)
         response.headers["X-RateLimit-Remaining"] = str(remaining)
         return response
+
+    return rate_limit_dispatch

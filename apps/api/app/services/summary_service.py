@@ -1,0 +1,323 @@
+"""Cross-session memory summary service.
+
+Generates LLM-based conversation summaries, persists them in PostgreSQL,
+indexes them in Qdrant for vector similarity search, and retrieves
+relevant context before each agent interaction.
+
+Usage:
+    summary_svc = SummaryService(db, llm, qdrant)
+    await summary_svc.generate(user_id, session_id, messages)
+    memories = await summary_svc.get_relevant(user_id, query)
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+
+from sqlalchemy import select, func, delete as sa_delete, update as sa_update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.llm.base import LLMClient
+from app.models.session_summary import SessionSummary
+from app.services.qdrant_service import QdrantService
+
+logger = logging.getLogger(__name__)
+
+# ── Constants ──
+
+DEFAULT_TOP_K = 3
+DEFAULT_SCORE_THRESHOLD = 0.65
+MAX_MEMORY_TOKENS = 1500
+MIN_MESSAGES_FOR_SUMMARY = 6
+
+_SUMMARY_SYSTEM_PROMPT = (
+    "你是一个对话摘要助手。请用一段简洁的中文总结以下招聘助手中的对话。"
+    "聚焦用户意图、候选人信息、筛选决定、面试安排等关键信息。"
+    "控制在 300 字以内。只输出摘要，不要额外说明。"
+)
+
+
+class SummaryService:
+    """Cross-session memory: generate, store, retrieve, manage summaries."""
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        llm: LLMClient,
+        qdrant: QdrantService,
+    ):
+        self.db = db
+        self.llm = llm
+        self.qdrant = qdrant
+
+    # ── Generate & Store ──
+
+    async def generate(
+        self,
+        user_id: str,
+        session_id: str,
+        messages: list[dict],
+    ) -> str | None:
+        """Generate a summary of the conversation and persist it.
+
+        Steps:
+            1. Call LLM to summarize (skip if too few messages).
+            2. Embed the summary text.
+            3. Ensure Qdrant collection exists.
+            4. Upsert to Qdrant (vector).
+            5. Upsert to PostgreSQL (metadata).
+
+        Returns the summary text, or None if skipped.
+        """
+        if len(messages) < MIN_MESSAGES_FOR_SUMMARY:
+            return None
+
+        summary_text = await self._call_summary_llm(messages)
+        if not summary_text or summary_text == "[LLM unavailable]":
+            return None
+
+        # Embed
+        vector = await self.llm.embed(summary_text)
+        if not vector:
+            logger.warning(
+                "Embedding returned empty for session %s, skipping Qdrant",
+                session_id,
+            )
+            # Still save to PG so it appears in the memory management UI
+            await self._upsert_pg(user_id, session_id, summary_text)
+            return summary_text
+
+        # Qdrant
+        vector_size = len(vector)
+        await self.qdrant.ensure_collection(vector_size)
+        await self.qdrant.upsert(
+            point_id=session_id,
+            vector=vector,
+            payload={
+                "user_id": user_id,
+                "session_id": session_id,
+                "summary": summary_text,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        # PG
+        await self._upsert_pg(user_id, session_id, summary_text)
+
+        logger.info(
+            "Generated summary for session %s (user=%s, dim=%d)",
+            session_id,
+            user_id,
+            vector_size,
+        )
+        return summary_text
+
+    async def _call_summary_llm(self, messages: list[dict]) -> str:
+        """Call LLM to produce a summary from the last N messages."""
+        recent = messages[-MIN_MESSAGES_FOR_SUMMARY:]
+        conversation_text = "\n".join(
+            f"{m.get('role', 'unknown')}: {m.get('content', '')}"
+            for m in recent
+            if m.get("content")
+        )
+        if not conversation_text.strip():
+            return ""
+
+        return await self.llm.chat(
+            messages=[
+                {"role": "system", "content": _SUMMARY_SYSTEM_PROMPT},
+                {"role": "user", "content": conversation_text},
+            ],
+            max_tokens=500,
+            temperature=0.3,
+        )
+
+    async def _upsert_pg(
+        self,
+        user_id: str,
+        session_id: str,
+        summary_text: str,
+    ) -> None:
+        """Upsert summary in PostgreSQL (idempotent on user_id+session_id)."""
+        stmt = select(SessionSummary).where(
+            SessionSummary.user_id == user_id,
+            SessionSummary.session_id == session_id,
+        )
+        result = await self.db.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            existing.summary = summary_text
+            existing.updated_at = datetime.now(timezone.utc)
+        else:
+            record = SessionSummary(
+                user_id=user_id,
+                session_id=session_id,
+                summary=summary_text,
+            )
+            self.db.add(record)
+
+        await self.db.commit()
+
+    # ── Retrieve ──
+
+    async def get_relevant(
+        self,
+        user_id: str,
+        query: str,
+        top_k: int = DEFAULT_TOP_K,
+        score_threshold: float = DEFAULT_SCORE_THRESHOLD,
+    ) -> list[dict]:
+        """Retrieve relevant past summaries for a query.
+
+        Uses vector similarity search. Falls back to empty list if
+        embedding fails or Qdrant is unavailable.
+        """
+        if not query.strip():
+            return []
+
+        vector = await self.llm.embed(query)
+        if not vector:
+            return []
+
+        results = await self.qdrant.search(
+            vector=vector,
+            top_k=top_k,
+            score_threshold=score_threshold,
+        )
+
+        # Filter to only this user's memories (safety check)
+        return [r for r in results if r.get("user_id") == user_id]
+
+    async def get_injection_context(
+        self,
+        user_id: str,
+        query: str,
+        max_tokens: int = MAX_MEMORY_TOKENS,
+    ) -> str:
+        """Build a short system-prompt snippet from relevant memories.
+
+        Returns an empty string when no relevant memories are found,
+        or when the dedup check (latest summary matches query too closely)
+        returns no additional context.
+        """
+        memories = await self.get_relevant(user_id, query)
+        if not memories:
+            return ""
+
+        # Dedup: if the top-1 memory is extremely close to the current
+        # session, skip injection (avoids repetitive context)
+        if len(memories) > 0 and memories[0].get("score", 0) > 0.95:
+            return ""
+
+        lines: list[str] = []
+        token_est = 0
+        for m in memories:
+            summary = (m.get("summary") or "").strip()
+            est = len(summary) * 2  # rough CJK token estimate
+            if not summary or token_est + est > max_tokens:
+                continue
+            lines.append(f"- [{m.get('session_id', '?')[:8]}...] {summary}")
+            token_est += est
+
+        if not lines:
+            return ""
+
+        text = "\n".join(lines)
+        return (
+            "\n\n【历史记忆】\n"
+            "以下是你与用户之前会话中的关键信息，供参考：\n"
+            f"{text}\n"
+            "（注意：这是过去的记忆，请根据当前对话判断是否仍然有效。）"
+        )
+
+    # ── CRUD for management UI ──
+
+    async def list_by_user(
+        self,
+        user_id: str,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[dict], int]:
+        """Paginated list of all summaries for a user (PG-backed)."""
+        count_q = select(func.count(SessionSummary.id)).where(
+            SessionSummary.user_id == user_id
+        )
+        total = (await self.db.execute(count_q)).scalar() or 0
+
+        q = (
+            select(SessionSummary)
+            .where(SessionSummary.user_id == user_id)
+            .order_by(SessionSummary.updated_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        rows = (await self.db.execute(q)).scalars().all()
+
+        items = [
+            {
+                "id": r.id,
+                "session_id": r.session_id,
+                "summary": r.summary,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+        return items, total
+
+    async def update_summary(
+        self,
+        summary_id: str,
+        new_summary: str,
+        user_id: str,
+    ) -> bool:
+        """Update a summary's text (PG + re-embed in Qdrant)."""
+        stmt = select(SessionSummary).where(
+            SessionSummary.id == summary_id,
+            SessionSummary.user_id == user_id,
+        )
+        result = await self.db.execute(stmt)
+        record = result.scalar_one_or_none()
+        if not record:
+            return False
+
+        record.summary = new_summary
+        record.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+
+        # Re-embed in Qdrant
+        vector = await self.llm.embed(new_summary)
+        if vector and len(vector) > 0:
+            await self.qdrant.ensure_collection(len(vector))
+            await self.qdrant.upsert(
+                point_id=record.session_id,
+                vector=vector,
+                payload={
+                    "user_id": user_id,
+                    "session_id": record.session_id,
+                    "summary": new_summary,
+                    "created_at": record.created_at.isoformat() if record.created_at else None,
+                },
+            )
+
+        return True
+
+    async def delete_summary(self, summary_id: str, user_id: str) -> bool:
+        """Delete a summary (PG + Qdrant)."""
+        stmt = select(SessionSummary).where(
+            SessionSummary.id == summary_id,
+            SessionSummary.user_id == user_id,
+        )
+        result = await self.db.execute(stmt)
+        record = result.scalar_one_or_none()
+        if not record:
+            return False
+
+        await self.db.delete(record)
+        await self.db.commit()
+
+        # Remove from Qdrant
+        await self.qdrant.delete(record.session_id)
+        return True

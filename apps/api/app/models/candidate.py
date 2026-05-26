@@ -14,6 +14,12 @@ class CandidateStatus(str, enum.Enum):
     ACTIVE = "active"
     ARCHIVED = "archived"
     BLACKLISTED = "blacklisted"
+    PENDING_EVAL = "pending_eval"
+    EVALUATING = "evaluating"
+    EVALUATED = "evaluated"
+    IN_INTERVIEW = "in_interview"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class Candidate(Base):
@@ -34,7 +40,7 @@ class Candidate(Base):
     current_company: Mapped[str | None] = mapped_column(String(255))
     current_title: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[CandidateStatus] = mapped_column(
-        SAEnum(CandidateStatus, name="candidate_status"),
+        SAEnum(CandidateStatus, name="candidate_status", validate_strings=False, values_callable=lambda x: [e.value for e in x]),
         default=CandidateStatus.ACTIVE,
         index=True,
     )

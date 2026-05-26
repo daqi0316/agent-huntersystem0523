@@ -8,6 +8,8 @@ class ScreeningRequest(BaseModel):
     job_id: str = Field(..., description="职位 ID")
     resume_text: str = Field(..., min_length=1, description="简历文本")
     job_requirements: str = Field(..., min_length=1, description="职位要求文本")
+    application_id: str | None = Field(None, description="申请 ID（可选，传则自动生成评估报告）")
+    pipeline_task_id: str | None = Field(None, description="SSE 任务 ID（可选，传则写入实时进度）")
 
 
 class ScreeningResult(BaseModel):
@@ -25,6 +27,8 @@ class ScreeningResult(BaseModel):
     recommendation: str = ""
     summary: str = ""
     steps: list[dict] = []
+    report: dict | None = None
+    candidate_status: str = ""
 
 
 class PipelineProgress(BaseModel):

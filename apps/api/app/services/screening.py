@@ -1,4 +1,4 @@
-"""AI 初筛服务 — Pipeline 流水线 + Aggregator 多维度评估。"""
+"""AI 初筛服务 — Pipeline 流水线 + Aggregator 多维度评估 + 状态流转。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 
 from app.agents.pipeline import PipelineAgent
 from app.agents.aggregator import AggregatorAgent
+from app.models.candidate import CandidateStatus
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,61 @@ class ScreeningService:
         if self._aggregator is None:
             self._aggregator = AggregatorAgent(name="candidate_evaluator")
         return self._aggregator
+
+    async def start_screening(self, db_session, candidate_id: str) -> bool:
+        """标记候选人开始评估。"""
+        try:
+            from sqlalchemy import update
+            from app.models.candidate import Candidate
+
+            stmt = (
+                update(Candidate)
+                .where(Candidate.id == candidate_id)
+                .values(status=CandidateStatus.EVALUATING)
+            )
+            await db_session.execute(stmt)
+            await db_session.commit()
+            return True
+        except Exception as e:
+            logger.warning("start_screening failed for %s: %s", candidate_id, e)
+            return False
+
+    async def complete_screening(self, db_session, candidate_id: str, passed: bool) -> bool:
+        """标记候选人初筛完成或失败。"""
+        try:
+            from sqlalchemy import update
+            from app.models.candidate import Candidate
+
+            new_status = CandidateStatus.EVALUATED if passed else CandidateStatus.FAILED
+            stmt = (
+                update(Candidate)
+                .where(Candidate.id == candidate_id)
+                .values(status=new_status)
+            )
+            await db_session.execute(stmt)
+            await db_session.commit()
+            return True
+        except Exception as e:
+            logger.warning("complete_screening failed for %s: %s", candidate_id, e)
+            return False
+
+    async def set_interviewing(self, db_session, candidate_id: str) -> bool:
+        """标记候选人进入面试阶段。"""
+        try:
+            from sqlalchemy import update
+            from app.models.candidate import Candidate
+
+            stmt = (
+                update(Candidate)
+                .where(Candidate.id == candidate_id)
+                .values(status=CandidateStatus.IN_INTERVIEW)
+            )
+            await db_session.execute(stmt)
+            await db_session.commit()
+            return True
+        except Exception as e:
+            logger.warning("set_interviewing failed for %s: %s", candidate_id, e)
+            return False
 
     async def screen_resume(
         self,
