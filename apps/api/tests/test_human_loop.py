@@ -94,6 +94,31 @@ async def test_reject_action(client):
 
 
 @pytest.mark.asyncio
+async def test_approve_missing_approval_id_400(client):
+    """Approve without approval_id returns 400."""
+    resp = await client.post("/api/v1/human-loop/approve", json={
+        "action_type": "schedule_interview",
+    })
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_list_pending_empty(client):
+    """GET /pending returns empty list when no proposals exist."""
+    resp = await client.get("/api/v1/human-loop/pending")
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_history_empty(client):
+    """GET /history returns empty list when no history exists."""
+    resp = await client.get("/api/v1/human-loop/history")
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
 async def test_emergency_stop(client):
     """Emergency stop clears all pending approvals."""
     resp = await client.post("/api/v1/human-loop/stop", json={})
@@ -244,3 +269,21 @@ def test_hl_clean_expired(hl_agent):
     hl_agent._clean_expired()
     assert "fresh" in hl_agent.pending_approvals
     assert "stale" not in hl_agent.pending_approvals
+
+
+@pytest.mark.asyncio
+async def test_hl_get_pending_proposals(hl_agent):
+    await hl_agent.create_proposal("schedule_interview", {"candidate_name": "A"})
+    await hl_agent.create_proposal("send_email", {"to": "b@c.com"})
+    proposals = hl_agent.get_pending_proposals()
+    assert len(proposals) == 2
+    assert all(p["status"] == "pending" for p in proposals)
+
+
+@pytest.mark.asyncio
+async def test_hl_get_approval_history(hl_agent):
+    p = await hl_agent.create_proposal("schedule_interview", {"candidate_name": "A"})
+    await hl_agent.confirm(p["approval_id"], approved=True)
+    history = hl_agent.get_approval_history()
+    assert len(history) == 1
+    assert history[0]["status"] == "approved"

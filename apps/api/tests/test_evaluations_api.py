@@ -50,12 +50,14 @@ def _make_mock_job(title: str = "后端工程师") -> Mock:
 
 def _make_mock_application(
     candidate_id: str = "cand-001",
+    job_id: str = "job-001",
     match_score: float = 85.0,
     status: ApplicationStatus = ApplicationStatus.SCREENING,
     ai_summary: str = "优秀候选人",
 ) -> Mock:
     app = Mock(spec=Application)
     app.candidate_id = candidate_id
+    app.job_id = job_id
     app.match_score = match_score
     app.status = status
     app.ai_summary = ai_summary
@@ -119,6 +121,13 @@ async def test_list_evaluations_with_status_filter(client, override_get_db, mock
     assert resp.status_code == 200
 
 
+async def test_list_evaluations_invalid_status_ignored(client, override_get_db, mock_db_session):
+    """Invalid status value is silently ignored (pass)."""
+    _configure_list_db(mock_db_session, [], total=0)
+    resp = await client.get("/api/v1/evaluations?status=invalid_status_xyz")
+    assert resp.status_code == 200
+
+
 async def test_list_evaluations_with_candidate_id(client, override_get_db, mock_db_session):
     """List evaluations supports candidate_id filter."""
     app = _make_mock_application(candidate_id="cand-099")
@@ -164,7 +173,7 @@ async def test_get_evaluation_found(client, override_get_db, mock_db_session):
     resp = await client.get("/api/v1/evaluations/cand-001")
 
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["overall_score"] == 92.0
     assert data["name"] == "张三"
 

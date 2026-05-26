@@ -58,7 +58,7 @@ async def test_data_aggregate_empty(client):
     resp = await client.post("/api/v1/parallel/data-aggregate", json={
         "dimension_results": [],
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 400
     data = resp.json()
     assert data["success"] is False
 

@@ -1,6 +1,6 @@
 """RouterAgent unit tests — direct class testing with mocks."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -52,44 +52,106 @@ class TestRouterAgent:
         agent.register_route("x", a2)
         assert agent.routes["x"] is a2
 
-    @pytest.mark.asyncio
-    async def test_classify_returns_default(self):
-        """classify always returns 'default' string."""
+    def test_rule_classify_screening(self):
+        """_rule_classify returns screening for Chinese keywords."""
         agent = RouterAgent()
-        intent = await agent.classify({"text": "anything"})
-        assert intent == "default"
+        intent, conf = agent._rule_classify("帮我筛选简历")
+        assert intent == "screening"
+        assert conf > 0
+
+    def test_rule_classify_chat_default(self):
+        """_rule_classify returns chat for unrecognized input."""
+        agent = RouterAgent()
+        intent, conf = agent._rule_classify("今天天气怎么样")
+        assert intent == "chat"
+        assert conf >= 0  # may be 0.0
+
+    def test_rule_classify_english_keywords(self):
+        """_rule_classify matches English keywords."""
+        agent = RouterAgent()
+        intent, _ = agent._rule_classify("I want to schedule an interview")
+        assert intent == "interview"
 
     @pytest.mark.asyncio
-    async def test_run_returns_stub_for_unknown_intent(self):
-        """run returns stub dict when no handler is registered."""
+    async def test_classify_empty_text_returns_chat(self):
+        """classify returns chat for empty text."""
         agent = RouterAgent()
-        result = await agent.run({"text": "anything"})
+        intent = await agent.classify({"text": ""})
+        assert intent == "chat"
+
+    @pytest.mark.asyncio
+    async def test_classify_rule_only(self):
+        """classify with use_llm=False uses rule matching."""
+        agent = RouterAgent()
+        intent = await agent.classify({"text": "筛选简历", "use_llm": False})
+        assert intent == "screening"
+
+    @pytest.mark.asyncio
+    async def test_classify_llm_success(self):
+        """classify uses LLM when available and returns correct intent."""
+        agent = RouterAgent()
+        mock_llm = AsyncMock()
+        mock_llm.chat = AsyncMock(return_value="interview")
+        agent._llm = mock_llm
+
+        intent = await agent.classify({"text": "安排明天面试", "use_llm": True})
+        assert intent == "interview"
+
+    @pytest.mark.asyncio
+    async def test_classify_llm_fallback_to_rule(self):
+        """classify falls back to rule when LLM fails."""
+        agent = RouterAgent()
+        mock_llm = AsyncMock()
+        mock_llm.chat = AsyncMock(side_effect=Exception("LLM unavailable"))
+        agent._llm = mock_llm
+
+        intent = await agent.classify({"text": "筛选简历", "use_llm": True})
+        assert intent == "screening"
+
+    @pytest.mark.asyncio
+    async def test_classify_llm_invalid_response(self):
+        """classify falls back to rule when LLM returns invalid intent."""
+        agent = RouterAgent()
+        mock_llm = AsyncMock()
+        mock_llm.chat = AsyncMock(return_value="something_unknown")
+        agent._llm = mock_llm
+
+        # Falls back to rule since "something_unknown" not in INTENT_TYPES
+        intent = await agent.classify({"text": "帮忙写个JD", "use_llm": True})
+        assert intent == "jd_generation"
+
+    @pytest.mark.asyncio
+    async def test_run_returns_routed_for_unknown_intent(self):
+        """run returns routed dict when no handler is registered."""
+        agent = RouterAgent()
+        result = await agent.run({"text": "写个JD"})
         assert result["agent"] == "router"
-        assert result["status"] == "stub"
-        assert result["intent"] == "default"
+        assert result["status"] == "routed"
+        assert result["intent"] == "jd_generation"
 
     @pytest.mark.asyncio
     async def test_run_dispatches_to_registered_handler(self):
         """run calls the registered handler's run method."""
         agent = RouterAgent()
         child = _MockAgent("child")
-        child.run = AsyncMock(return_value={"agent": "child", "result": "ok"})  # type: ignore[assignment]
-        agent.register_route("default", child)
+        child.run = AsyncMock(return_value={"agent": "child", "result": "ok"})
+        agent.register_route("screening", child)
 
-        result = await agent.run({"text": "screen this"})
+        result = await agent.run({"text": "筛选简历"})
 
-        child.run.assert_awaited_once_with({"text": "screen this"})
+        child.run.assert_awaited_once()
         assert result == {"agent": "child", "result": "ok"}
 
     @pytest.mark.asyncio
-    async def test_run_ignores_unknown_intent(self):
-        """run ignores registered intents that don't match classify output."""
+    async def test_run_ignores_unrelated_intents(self):
+        """run returns routed for intents not matching registered routes."""
         agent = RouterAgent()
         child = _MockAgent("child")
-        child.run = AsyncMock()  # type: ignore[assignment]
-        agent.register_route("unrelated", child)
+        child.run = AsyncMock()
+        agent.register_route("interview", child)
 
-        result = await agent.run({"text": "whatever"})
+        result = await agent.run({"text": "筛选简历"})
 
-        assert result["status"] == "stub"
+        assert result["status"] == "routed"
+        assert result["intent"] == "screening"
         child.run.assert_not_awaited()

@@ -238,3 +238,156 @@ class TestInterviewServiceUnit:
         assert len(items) >= 1
         assert total == 1
         assert items[0]["id"] == "aaa-bbb-ccc"
+
+    @pytest.mark.asyncio
+    async def test_schedule_invalid_type_fallback(self):
+        from app.services.interview import InterviewService
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.add = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.refresh = AsyncMock()
+
+        service = InterviewService(mock_db)
+        result = await service.schedule(
+            candidate_id="cand-1",
+            job_id="job-1",
+            slot={"type": "bad_type", "scheduled_at": "2025-06-01T10:00:00Z"},
+        )
+        assert result is not None
+        assert result["type"] == "video"
+
+    @pytest.mark.asyncio
+    async def test_schedule_invalid_datetime_fallback(self):
+        from app.services.interview import InterviewService
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.add = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.refresh = AsyncMock()
+
+        service = InterviewService(mock_db)
+        result = await service.schedule(
+            candidate_id="cand-1",
+            job_id="job-1",
+            slot={"type": "video", "scheduled_at": "not-a-date"},
+        )
+        assert result is not None
+        assert "scheduled_at" in result
+
+    @pytest.mark.asyncio
+    async def test_confirm_nonexistent(self):
+        from app.services.interview import InterviewService
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        service = InterviewService(mock_db)
+        result = await service.confirm("nonexistent")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_complete_nonexistent(self):
+        from app.services.interview import InterviewService
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        service = InterviewService(mock_db)
+        result = await service.complete("nonexistent")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_list_by_candidate(self):
+        from app.models.interview import InterviewStatus, InterviewType
+        from app.services.interview import InterviewService
+
+        mock_interview = MagicMock()
+        mock_interview.id = "iv-1"
+        mock_interview.candidate_id = "cand-1"
+        mock_interview.application_id = ""
+        mock_interview.status = InterviewStatus.SCHEDULED
+        mock_interview.type = InterviewType.VIDEO
+        mock_interview.duration_minutes = 60
+        mock_interview.scheduled_at = None
+        mock_interview.location = ""
+        mock_interview.notes = ""
+        mock_interview.feedback = ""
+        mock_interview.created_at = None
+        mock_interview.updated_at = None
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_interview]
+
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        service = InterviewService(mock_db)
+        items = await service.list_by_candidate("cand-1")
+        assert len(items) == 1
+        assert items[0]["id"] == "iv-1"
+
+    @pytest.mark.asyncio
+    async def test_list_all_with_valid_status_filter(self):
+        from app.models.interview import InterviewStatus, InterviewType
+        from app.services.interview import InterviewService
+
+        mock_interview = MagicMock()
+        mock_interview.id = "iv-2"
+        mock_interview.candidate_id = "cand-2"
+        mock_interview.application_id = ""
+        mock_interview.status = InterviewStatus.SCHEDULED
+        mock_interview.type = InterviewType.VIDEO
+        mock_interview.duration_minutes = 60
+        mock_interview.scheduled_at = None
+        mock_interview.location = ""
+        mock_interview.notes = ""
+        mock_interview.feedback = ""
+        mock_interview.created_at = None
+        mock_interview.updated_at = None
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_interview]
+
+        count_result = MagicMock()
+        count_result.scalar.return_value = 1
+
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(side_effect=[count_result, mock_result])
+
+        service = InterviewService(mock_db)
+        items, total = await service.list_all(skip=0, limit=20, status="scheduled")
+        assert len(items) == 1
+        assert total == 1
+
+    @pytest.mark.asyncio
+    async def test_list_all_with_invalid_status(self):
+        from app.services.interview import InterviewService
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(side_effect=[count_result, mock_result])
+
+        service = InterviewService(mock_db)
+        items, total = await service.list_all(skip=0, limit=20, status="bogus_status")
+        assert items == []
+        assert total == 0

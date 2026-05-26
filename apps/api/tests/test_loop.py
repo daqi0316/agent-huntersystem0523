@@ -33,9 +33,10 @@ async def test_jd_generate_success(client):
         loop_module.service = original_service
 
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert "Senior Engineer" in data["data"]
+    body = resp.json()
+    assert body["success"] is True
+    data = body["data"]
+    assert "Senior Engineer" in data["final_output"]
     assert data["total_iterations"] == 2
     assert data["passed"] is True
 
@@ -72,9 +73,9 @@ async def test_jd_improve_success(client):
         loop_module.service = original_service
 
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert "Improved" in data["jd_content"]
+    body = resp.json()
+    assert body["success"] is True
+    assert "Improved" in body["data"]["jd_content"]
 
 
 @pytest.mark.asyncio
@@ -102,6 +103,6 @@ async def test_jd_generate_auto_improve_false(client):
         loop_module.service = original_service
 
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert data["total_iterations"] == 1
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"]["total_iterations"] == 1

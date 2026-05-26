@@ -41,7 +41,7 @@ async def test_create_job(client):
         "status": "active",
     }, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 201
-    assert resp.json()["title"] == "高级后端工程师"
+    assert resp.json()["data"]["title"] == "高级后端工程师"
 
 
 @pytest.mark.asyncio
@@ -52,11 +52,11 @@ async def test_get_job(client):
         "title": "前端工程师", "department": "技术部", "description": "前端开发",
         "requirements": "3年React", "status": "draft",
     }, headers={"Authorization": f"Bearer {token}"})
-    jid = create.json()["id"]
+    jid = create.json()["data"]["id"]
 
     resp = await client.get(f"/api/v1/jobs/{jid}", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert resp.json()["title"] == "前端工程师"
+    assert resp.json()["data"]["title"] == "前端工程师"
 
 
 @pytest.mark.asyncio
@@ -74,13 +74,13 @@ async def test_update_job(client):
     create = await client.post("/api/v1/jobs", json={
         "title": "测试职位", "department": "测试部", "description": "测试", "status": "draft",
     }, headers={"Authorization": f"Bearer {token}"})
-    jid = create.json()["id"]
+    jid = create.json()["data"]["id"]
 
     resp = await client.put(f"/api/v1/jobs/{jid}", json={
         "title": "测试职位 Updated", "salary_range": "40k-60k",
     }, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert resp.json()["title"] == "测试职位 Updated"
+    assert resp.json()["data"]["title"] == "测试职位 Updated"
 
 
 @pytest.mark.asyncio
@@ -90,7 +90,7 @@ async def test_delete_job(client):
     create = await client.post("/api/v1/jobs", json={
         "title": "待删除", "department": "测试部", "description": "删除测试", "status": "closed",
     }, headers={"Authorization": f"Bearer {token}"})
-    jid = create.json()["id"]
+    jid = create.json()["data"]["id"]
 
     del_resp = await client.delete(f"/api/v1/jobs/{jid}", headers={"Authorization": f"Bearer {token}"})
     assert del_resp.status_code == 200

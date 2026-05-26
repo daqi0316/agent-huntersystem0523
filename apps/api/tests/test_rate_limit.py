@@ -1,4 +1,4 @@
-"""Tests for RateLimitMiddleware and InMemoryRateStore."""
+"""Tests for RateLimitMiddleware and rate stores."""
 
 import time as time_module
 
@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core.rate_limit import InMemoryRateStore, RateLimitMiddleware
+from app.core.rate_limit import InMemoryRateStore, create_rate_limit_middleware, RedisStore
 
 
 @pytest.fixture
@@ -14,43 +14,90 @@ def store():
     return InMemoryRateStore()
 
 
+@pytest.mark.asyncio
 class TestInMemoryRateStore:
-    def test_allow_within_limit(self, store):
-        allowed, remaining = store.check("test-key", limit=5, window=60)
+    async def test_allow_within_limit(self, store):
+        allowed, remaining = await store.check("test-key", limit=5, window=60)
         assert allowed is True
         assert remaining == 4
 
-    def test_block_when_exceeded(self, store):
+    async def test_block_when_exceeded(self, store):
         for i in range(3):
-            store.check("test-key", limit=3, window=60)
+            await store.check("test-key", limit=3, window=60)
 
-        allowed, remaining = store.check("test-key", limit=3, window=60)
+        allowed, remaining = await store.check("test-key", limit=3, window=60)
         assert allowed is False
         assert remaining == 0
 
-    def test_remaining_returns_correct_count(self, store):
-        store.check("test-key", limit=10, window=60)
-        store.check("test-key", limit=10, window=60)
+    async def test_remaining_returns_correct_count(self, store):
+        await store.check("test-key", limit=10, window=60)
+        await store.check("test-key", limit=10, window=60)
 
-        assert store.remaining("test-key", limit=10, window=60) == 8
+        assert await store.remaining("test-key", limit=10, window=60) == 8
 
-    def test_remaining_returns_limit_when_empty(self, store):
-        assert store.remaining("new-key", limit=50, window=60) == 50
+    async def test_remaining_returns_limit_when_empty(self, store):
+        assert await store.remaining("new-key", limit=50, window=60) == 50
 
-    def test_reset_clears_bucket(self, store):
-        store.check("reset-key", limit=1, window=60)
-        assert store.remaining("reset-key", limit=1, window=60) == 0
+    async def test_reset_clears_bucket(self, store):
+        await store.check("reset-key", limit=1, window=60)
+        assert await store.remaining("reset-key", limit=1, window=60) == 0
 
-        store.reset("reset-key")
-        assert store.remaining("reset-key", limit=1, window=60) == 1
+        await store.reset("reset-key")
+        assert await store.remaining("reset-key", limit=1, window=60) == 1
 
-    def test_old_entries_are_pruned(self, store):
+    async def test_old_entries_are_pruned(self, store):
         ts = time_module.monotonic()
-        # Simulate entries older than the window
         store._buckets["prune-key"] = [ts - 120, ts - 90]
-        allowed, _ = store.check("prune-key", limit=5, window=60)
-        # Old entries should be pruned, leaving 0, so this should succeed
+        allowed, _ = await store.check("prune-key", limit=5, window=60)
         assert allowed is True
+
+
+class TestRedisStore:
+    """RedisStore tests with mocked Redis client."""
+
+    @pytest.fixture
+    def mock_redis(self):
+        from unittest.mock import AsyncMock, MagicMock
+        redis = MagicMock()
+
+        pipe = MagicMock()
+        pipe.incr = AsyncMock(return_value=pipe)
+        pipe.ttl = AsyncMock(return_value=pipe)
+        pipe.execute = AsyncMock(return_value=[1, -1])
+        redis.pipeline.return_value = pipe
+
+        redis.get = AsyncMock()
+        redis.delete = AsyncMock()
+        redis.expire = AsyncMock()
+        return redis
+
+    @pytest.fixture
+    def rstore(self, mock_redis):
+        return RedisStore(mock_redis)
+
+    async def test_allow_within_limit(self, mock_redis, rstore):
+        mock_redis.pipeline.return_value.execute.return_value = [1, -1]
+        allowed, remaining = await rstore.check("k", limit=5, window=60)
+        assert allowed is True
+        assert remaining == 4
+
+    async def test_block_when_exceeded(self, mock_redis, rstore):
+        mock_redis.pipeline.return_value.execute.return_value = [11, -1]
+        allowed, remaining = await rstore.check("k", limit=5, window=60)
+        assert allowed is False
+        assert remaining == 0
+
+    async def test_remaining_returns_correct_count(self, mock_redis, rstore):
+        mock_redis.get.return_value = "3"
+        assert await rstore.remaining("k", limit=10, window=60) == 7
+
+    async def test_remaining_returns_limit_when_empty(self, mock_redis, rstore):
+        mock_redis.get.return_value = None
+        assert await rstore.remaining("k", limit=50, window=60) == 50
+
+    async def test_reset_clears_key(self, mock_redis, rstore):
+        await rstore.reset("k")
+        mock_redis.delete.assert_awaited_once_with("k")
 
 
 class TestRateLimitMiddleware:
@@ -67,7 +114,7 @@ class TestRateLimitMiddleware:
         async def health():
             return {"status": "ok"}
 
-        app.add_middleware(RateLimitMiddleware, limit=3, window=60)
+        app.middleware("http")(create_rate_limit_middleware(limit=3, window=60))
 
         return app
 
@@ -82,11 +129,9 @@ class TestRateLimitMiddleware:
             assert "X-RateLimit-Remaining" in resp.headers
 
     def test_exceeded_limit_returns_429(self, client):
-        # Use up the 3 allowed requests
         for i in range(3):
             client.get("/test")
 
-        # 4th request should be blocked
         resp = client.get("/test")
         assert resp.status_code == 429
         data = resp.json()
@@ -95,7 +140,6 @@ class TestRateLimitMiddleware:
         assert "Retry-After" in resp.headers
 
     def test_excluded_paths_are_not_limited(self, client):
-        """/health endpoint should not be rate limited."""
         for i in range(10):
             resp = client.get("/health")
             assert resp.status_code == 200, f"Request {i+1} failed"

@@ -61,3 +61,35 @@ async def test_dashboard_stats_structure(client):
         assert isinstance(kpi["value"], (int, float))
         assert kpi["value"] >= 0
         assert kpi["label"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_stats_with_data(client):
+    """Insert candidates and jobs via API, verify dashboard reflects them."""
+    email = _unique_email()
+    reg = await client.post("/api/v1/auth/register", json={
+        "email": email, "password": "Pass123!", "name": "Dashboard Data User",
+    })
+    token = reg.json()["access_token"]
+    headers = _auth_headers(token)
+    suffix = uuid.uuid4().hex[:6]
+
+    r1 = await client.post("/api/v1/candidates", json={
+        "name": "Alice", "email": f"alice.{suffix}@test.com",
+    }, headers=headers)
+    r2 = await client.post("/api/v1/candidates", json={
+        "name": "Bob", "email": f"bob.{suffix}@test.com",
+    }, headers=headers)
+    r3 = await client.post("/api/v1/jobs", json={
+        "title": "Engineer", "description": "desc",
+    }, headers=headers)
+    assert r1.status_code == 201, f"create alice: {r1.status_code} {r1.text}"
+    assert r2.status_code == 201, f"create bob: {r2.status_code} {r2.text}"
+    assert r3.status_code == 201, f"create job: {r3.status_code} {r3.text}"
+
+    resp = await client.get("/api/v1/dashboard/stats", headers=headers)
+    data = resp.json()
+
+    assert resp.status_code == 200
+    assert isinstance(data["trend"], list)
+    assert isinstance(data["recent_activities"], list)

@@ -41,7 +41,7 @@ async def test_create_candidate(client):
         "experience_years": 5,
     }, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 201
-    assert resp.json()["name"] == "张三"
+    assert resp.json()["data"]["name"] == "张三"
 
 
 @pytest.mark.asyncio
@@ -52,11 +52,11 @@ async def test_get_candidate(client):
     create = await client.post("/api/v1/candidates", json={
         "name": "李四", "email": cand_email, "status": "active",
     }, headers={"Authorization": f"Bearer {token}"})
-    cid = create.json()["id"]
+    cid = create.json()["data"]["id"]
 
     resp = await client.get(f"/api/v1/candidates/{cid}", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert resp.json()["name"] == "李四"
+    assert resp.json()["data"]["name"] == "李四"
 
 
 @pytest.mark.asyncio
@@ -75,14 +75,14 @@ async def test_update_candidate(client):
     create = await client.post("/api/v1/candidates", json={
         "name": "王五", "email": cand_email, "status": "active",
     }, headers={"Authorization": f"Bearer {token}"})
-    cid = create.json()["id"]
+    cid = create.json()["data"]["id"]
 
     resp = await client.put(f"/api/v1/candidates/{cid}", json={
         "name": "王五 Updated", "status": "archived",
     }, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert resp.json()["name"] == "王五 Updated"
-    assert resp.json()["status"] == "archived"
+    assert resp.json()["data"]["name"] == "王五 Updated"
+    assert resp.json()["data"]["status"] == "archived"
 
 
 @pytest.mark.asyncio
@@ -93,7 +93,7 @@ async def test_delete_candidate(client):
     create = await client.post("/api/v1/candidates", json={
         "name": "赵六", "email": cand_email, "status": "active",
     }, headers={"Authorization": f"Bearer {token}"})
-    cid = create.json()["id"]
+    cid = create.json()["data"]["id"]
 
     del_resp = await client.delete(f"/api/v1/candidates/{cid}", headers={"Authorization": f"Bearer {token}"})
     assert del_resp.status_code == 200

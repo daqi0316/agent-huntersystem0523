@@ -80,3 +80,46 @@ async def test_knowledge_search_success(client):
     assert data["success"] is True
     assert len(data["sources"]) == 1
     assert data["sources"][0]["title"] == "Interview Tips"
+
+
+@pytest.mark.asyncio
+async def test_ingest_empty_content_returns_422(client):
+    resp = await client.post("/api/v1/knowledge/documents/ingest", json={
+        "title": "Empty Doc",
+        "content": "",
+    })
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_knowledge_query_no_results(client):
+    mock_service = AsyncMock()
+    mock_service.query.return_value = {
+        "answer": "I could not find relevant information.",
+        "sources": [],
+    }
+
+    with patch("app.api.knowledge.service", mock_service):
+        resp = await client.post("/api/v1/knowledge/query", json={
+            "query": "something unrelated",
+            "top_k": 3,
+        })
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["sources"] == []
+
+
+@pytest.mark.asyncio
+async def test_knowledge_search_no_results(client):
+    mock_service = AsyncMock()
+    mock_service.search.return_value = []
+
+    with patch("app.api.knowledge.service", mock_service):
+        resp = await client.post("/api/v1/knowledge/search", json={
+            "query": "nothing matches this query",
+            "top_k": 5,
+        })
+
+    assert resp.status_code == 200
+    assert resp.json()["sources"] == []

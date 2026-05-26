@@ -78,3 +78,38 @@ async def test_embed_success(client):
     assert data["success"] is True
     assert len(data["embedding"]) == 5
     assert data["dimension"] == 5
+
+
+@pytest.mark.asyncio
+async def test_vector_search_no_results(client):
+    mock_service = AsyncMock()
+    mock_service.search.return_value = []
+
+    email = _unique_email()
+    reg = await client.post("/api/v1/auth/register", json={
+        "email": email, "password": "Pass123!", "name": "Retrieval User",
+    })
+    token = reg.json()["access_token"]
+
+    with patch("app.api.retrieval.KnowledgeService", return_value=mock_service):
+        resp = await client.post("/api/v1/retrieval/search", json={
+            "query": "nothing matches this",
+            "top_k": 5,
+        }, headers=_auth_headers(token))
+
+    assert resp.status_code == 200
+    assert resp.json()["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_embed_empty_text_returns_422(client):
+    email = _unique_email()
+    reg = await client.post("/api/v1/auth/register", json={
+        "email": email, "password": "Pass123!", "name": "Embed User",
+    })
+    token = reg.json()["access_token"]
+
+    resp = await client.post("/api/v1/retrieval/embed", json={
+        "text": "",
+    }, headers=_auth_headers(token))
+    assert resp.status_code == 422

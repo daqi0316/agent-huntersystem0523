@@ -76,8 +76,13 @@ async def test_agent_chat_no_message_returns_422(client):
 async def test_agent_chat_success(client):
     """Mock LLM client returns a known reply."""
     mock_llm = AsyncMock()
-    mock_llm.chat.return_value = "Hello, I am a mock LLM."
     mock_llm.model = "mock-model"
+
+    mock_response = AsyncMock()
+    mock_response.choices = [AsyncMock()]
+    mock_response.choices[0].message.content = "Hello, I am a mock LLM."
+    mock_response.choices[0].message.tool_calls = []
+    mock_llm.client.chat.completions.create.return_value = mock_response
 
     email = _unique_email()
     reg = await client.post("/api/v1/auth/register", json={
@@ -85,7 +90,7 @@ async def test_agent_chat_success(client):
     })
     token = reg.json()["access_token"]
 
-    with patch("app.api.agent.get_llm_client", return_value=mock_llm):
+    with patch("app.services.agent_service.get_llm_client", return_value=mock_llm):
         resp = await client.post("/api/v1/agent/chat", json={
             "message": "Hello!",
         }, headers=_auth_headers(token))
@@ -101,8 +106,13 @@ async def test_agent_chat_success(client):
 async def test_agent_chat_with_system_prompt(client):
     """Custom system prompt is forwarded to the LLM."""
     mock_llm = AsyncMock()
-    mock_llm.chat.return_value = "You are a helpful assistant."
     mock_llm.model = "mock-model"
+
+    mock_response = AsyncMock()
+    mock_response.choices = [AsyncMock()]
+    mock_response.choices[0].message.content = "You are a helpful assistant."
+    mock_response.choices[0].message.tool_calls = []
+    mock_llm.client.chat.completions.create.return_value = mock_response
 
     email = _unique_email()
     reg = await client.post("/api/v1/auth/register", json={
@@ -110,15 +120,14 @@ async def test_agent_chat_with_system_prompt(client):
     })
     token = reg.json()["access_token"]
 
-    with patch("app.api.agent.get_llm_client", return_value=mock_llm):
+    with patch("app.services.agent_service.get_llm_client", return_value=mock_llm):
         resp = await client.post("/api/v1/agent/chat", json={
             "message": "Tell me a joke",
             "system_prompt": "Be concise and funny.",
         }, headers=_auth_headers(token))
 
     assert resp.status_code == 200
-    # Verify the system prompt was passed to the LLM
-    sent_messages = mock_llm.chat.call_args[0][0]
+    sent_messages = mock_llm.client.chat.completions.create.call_args[1]["messages"]
     assert any(m["role"] == "system" and "funny" in m["content"] for m in sent_messages)
 
 

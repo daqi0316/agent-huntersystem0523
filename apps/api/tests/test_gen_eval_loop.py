@@ -107,6 +107,15 @@ async def test_evaluate_unparseable_score(llm_patch):
     assert feedback is None
 
 
+async def test_evaluate_unparseable_total_score_value(llm_patch):
+    """总分: with non-numeric value triggers ValueError fallback."""
+    llm_patch.chat.return_value = "总分: abc\n改进建议: 无"
+    agent = GenEvalLoop()
+    score, feedback = await agent.evaluate("JD")
+    assert score == 0.0
+    assert feedback is None
+
+
 # ── run ──
 
 

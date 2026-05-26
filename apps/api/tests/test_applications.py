@@ -9,9 +9,13 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_create_application_missing_fields_422(client):
-    """Create application without required fields returns 422."""
+    """Create application without required fields returns 422 with unified format."""
     resp = await client.post("/api/v1/applications", json={})
     assert resp.status_code == 422
+    body = resp.json()
+    assert body["success"] is False
+    assert "error" in body
+    assert "details" in body
 
 
 @pytest.mark.asyncio
@@ -40,6 +44,60 @@ async def test_update_nonexistent_application_404(client):
     resp = await client.put("/api/v1/applications/nonexistent-id", json={
         "status": "rejected",
     })
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_application_success(client):
+    mock_svc = AsyncMock()
+    mock_svc.get_by_id.return_value = {"id": "app-1", "status": "screening"}
+    with patch("app.api.applications.ApplicationService", return_value=mock_svc):
+        resp = await client.get("/api/v1/applications/app-1")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_application_success(client):
+    mock_svc = AsyncMock()
+    mock_svc.create.return_value = {"id": "app-new", "status": "pending"}
+    with patch("app.api.applications.ApplicationService", return_value=mock_svc):
+        resp = await client.post("/api/v1/applications", json={
+            "candidate_id": "cand-1",
+            "job_id": "job-1",
+        })
+    assert resp.status_code == 201
+    assert resp.json()["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_update_application_success(client):
+    mock_svc = AsyncMock()
+    mock_svc.update.return_value = {"id": "app-1", "status": "accepted"}
+    with patch("app.api.applications.ApplicationService", return_value=mock_svc):
+        resp = await client.put("/api/v1/applications/app-1", json={
+            "status": "accepted",
+        })
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_delete_application_success(client):
+    mock_svc = AsyncMock()
+    mock_svc.delete.return_value = True
+    with patch("app.api.applications.ApplicationService", return_value=mock_svc):
+        resp = await client.delete("/api/v1/applications/app-1")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_delete_nonexistent_application_404(client):
+    mock_svc = AsyncMock()
+    mock_svc.delete.return_value = False
+    with patch("app.api.applications.ApplicationService", return_value=mock_svc):
+        resp = await client.delete("/api/v1/applications/nonexistent")
     assert resp.status_code == 404
 
 

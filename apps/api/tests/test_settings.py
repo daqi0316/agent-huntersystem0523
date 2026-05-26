@@ -1,6 +1,7 @@
 """Settings API tests: read, write, delete settings."""
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -29,15 +30,15 @@ def override_get_db(mock_db_session):
 
 @pytest.fixture
 def mock_setting():
-    """Create a mock Setting model instance."""
-    setting = MagicMock()
-    setting.key = "test-key"
-    setting.value = "test-value"
-    setting.user_id = None
-    setting.id = "setting-1"
-    setting.created_at = datetime(2025, 1, 15, 10, 0, 0)
-    setting.updated_at = datetime(2025, 1, 15, 10, 0, 0)
-    return setting
+    """Create a mock Setting model instance (SimpleNamespace = serializable)."""
+    return SimpleNamespace(
+        key="test-key",
+        value="test-value",
+        user_id=None,
+        id="setting-1",
+        created_at=datetime(2025, 1, 15, 10, 0, 0),
+        updated_at=datetime(2025, 1, 15, 10, 0, 0),
+    )
 
 
 @pytest.mark.asyncio
@@ -50,7 +51,7 @@ async def test_list_settings_returns_list(client, override_get_db, mock_db_sessi
     resp = await client.get("/api/v1/settings")
 
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert isinstance(data, list)
 
 
@@ -66,7 +67,7 @@ async def test_list_settings_with_user_id(
     resp = await client.get("/api/v1/settings?user_id=user-123")
 
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert len(data) == 1
 
 
@@ -94,7 +95,7 @@ async def test_get_existing_setting_returns_setting(
     resp = await client.get("/api/v1/settings/test-key")
 
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["key"] == "test-key"
     assert data["value"] == "test-value"
 
@@ -123,7 +124,7 @@ async def test_upsert_create_new(
     )
 
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["key"] == "new-key"
     assert data["value"] == "new-value"
 
@@ -143,7 +144,7 @@ async def test_upsert_update_existing(
     )
 
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["key"] == "test-key"
     assert data["value"] == "updated-value"
     mock_db_session.commit.assert_awaited_once()

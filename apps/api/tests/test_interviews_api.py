@@ -75,7 +75,7 @@ async def test_get_interview_by_id(client):
         resp = await client.get("/api/v1/interviews/iv-123")
 
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["id"] == "iv-123"
 
 
@@ -108,7 +108,7 @@ async def test_create_interview_success(client):
         )
 
     assert resp.status_code == 201
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["status"] == "scheduled"
     assert data["candidate_id"] == "cand-1"
 
@@ -138,7 +138,7 @@ async def test_confirm_interview(client):
         resp = await client.patch("/api/v1/interviews/iv-1/confirm")
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "confirmed"
+    assert resp.json()["data"]["status"] == "confirmed"
 
 
 async def test_cancel_interview(client):
@@ -150,16 +150,226 @@ async def test_cancel_interview(client):
         resp = await client.patch("/api/v1/interviews/iv-1/cancel")
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "cancelled"
+    assert resp.json()["data"]["status"] == "cancelled"
 
 
 async def test_complete_interview(client):
-    """PATCH /api/v1/interviews/{id}/complete transitions to completed."""
-    mock_service = AsyncMock()
-    mock_service.complete.return_value = {"id": "iv-1", "status": "completed"}
+    """PATCH /api/v1/interviews/{id}/complete transitions to completed + status machine."""
+    mock_interview_svc = AsyncMock()
+    mock_interview_svc.complete.return_value = {
+        "id": "iv-1",
+        "candidate_id": "cand-1",
+        "status": "completed",
+    }
 
-    with patch("app.api.interviews.InterviewService", return_value=mock_service):
+    mock_candidate_svc = MagicMock()
+    mock_candidate_svc.complete_interview = AsyncMock(return_value=MagicMock())
+
+    mock_app_svc = AsyncMock()
+    mock_app_svc.list.return_value = ([{"id": "app-1"}], 1)
+
+    with (
+        patch("app.api.interviews.InterviewService", return_value=mock_interview_svc),
+        patch("app.api.interviews.CandidateService", return_value=mock_candidate_svc),
+        patch("app.api.interviews.ApplicationService", return_value=mock_app_svc),
+    ):
         resp = await client.patch("/api/v1/interviews/iv-1/complete")
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "completed"
+    data = resp.json()["data"]
+    assert data["status"] == "completed"
+    mock_candidate_svc.complete_interview.assert_awaited_once_with("cand-1")
+    mock_app_svc.list.assert_awaited_once()
+    mock_app_svc.update.assert_awaited_once()
+
+
+async def test_complete_interview_status_machine_coverage(client):
+    """Status machine transition is idempotent — candidate already completed."""
+    mock_interview_svc = AsyncMock()
+    mock_interview_svc.complete.return_value = {
+        "id": "iv-1",
+        "candidate_id": "cand-1",
+        "status": "completed",
+    }
+
+    mock_candidate_svc = MagicMock()
+    mock_candidate_svc.complete_interview = AsyncMock(
+        side_effect=ValueError("already completed")
+    )
+
+    mock_app_svc = AsyncMock()
+    mock_app_svc.list.return_value = ([], 0)
+
+    with (
+        patch("app.api.interviews.InterviewService", return_value=mock_interview_svc),
+        patch("app.api.interviews.CandidateService", return_value=mock_candidate_svc),
+        patch("app.api.interviews.ApplicationService", return_value=mock_app_svc),
+    ):
+        resp = await client.patch("/api/v1/interviews/iv-1/complete")
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["status"] == "completed"
+    mock_candidate_svc.complete_interview.assert_awaited_once_with("cand-1")
+    mock_app_svc.update.assert_not_awaited()
+
+
+async def test_complete_interview_not_found(client):
+    """PATCH /api/v1/interviews/{id}/complete returns 404 for nonexistent id."""
+    mock_service = AsyncMock()
+    mock_service.complete.return_value = None
+
+    with patch("app.api.interviews.InterviewService", return_value=mock_service):
+        resp = await client.patch("/api/v1/interviews/nonexistent/complete")
+
+    assert resp.status_code == 404
+
+
+async def test_confirm_interview_not_found(client):
+    """PATCH /api/v1/interviews/{id}/confirm returns 404 for nonexistent id."""
+    mock_service = AsyncMock()
+    mock_service.confirm.return_value = None
+
+    with patch("app.api.interviews.InterviewService", return_value=mock_service):
+        resp = await client.patch("/api/v1/interviews/nonexistent/confirm")
+
+    assert resp.status_code == 404
+
+
+async def test_from_proposal_success(client):
+    """POST /api/v1/interviews/from-proposal creates interview + transitions status."""
+    mock_candidate_svc = MagicMock()
+    mock_candidate_svc.move_to_interview = AsyncMock(return_value=MagicMock())
+
+    mock_interview_svc = AsyncMock()
+    mock_interview_svc.schedule.return_value = {
+        "id": "iv-from-prop",
+        "candidate_id": "cand-1",
+        "job_id": "job-1",
+        "type": "video",
+        "status": "scheduled",
+        "duration_minutes": 60,
+        "scheduled_at": "2025-06-01T10:00:00",
+    }
+
+    with (
+        patch("app.api.interviews.CandidateService", return_value=mock_candidate_svc),
+        patch("app.api.interviews.InterviewService", return_value=mock_interview_svc),
+    ):
+        resp = await client.post(
+            "/api/v1/interviews/from-proposal",
+            json={
+                "candidate_id": "cand-1",
+                "job_id": "job-1",
+                "scheduled_at": "2025-06-01T10:00:00",
+                "type": "video",
+                "duration_minutes": 60,
+            },
+        )
+
+    assert resp.status_code == 201
+    data = resp.json()["data"]
+    assert data["status"] == "scheduled"
+    assert data["candidate_id"] == "cand-1"
+    mock_candidate_svc.move_to_interview.assert_awaited_once_with("cand-1")
+
+
+async def test_from_proposal_candidate_not_found(client):
+    """POST /api/v1/interviews/from-proposal returns 404 when candidate missing."""
+    mock_candidate_svc = MagicMock()
+    mock_candidate_svc.move_to_interview = AsyncMock(return_value=None)
+
+    with patch("app.api.interviews.CandidateService", return_value=mock_candidate_svc):
+        resp = await client.post(
+            "/api/v1/interviews/from-proposal",
+            json={"candidate_id": "nonexistent", "job_id": "job-1"},
+        )
+
+    assert resp.status_code == 404
+
+
+async def test_from_proposal_slot_conflict(client):
+    """POST /api/v1/interviews/from-proposal returns 409 on time conflict."""
+    mock_candidate_svc = MagicMock()
+    mock_candidate_svc.move_to_interview = AsyncMock(return_value=MagicMock())
+
+    mock_interview_svc = AsyncMock()
+    mock_interview_svc.schedule.return_value = {
+        "error": True,
+        "message": "时间槽已被占用",
+    }
+
+    with (
+        patch("app.api.interviews.CandidateService", return_value=mock_candidate_svc),
+        patch("app.api.interviews.InterviewService", return_value=mock_interview_svc),
+    ):
+        resp = await client.post(
+            "/api/v1/interviews/from-proposal",
+            json={"candidate_id": "cand-1", "job_id": "job-1"},
+        )
+
+    assert resp.status_code == 409
+
+
+async def test_from_proposal_wrong_status(client):
+    """POST /api/v1/interviews/from-proposal returns 400 when candidate not evaluatable."""
+    mock_candidate_svc = MagicMock()
+    mock_candidate_svc.move_to_interview = AsyncMock(
+        side_effect=ValueError("不允许安排面试")
+    )
+
+    with patch("app.api.interviews.CandidateService", return_value=mock_candidate_svc):
+        resp = await client.post(
+            "/api/v1/interviews/from-proposal",
+            json={"candidate_id": "cand-active", "job_id": "job-1"},
+        )
+
+    assert resp.status_code == 400
+
+
+async def test_cancel_interview_not_found(client):
+    """PATCH /api/v1/interviews/{id}/cancel returns 404 for nonexistent id."""
+    mock_service = AsyncMock()
+    mock_service.cancel.return_value = None
+
+    with patch("app.api.interviews.InterviewService", return_value=mock_service):
+        resp = await client.patch("/api/v1/interviews/nonexistent/cancel")
+
+    assert resp.status_code == 404
+
+
+async def test_create_interview_schedule_returns_none(client):
+    """POST /api/v1/interviews returns 404 when service.schedule returns None."""
+    mock_service = AsyncMock()
+    mock_service.schedule.return_value = None
+
+    with patch("app.api.interviews.InterviewService", return_value=mock_service):
+        resp = await client.post(
+            "/api/v1/interviews?candidate_id=nonexistent&job_id=job-1"
+        )
+
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["error"] == "候选人不存在"
+
+
+async def test_from_proposal_schedule_returns_none(client):
+    """POST /api/v1/interviews/from-proposal returns 404
+    when interview_svc.schedule returns None after candidate found."""
+    mock_candidate_svc = MagicMock()
+    mock_candidate_svc.move_to_interview = AsyncMock(return_value=MagicMock())
+
+    mock_interview_svc = AsyncMock()
+    mock_interview_svc.schedule.return_value = None
+
+    with (
+        patch("app.api.interviews.CandidateService", return_value=mock_candidate_svc),
+        patch("app.api.interviews.InterviewService", return_value=mock_interview_svc),
+    ):
+        resp = await client.post(
+            "/api/v1/interviews/from-proposal",
+            json={"candidate_id": "cand-1", "job_id": "job-1"},
+        )
+
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["error"] == "候选人不存在"

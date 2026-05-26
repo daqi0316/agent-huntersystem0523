@@ -124,3 +124,39 @@ async def test_memory_write_validation(client):
         "value": {},
     })
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_memory_write_via_redis(client):
+    """写入记忆时优先走 Redis 路径（不 mock get_redis）。"""
+    resp = await client.post(f"{MEMORY_BASE}/write", json={
+        "session_id": "redis-session",
+        "key": "redis-key-1",
+        "value": {"source": "redis"},
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["key"] == "redis-key-1"
+    assert data["value"]["source"] == "redis"
+    assert data["expires_at"] is not None
+
+    read_resp = await client.post(f"{MEMORY_BASE}/read", json={
+        "session_id": "redis-session",
+        "key": "redis-key-1",
+    })
+    assert read_resp.json()["value"]["source"] == "redis"
+
+
+@pytest.mark.asyncio
+async def test_memory_delete_nonexistent(client):
+    """删除不存在的键返回 success=False。"""
+    with patch("app.api.memory.get_redis", side_effect=ConnectionError("No Redis")):
+        resp = await client.post(f"{MEMORY_BASE}/delete", json={
+            "session_id": "no-session",
+            "key": "nonexistent-key",
+        })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is False
+    assert data["key"] == "nonexistent-key"

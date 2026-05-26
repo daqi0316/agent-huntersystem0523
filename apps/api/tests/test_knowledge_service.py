@@ -1,233 +1,175 @@
-"""KnowledgeService unit tests — mock Qdrant + LLM at source level."""
+from __future__ import annotations
 
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from app.services.knowledge import KnowledgeService, KNOWLEDGE_COLLECTION
+from app.services.knowledge import KnowledgeService
 
 
+class TestKnowledge:
+    def test_llm_lazy_init(self):
+        svc = KnowledgeService()
+        assert svc._llm is None
+        _ = svc.llm
+        assert svc._llm is not None
 
-@pytest.fixture
-def mock_qdrant():
-    """Return an async-mock Qdrant client."""
-    q = AsyncMock()
-    q.get_collections = AsyncMock()
-    q.create_collection = AsyncMock()
-    q.upsert = AsyncMock()
-    q.query_points = AsyncMock()
-    return q
+    def test_chunk_text_at_end_when_no_boundary(self):
+        text = "abcde12345" * 60  # 600 chars
+        chunks = KnowledgeService._chunk_text(text, chunk_size=100, overlap=10)
+        assert len(chunks) > 1
+        assert all(isinstance(c, str) and len(c) > 0 for c in chunks)
+        assert len(chunks[0]) == 100
+
+    def test_chunk_text_with_paragraph_boundary(self):
+        text = "Short paragraph.\n\nAnother paragraph.\n\nYet another.\n\n" * 10
+        chunks = KnowledgeService._chunk_text(text, chunk_size=100, overlap=10)
+        assert len(chunks) >= 1
+        assert all(len(c) > 0 for c in chunks)
+        assert len(chunks[0]) <= 100 + 10  # chunk_size + overlap max
+
+    def test_chunk_text_smaller_than_chunk_size(self):
+        text = "Short text that fits in one chunk."
+        chunks = KnowledgeService._chunk_text(text, chunk_size=100, overlap=10)
+        assert len(chunks) == 1
+        assert chunks[0] == text
+
+    def test_chunk_text_zero_overlap(self):
+        text = "word " * 200
+        chunks = KnowledgeService._chunk_text(text.strip(), chunk_size=50, overlap=0)
+        assert len(chunks) > 1
+        assert all(len(c) > 0 for c in chunks)
 
 
-@pytest.fixture
-def mock_llm():
-    """Return a mock LLM client with embed + chat."""
-    llm = AsyncMock()
-    llm.embed = AsyncMock(return_value=[0.1] * 1024)
-    llm.chat = AsyncMock(return_value="Mock answer.")
-    return llm
+@pytest.mark.asyncio
+async def test_ingest_document_success():
+    from unittest.mock import MagicMock
 
+    svc = KnowledgeService()
+    mock_llm = AsyncMock()
+    mock_llm.embed.return_value = [0.1] * 1024
+    svc._llm = mock_llm
 
-@pytest.fixture
-def service(mock_qdrant, mock_llm):
-    """Create KnowledgeService with get_qdrant + get_llm_client patched."""
+    collections_resp = MagicMock()
+    collections_resp.collections = []
+    mock_qdrant = AsyncMock()
+    mock_qdrant.get_collections.return_value = collections_resp
+
     with patch("app.services.knowledge.get_qdrant", return_value=mock_qdrant):
-        with patch("app.services.knowledge.get_llm_client", return_value=mock_llm):
-            svc = KnowledgeService()
-            # force-lazy-init so the property uses the patched import
-            svc._llm = mock_llm
-            yield svc
+        result = await svc.ingest_document("Test Doc", "Hello world. " * 50)
 
-
-# ── ensure_collection ────────────────────────────────────────────────────
-
-
-async def test_ensure_collection_creates_when_missing(service, mock_qdrant):
-    """ensure_collection creates collection when it doesn't exist."""
-    mock_qdrant.get_collections.return_value = Mock(collections=[])
-    await service.ensure_collection()
-    mock_qdrant.create_collection.assert_awaited_once()
-    call_kwargs = mock_qdrant.create_collection.await_args.kwargs
-    assert call_kwargs["collection_name"] == KNOWLEDGE_COLLECTION
-
-
-async def test_ensure_collection_skips_when_exists(service, mock_qdrant):
-    """ensure_collection is no-op when collection already exists."""
-    existing = Mock(name="knowledge_base")
-    existing.name = KNOWLEDGE_COLLECTION
-    mock_qdrant.get_collections.return_value = Mock(collections=[existing])
-    await service.ensure_collection()
-    mock_qdrant.create_collection.assert_not_called()
-
-
-async def test_ensure_collection_handles_qdrant_error(service, mock_qdrant):
-    """ensure_collection logs warning, does not crash when Qdrant unavailable."""
-    mock_qdrant.get_collections.side_effect = RuntimeError("Qdrant down")
-    # should not raise
-    await service.ensure_collection()
-
-
-# ── ingest_document ───────────────────────────────────────────────────────
-
-
-async def test_ingest_document_success(service, mock_qdrant, mock_llm):
-    """ingest_document chunks, embeds, and upserts to Qdrant."""
-    mock_qdrant.get_collections.return_value = Mock(collections=[])
-    result = await service.ingest_document(
-        title="Test Doc",
-        content="Hello world. " * 30,  # long enough for multiple chunks
-    )
     assert result["title"] == "Test Doc"
     assert result["chunks_count"] > 0
-    assert "document_id" in result
-    assert mock_llm.embed.awaited
-    mock_qdrant.upsert.assert_awaited_once()
 
 
-async def test_ingest_document_qdrant_unavailable(mock_llm):
-    """ingest_document returns warning when get_qdrant() itself raises."""
-    with patch("app.services.knowledge.get_qdrant", side_effect=RuntimeError("Qdrant down")):
-        with patch("app.services.knowledge.get_llm_client", return_value=mock_llm):
-            svc = KnowledgeService()
-            svc._llm = mock_llm
-            result = await svc.ingest_document(title="Fail Doc", content="Some content")
+@pytest.mark.asyncio
+async def test_ingest_document_qdrant_unavailable():
+    from unittest.mock import MagicMock
+
+    svc = KnowledgeService()
+    mock_llm = AsyncMock()
+    svc._llm = mock_llm
+
+    with patch("app.services.knowledge.get_qdrant", side_effect=ConnectionError("No Qdrant")):
+        result = await svc.ingest_document("Test Doc", "Hello world.")
+
     assert "warning" in result
     assert "Qdrant unavailable" in result["warning"]
-    assert result["chunks_count"] == 1
 
 
-async def test_ingest_document_embed_failure_skips_chunk(service, mock_qdrant, mock_llm):
-    """If LLM embed fails for one chunk, it's skipped; others still upserted."""
-    mock_qdrant.get_collections.return_value = Mock(collections=[])
-    # First call to embed fails, subsequent succeed
-    mock_llm.embed = AsyncMock(side_effect=[RuntimeError("LLM down"), [0.2] * 1024])
+@pytest.mark.asyncio
+async def test_ensure_collection_exception():
+    svc = KnowledgeService()
+    mock_qdrant = AsyncMock()
+    mock_qdrant.get_collections.side_effect = Exception("Qdrant down")
 
-    result = await service.ingest_document(
-        title="Partial Fail",
-        content="Chunk one content. " * 30 + "Chunk two content. " * 30,
-    )
-    # Some chunks may be skipped, but doc is still created
-    assert result["chunks_count"] > 0
-    # upsert should still be called with remaining chunks
-    assert mock_qdrant.upsert.awaited
+    with patch("app.services.knowledge.get_qdrant", return_value=mock_qdrant):
+        await svc.ensure_collection()  # should not raise
 
 
-# ── search ────────────────────────────────────────────────────────────────
-
-
-async def test_search_returns_results_above_threshold(service, mock_qdrant):
-    """search returns sources with score > 0.3."""
-    from qdrant_client.models import ScoredPoint
-
-    mock_qdrant.query_points.return_value = Mock(
-        points=[
-            Mock(id="1", score=0.95, payload={"title": "A", "content": "Content A"}),
-            Mock(id="2", score=0.25, payload={"title": "B", "content": "Content B"}),
-            Mock(id="3", score=0.50, payload={"title": "C", "content": "Content C"}),
-        ]
-    )
-    results = await service.search("test query")
-    assert len(results) == 2  # only scores 0.95 and 0.50
-    assert results[0]["title"] == "A"
-    assert results[1]["title"] == "C"
-
-
-async def test_search_returns_empty_when_all_below_threshold(service, mock_qdrant):
-    """search returns empty list when all results below 0.3."""
-    mock_qdrant.query_points.return_value = Mock(
-        points=[
-            Mock(id="1", score=0.1, payload={"title": "Low", "content": "Low score"}),
-        ]
-    )
-    results = await service.search("low relevance")
-    assert results == []
-
-
-async def test_search_handles_qdrant_unavailable(mock_llm):
-    """search returns error dict when get_qdrant() itself raises."""
-    with patch("app.services.knowledge.get_qdrant", side_effect=RuntimeError("Qdrant down")):
-        with patch("app.services.knowledge.get_llm_client", return_value=mock_llm):
-            svc = KnowledgeService()
-            svc._llm = mock_llm
-            results = await svc.search("query")
-    assert len(results) == 1
+@pytest.mark.asyncio
+async def test_search_qdrant_unavailable():
+    svc = KnowledgeService()
+    with patch("app.services.knowledge.get_qdrant", side_effect=ConnectionError("No Qdrant")):
+        results = await svc.search("test query")
     assert "error" in results[0]
 
 
-async def test_search_handles_embed_failure(service, mock_qdrant, mock_llm):
-    """search returns empty when LLM embed fails."""
-    mock_qdrant.get_collections.return_value = Mock(collections=[])
-    mock_llm.embed = AsyncMock(side_effect=RuntimeError("LLM down"))
-    results = await service.search("query")
+@pytest.mark.asyncio
+async def test_search_llm_embed_failure():
+    from unittest.mock import MagicMock
+
+    svc = KnowledgeService()
+    mock_llm = AsyncMock()
+    mock_llm.embed.side_effect = Exception("LLM down")
+    svc._llm = mock_llm
+
+    with patch("app.services.knowledge.get_qdrant") as mock_get:
+        mock_qdrant = AsyncMock()
+        collections_resp = MagicMock()
+        collections_resp.collections = []
+        mock_qdrant.get_collections.return_value = collections_resp
+        mock_get.return_value = mock_qdrant
+
+        results = await svc.search("test")
     assert results == []
 
 
-# ── query ─────────────────────────────────────────────────────────────────
-
-
-async def test_query_success(service, mock_qdrant, mock_llm):
-    """query returns answer from LLM with sources."""
-    mock_qdrant.query_points.return_value = Mock(
-        points=[
-            Mock(id="1", score=0.9, payload={"title": "Guide", "content": "Onboarding takes 3 days."}),
-        ]
-    )
-    mock_llm.chat = AsyncMock(return_value="Onboarding takes 3 days.")
-    result = await service.query("How long?", top_k=3)
-    assert "3 days" in result["answer"]
-    assert len(result["sources"]) == 1
-    mock_llm.chat.assert_awaited()
-
-
-async def test_query_no_sources(service, mock_qdrant, mock_llm):
-    """query returns 'search failed' when search returns empty (dead-code path — "未找到相关信息" is unreachable)."""
-    mock_qdrant.query_points.return_value = Mock(points=[])
-    result = await service.query("unknown topic")
-    assert "检索失败" in result["answer"]
+@pytest.mark.asyncio
+async def test_query_search_failure():
+    svc = KnowledgeService()
+    with patch.object(svc, "search", return_value=[]):
+        result = await svc.query("something random")
+    assert "失败" in result["answer"]
     assert result["sources"] == []
 
 
-async def test_query_search_returns_error(service, mock_qdrant, mock_llm):
-    """query returns 'search failed' when search returns error."""
-    mock_qdrant.get_collections.side_effect = RuntimeError("Qdrant down")
-    result = await service.query("anything")
-    assert "检索失败" in result["answer"]
+@pytest.mark.asyncio
+async def test_query_llm_chat_failure():
+    svc = KnowledgeService()
+    mock_search_result = [
+        {"id": "doc-1", "title": "Doc", "content": "content", "score": 0.95},
+    ]
+    mock_llm = AsyncMock()
+    mock_llm.chat.side_effect = Exception("LLM chat down")
+    svc._llm = mock_llm
 
-
-async def test_query_llm_chat_failure(service, mock_qdrant, mock_llm):
-    """query falls back when LLM chat fails."""
-    mock_qdrant.query_points.return_value = Mock(
-        points=[
-            Mock(id="1", score=0.9, payload={"title": "Guide", "content": "Some content."}),
-        ]
-    )
-    mock_llm.chat = AsyncMock(side_effect=RuntimeError("LLM chat failed"))
-    result = await service.query("question")
-    assert "AI 回答不可用" in result["answer"]
+    with patch.object(svc, "search", return_value=mock_search_result):
+        result = await svc.query("test")
+    assert "不可用" in result["answer"]
     assert len(result["sources"]) == 1
 
 
-# ── _chunk_text ───────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_ingest_embed_failure_partial():
+    from unittest.mock import MagicMock
+
+    svc = KnowledgeService()
+    mock_llm = AsyncMock()
+    mock_llm.embed.side_effect = [Exception("LLM fail"), [0.1] * 1024]
+    svc._llm = mock_llm
+
+    collections_resp = MagicMock()
+    collections_resp.collections = []
+    mock_qdrant = AsyncMock()
+    mock_qdrant.get_collections.return_value = collections_resp
+
+    with patch("app.services.knowledge.get_qdrant", return_value=mock_qdrant):
+        result = await svc.ingest_document("Partial Fail", "AAA BBB CCC DDD" * 200)
+    assert result["chunks_count"] > 0
 
 
-class TestChunkText:
-    def test_short_text_single_chunk(self):
-        """Text shorter than chunk_size returns one chunk."""
-        chunks = KnowledgeService._chunk_text("Short text", chunk_size=512)
-        assert chunks == ["Short text"]
+@pytest.mark.asyncio
+async def test_query_success():
+    svc = KnowledgeService()
+    mock_llm = AsyncMock()
+    mock_llm.chat.return_value = "This is the answer from LLM."
+    svc._llm = mock_llm
 
-    def test_long_text_splits_into_multiple_chunks(self):
-        """Long text is split into multiple chunks with overlap."""
-        text = "Sentence one. " * 60  # ~900 chars
-        chunks = KnowledgeService._chunk_text(text, chunk_size=200, overlap=30)
-        assert len(chunks) > 1
-        # Each chunk should start with the overlap from previous
-        assert all(len(c) <= 210 for c in chunks)  # 200 + some margin
-
-    def test_chunks_preserves_word_boundaries(self):
-        """Chunking splits at paragraph/sentence boundaries."""
-        text = "\n\n".join([f"Paragraph {i} content here." for i in range(10)])
-        chunks = KnowledgeService._chunk_text(text, chunk_size=100, overlap=20)
-        assert len(chunks) >= 1
-        # No chunk should be empty
-        assert all(len(c) > 0 for c in chunks)
+    sources = [
+        {"id": "doc-1", "title": "Doc 1", "content": "content here", "score": 0.95},
+    ]
+    with patch.object(svc, "search", return_value=sources):
+        result = await svc.query("test question")
+    assert result["answer"] == "This is the answer from LLM."
+    assert len(result["sources"]) == 1

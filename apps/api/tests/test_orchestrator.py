@@ -108,6 +108,28 @@ async def test_orchestrate_partial_failure(client):
     assert "部分完成" in data["summary"]
 
 
+@pytest.mark.asyncio
+async def test_orchestrate_unknown_status(client):
+    """Unknown status returns fallback summary."""
+    with patch("app.api.orchestrator.agent") as mock_agent:
+        mock_agent.run = AsyncMock(return_value={
+            "agent": "orchestrator",
+            "status": "unknown",
+            "total_sub_tasks": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "duration_seconds": 0,
+            "outputs": [],
+            "sub_tasks": [],
+        })
+        resp = await client.post("/api/v1/orchestrator/analyze", json={
+            "task": "something weird",
+        })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["summary"] == "编排执行异常"
+
+
 # ──────────────────────────────────────────────
 # OrchestratorAgent unit tests
 # ──────────────────────────────────────────────
