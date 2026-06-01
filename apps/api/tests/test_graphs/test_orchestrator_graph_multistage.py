@@ -492,7 +492,7 @@ async def test_execute_level_runs_parallel_subtasks():
 
     call_count = {"n": 0}
 
-    async def fake_run_sub_task(sub_task, ctx, user_id):
+    async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
         call_count["n"] += 1
         return {
             "agent": sub_task["type"],
@@ -524,7 +524,7 @@ async def test_execute_level_records_failures():
         "user_id": "u1",
     }
 
-    async def fake_run_sub_task(sub_task, ctx, user_id):
+    async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
         if sub_task["type"] == "sourcing":
             raise RuntimeError("boom")
         return {
@@ -556,7 +556,7 @@ async def test_execute_level_pauses_on_awaiting_approval():
         "user_id": "u1",
     }
 
-    async def fake_run_sub_task(sub_task, ctx, user_id):
+    async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
         if sub_task["type"] == "interview":
             return {
                 "agent": "interview", "status": "awaiting_approval",
@@ -589,7 +589,7 @@ async def test_execute_level_writes_to_shared_context():
         "user_id": "u1",
     }
 
-    async def fake_run_sub_task(sub_task, ctx, user_id):
+    async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
         # Simulate _update_shared_context writing
         ctx["sourcing.candidates"] = [{"name": "Alice"}]
         return {
@@ -648,7 +648,7 @@ async def test_multi_stage_completes_2_level_dag(graph):
         mock.build_dag = MagicMock(return_value=fake_levels)
 
         # Mock both agent calls
-        async def fake_run_sub_task(sub_task, ctx, user_id):
+        async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
             ctx.setdefault(f"{sub_task['type']}.full", sub_task["description"])
             return {
                 "agent": sub_task["type"],
@@ -685,7 +685,7 @@ async def test_multi_stage_pauses_when_subtask_needs_approval(graph):
         mock.decompose = AsyncMock(return_value=fake_sub_tasks)
         mock.build_dag = MagicMock(return_value=fake_levels)
 
-        async def fake_run_sub_task(sub_task, ctx, user_id):
+        async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
             return {
                 "agent": "interview",
                 "status": "awaiting_approval",
@@ -731,7 +731,7 @@ async def test_multi_stage_resume_via_checkpointer(graph):
         mock.decompose = AsyncMock(return_value=fake_sub_tasks)
         mock.build_dag = MagicMock(return_value=fake_levels)
 
-        async def fake_run_sub_task(sub_task, ctx, user_id):
+        async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
             return {
                 "agent": "interview", "status": "awaiting_approval",
                 "summary": "needs approval",
@@ -818,7 +818,7 @@ async def test_execute_level_handles_length_mismatch():
         "user_id": "u1",
     }
 
-    async def fake_run_sub_task(sub_task, ctx, user_id):
+    async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
         return {
             "agent": sub_task["type"], "status": "completed",
             "summary": "ok", "result": {},
@@ -857,7 +857,7 @@ async def test_multi_stage_graph_with_only_one_subtask(graph):
         ])
         mock.build_dag = MagicMock(return_value=[[0]])
 
-        async def fake_run_sub_task(sub_task, ctx, user_id):
+        async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
             return {
                 "agent": sub_task["type"], "status": "completed",
                 "summary": "done", "result": {},

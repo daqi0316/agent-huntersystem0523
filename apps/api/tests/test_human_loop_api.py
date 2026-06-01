@@ -368,3 +368,311 @@ class TestResumeEdgeCases:
                 assert body["data"]["status"] == "partial"
                 assert body["data"]["succeeded"] == 1
                 assert body["data"]["failed"] == 1
+
+
+class TestResumeViaGraph:
+    """PR-V.2 — /resume walks the new graph state path when approval has a thread index."""
+
+    @staticmethod
+    def _build_paused_state(approval_id: str = "appr_graph_1") -> dict:
+        return {
+            "task_id": "t1",
+            "user_id": "u1",
+            "job_id": "",
+            "intent": "orchestrator",
+            "input_text": "先筛选再安排面试",
+            "agent_result": None,
+            "error": None,
+            "status": "awaiting_approval",
+            "multi_stage": True,
+            "sub_tasks": [
+                {"type": "screening", "description": "筛选", "depends_on": []},
+                {"type": "interview", "description": "面试", "depends_on": [0]},
+            ],
+            "current_level": 1,
+            "levels": [[0], [1]],
+            "paused_at_level": 0,
+            "results": [
+                {
+                    "agent": "screening", "status": "awaiting_approval",
+                    "summary": "需审批",
+                    "result": {},
+                    "details": {"approval": {"approval_id": approval_id}},
+                },
+                None,
+            ],
+            "shared_context": {"screening.full": {"ok": True}},
+        }
+
+    @staticmethod
+    def _build_resumed_state(approval_id: str) -> dict:
+        return {
+            "task_id": "t1",
+            "user_id": "u1",
+            "job_id": "",
+            "intent": "orchestrator",
+            "input_text": "先筛选再安排面试",
+            "agent_result": None,
+            "error": None,
+            "status": "completed",
+            "multi_stage": True,
+            "sub_tasks": [
+                {"type": "screening", "description": "筛选", "depends_on": []},
+                {"type": "interview", "description": "面试", "depends_on": [0]},
+            ],
+            "current_level": 2,
+            "levels": [[0], [1]],
+            "paused_at_level": None,
+            "results": [
+                {
+                    "agent": "screening", "status": "approved",
+                    "summary": "筛选 已审批",
+                    "result": {},
+                    "details": {"approval": {"approval_id": approval_id}},
+                },
+                {
+                    "agent": "interview", "status": "completed",
+                    "summary": "面试完成",
+                    "result": {"ok": True},
+                    "details": {},
+                },
+            ],
+            "shared_context": {"interview.full": {"ok": True}},
+        }
+
+    async def test_resume_graph_success(self, client, mock_agent):
+        from types import SimpleNamespace
+        from app.core.redis import get_redis
+
+        mock_agent.get_approval_status = AsyncMock(
+            return_value={"status": "approved", "found_in": "history"},
+        )
+
+        thread_id = "thread-graph-1"
+        approval_id = "appr_graph_1"
+        paused = self._build_paused_state(approval_id)
+        resumed = self._build_resumed_state(approval_id)
+
+        snap = SimpleNamespace(values=paused)
+        graph = MagicMock()
+        graph.get_state = MagicMock(return_value=snap)
+        graph.update_state = MagicMock()
+        graph.ainvoke = AsyncMock(return_value=resumed)
+
+        redis_client = MagicMock()
+        redis_client.get = AsyncMock(
+            side_effect=lambda k: thread_id.encode() if k == f"appr:graph_thread:{approval_id}" else None,
+        )
+        redis_client.delete = AsyncMock(return_value=1)
+
+        with (
+            patch("app.core.redis.get_redis", AsyncMock(return_value=redis_client)),
+            patch("app.api.orchestrator._get_graph", return_value=graph),
+        ):
+            resp = await client.post(
+                "/api/v1/human-loop/resume",
+                json={"action_type": "schedule_interview", "approval_id": approval_id},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["data"]["status"] == "completed"
+        assert body["data"]["summary"] == "编排全部完成"
+        assert body["data"]["succeeded"] == 2
+        assert body["data"]["failed"] == 0
+        assert body["data"]["awaiting_approval"] == 0
+
+        graph.get_state.assert_called_once()
+        graph.update_state.assert_called_once()
+        patch_arg = graph.update_state.call_args.args[1]
+        assert patch_arg["paused_at_level"] is None
+        assert patch_arg["status"] == "running"
+        assert patch_arg["results"][0]["status"] == "approved"
+        assert "（已审批）" in patch_arg["results"][0]["summary"]
+        graph.ainvoke.assert_awaited_once()
+        assert graph.ainvoke.call_args.kwargs["config"] == {
+            "configurable": {"thread_id": thread_id},
+        }
+        redis_client.delete.assert_awaited_once_with(
+            f"appr:graph_thread:{approval_id}",
+        )
+
+    async def test_resume_graph_paused_state_continues_to_next_approval(self, client, mock_agent):
+        from types import SimpleNamespace
+        from app.core.redis import get_redis
+
+        mock_agent.get_approval_status = AsyncMock(
+            return_value={"status": "approved", "found_in": "history"},
+        )
+
+        thread_id = "thread-multi-approval"
+        approval_id = "appr_l2"
+        paused = self._build_paused_state(approval_id)
+        paused["results"][1] = {
+            "agent": "interview", "status": "awaiting_approval",
+            "summary": "面试需审批",
+            "result": {},
+            "details": {"approval": {"approval_id": approval_id}},
+        }
+        paused["paused_at_level"] = 1
+
+        resumed = self._build_resumed_state(approval_id)
+        resumed["status"] = "awaiting_approval"
+        resumed["results"][1] = {
+            "agent": "interview", "status": "awaiting_approval",
+            "summary": "面试需审批",
+            "result": {},
+            "details": {"approval": {"approval_id": approval_id}},
+        }
+        resumed["paused_at_level"] = 1
+
+        snap = SimpleNamespace(values=paused)
+        graph = MagicMock()
+        graph.get_state = MagicMock(return_value=snap)
+        graph.update_state = MagicMock()
+        graph.ainvoke = AsyncMock(return_value=resumed)
+
+        redis_client = MagicMock()
+        redis_client.get = AsyncMock(
+            side_effect=lambda k: thread_id.encode() if k == f"appr:graph_thread:{approval_id}" else None,
+        )
+        redis_client.delete = AsyncMock(return_value=1)
+
+        with (
+            patch("app.core.redis.get_redis", AsyncMock(return_value=redis_client)),
+            patch("app.api.orchestrator._get_graph", return_value=graph),
+        ):
+            resp = await client.post(
+                "/api/v1/human-loop/resume",
+                json={"action_type": "schedule_interview", "approval_id": approval_id},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["data"]["status"] == "awaiting_approval"
+        assert body["data"]["awaiting_approval"] == 1
+        assert "继续等待审批" in body["data"]["summary"]
+
+    async def test_resume_graph_state_not_found(self, client, mock_agent):
+        mock_agent.get_approval_status = AsyncMock(
+            return_value={"status": "approved", "found_in": "history"},
+        )
+
+        redis_client = MagicMock()
+        redis_client.get = AsyncMock(return_value=b"thread-missing")
+        redis_client.delete = AsyncMock(return_value=1)
+
+        graph = MagicMock()
+        graph.get_state = MagicMock(return_value=None)
+
+        with (
+            patch("app.core.redis.get_redis", AsyncMock(return_value=redis_client)),
+            patch("app.api.orchestrator._get_graph", return_value=graph),
+        ):
+            resp = await client.post(
+                "/api/v1/human-loop/resume",
+                json={"action_type": "schedule_interview", "approval_id": "appr_no_state"},
+            )
+
+        assert resp.status_code == 404
+        body = resp.json()
+        assert "graph state not found" in body["error"]
+
+    async def test_resume_graph_state_not_paused(self, client, mock_agent):
+        from types import SimpleNamespace
+        from app.core.redis import get_redis
+
+        mock_agent.get_approval_status = AsyncMock(
+            return_value={"status": "approved", "found_in": "history"},
+        )
+
+        state = self._build_paused_state("appr_x")
+        state["paused_at_level"] = None
+        state["status"] = "running"
+
+        snap = SimpleNamespace(values=state)
+        graph = MagicMock()
+        graph.get_state = MagicMock(return_value=snap)
+
+        redis_client = MagicMock()
+        redis_client.get = AsyncMock(return_value=b"thread-1")
+
+        with (
+            patch("app.core.redis.get_redis", AsyncMock(return_value=redis_client)),
+            patch("app.api.orchestrator._get_graph", return_value=graph),
+        ):
+            resp = await client.post(
+                "/api/v1/human-loop/resume",
+                json={"action_type": "schedule_interview", "approval_id": "appr_x"},
+            )
+
+        assert resp.status_code == 400
+        body = resp.json()
+        assert "not paused" in body["error"]
+        graph.update_state.assert_not_called()
+        graph.ainvoke.assert_not_called()
+
+    async def test_resume_graph_approval_id_not_in_state(self, client, mock_agent):
+        from types import SimpleNamespace
+        from app.core.redis import get_redis
+
+        mock_agent.get_approval_status = AsyncMock(
+            return_value={"status": "approved", "found_in": "history"},
+        )
+
+        state = self._build_paused_state("appr_other")
+        snap = SimpleNamespace(values=state)
+        graph = MagicMock()
+        graph.get_state = MagicMock(return_value=snap)
+        graph.update_state = MagicMock()
+        graph.ainvoke = AsyncMock()
+
+        redis_client = MagicMock()
+        redis_client.get = AsyncMock(return_value=b"thread-1")
+
+        with (
+            patch("app.core.redis.get_redis", AsyncMock(return_value=redis_client)),
+            patch("app.api.orchestrator._get_graph", return_value=graph),
+        ):
+            resp = await client.post(
+                "/api/v1/human-loop/resume",
+                json={"action_type": "schedule_interview", "approval_id": "appr_not_in_state"},
+            )
+
+        assert resp.status_code == 404
+        body = resp.json()
+        assert "not found in graph state" in body["error"]
+        graph.update_state.assert_not_called()
+
+    async def test_resume_graph_invoke_failure_returns_500(self, client, mock_agent):
+        from types import SimpleNamespace
+        from app.core.redis import get_redis
+
+        mock_agent.get_approval_status = AsyncMock(
+            return_value={"status": "approved", "found_in": "history"},
+        )
+
+        state = self._build_paused_state("appr_fail")
+        snap = SimpleNamespace(values=state)
+        graph = MagicMock()
+        graph.get_state = MagicMock(return_value=snap)
+        graph.update_state = MagicMock()
+        graph.ainvoke = AsyncMock(side_effect=RuntimeError("LLM down"))
+
+        redis_client = MagicMock()
+        redis_client.get = AsyncMock(return_value=b"thread-1")
+        redis_client.delete = AsyncMock(return_value=1)
+
+        with (
+            patch("app.core.redis.get_redis", AsyncMock(return_value=redis_client)),
+            patch("app.api.orchestrator._get_graph", return_value=graph),
+        ):
+            resp = await client.post(
+                "/api/v1/human-loop/resume",
+                json={"action_type": "schedule_interview", "approval_id": "appr_fail"},
+            )
+
+        assert resp.status_code == 500
+        body = resp.json()
+        assert "graph resume failed" in body["error"]

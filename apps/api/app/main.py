@@ -54,6 +54,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Agent initialization failed: %s", e)
 
+    try:
+        from app.services.orchestrator_session_migration import (
+            migrate_legacy_orchestrator_sessions,
+        )
+
+        migration_summary = await migrate_legacy_orchestrator_sessions()
+        if migration_summary["orphaned"] > 0:
+            logger.warning(
+                "Found %d orphaned legacy session(s) without graph index — "
+                "ops should review before PR-V.4",
+                migration_summary["orphaned"],
+            )
+    except Exception as e:
+        logger.warning("Legacy session migration skipped: %s", e)
+
     # ── 启动推荐扫描定时器 ──
     scheduler_task = asyncio.create_task(recommendation_scheduler_loop())
     logger.info("Recommendation scheduler started in background")

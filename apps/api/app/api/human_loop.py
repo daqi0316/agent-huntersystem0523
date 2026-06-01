@@ -128,10 +128,17 @@ async def list_history(limit: int = 50):
 async def resume_after_approval(req: HumanLoopRequest):
     """审批通过后恢复 Orchestrator 编排执行。
 
-    1. 校验审批状态（必须为 approved）
-    2. 查找对应的 OrchestratorSession
-    3. 恢复 OrchestratorAgent 并继续 DAG 执行
-    4. 返回最终编排结果
+    PR-V.2: 优先用 LangGraph checkpointer 恢复（PR-V.1 写入的 paused 状态），
+    失败/无索引时降级到 legacy OrchestratorSession（PR-V.4 删除）。
+
+    Graph 流程:
+    1. 从 Redis 索引 `appr:graph_thread:{approval_id}` 反查 thread_id
+    2. graph.get_state(config) 读出暂停时的 OrchestratorState
+    3. 找到匹配 approval_id 的 awaiting_approval entry，标记为 approved
+    4. 清空 paused_at_level，status → running
+    5. graph.update_state(config, {...}) 提交变更
+    6. graph.ainvoke(None, config) 从断点继续执行后续 level
+    7. 从结果汇总 outputs/status/summary
     """
     if not req.approval_id:
         return error("approval_id is required", status_code=400)
@@ -143,13 +150,128 @@ async def resume_after_approval(req: HumanLoopRequest):
     if status["status"] != "approved":
         return error(f"approval status is '{status['status']}', expected 'approved'", status_code=400)
 
-    from app.agents.orchestrator_session import OrchestratorSession
+    thread_id = await _resolve_graph_thread_id(req.approval_id)
+    if thread_id:
+        return await _resume_via_graph(req.approval_id, thread_id)
 
-    session = await OrchestratorSession.find_by_approval_id(req.approval_id)
+    return await _resume_legacy(req.approval_id)
+
+
+async def _resolve_graph_thread_id(approval_id: str) -> str | None:
+    """从 Redis 索引反查 graph thread_id。无索引 → 走 legacy 路径。"""
+    from app.core.redis import get_redis
+
+    try:
+        client = await get_redis()
+    except Exception:
+        return None
+    if client is None:
+        return None
+    try:
+        raw = await client.get(f"appr:graph_thread:{approval_id}")
+    except Exception as e:
+        logger.warning("Failed to read approval index %s: %s", approval_id, e)
+        return None
+    if raw is None:
+        return None
+    return raw.decode() if isinstance(raw, bytes) else raw
+
+
+async def _resume_via_graph(approval_id: str, thread_id: str) -> dict:
+    """通过 LangGraph checkpointer 恢复 multi-stage 执行。"""
+    from app.api.orchestrator import _get_graph
+    from app.core.redis import get_redis
+
+    graph = _get_graph()
+    config = {"configurable": {"thread_id": thread_id}}
+
+    snap = graph.get_state(config)
+    if snap is None or not snap.values:
+        return error("graph state not found for thread", status_code=404)
+
+    state = snap.values
+    paused_at_level = state.get("paused_at_level")
+    if paused_at_level is None:
+        return error("graph state is not paused (no awaiting_approval)", status_code=400)
+
+    results = list(state.get("results") or [])
+    matched_idx = None
+    for i, r in enumerate(results):
+        if not isinstance(r, dict):
+            continue
+        if r.get("status") != "awaiting_approval":
+            continue
+        aid = (r.get("details") or {}).get("approval", {}).get("approval_id", "")
+        if aid == approval_id:
+            matched_idx = i
+            break
+
+    if matched_idx is None:
+        return error(
+            f"approval_id {approval_id} not found in graph state awaiting list",
+            status_code=404,
+        )
+
+    results[matched_idx] = {
+        **results[matched_idx],
+        "status": "approved",
+        "summary": (results[matched_idx].get("summary", "") + "（已审批）").strip(),
+    }
+    update_patch = {
+        "results": results,
+        "paused_at_level": None,
+        "status": "running",
+    }
+    graph.update_state(config, update_patch)
+
+    try:
+        final = await graph.ainvoke(None, config=config)
+    except Exception as e:
+        logger.error("Graph resume failed for thread %s: %s", thread_id, e)
+        return error(f"graph resume failed: {e}", status_code=500)
+
+    final_results = final.get("results") or results
+    succeeded = sum(1 for r in final_results if r and r.get("status") in ("completed", "approved"))
+    failed = sum(1 for r in final_results if r and r.get("status") == "failed")
+    next_awaiting = sum(1 for r in final_results if r and r.get("status") == "awaiting_approval")
+    final_status = final.get("status", "completed")
+
+    if next_awaiting > 0:
+        summary = f"编排继续等待审批: {next_awaiting} 个子任务待确认"
+    elif failed == 0 and final_status != "failed":
+        summary = "编排全部完成"
+        final_status = "completed"
+    else:
+        summary = f"编排部分完成: {succeeded}/{len(final_results)}"
+        final_status = "partial"
+
+    try:
+        client = await get_redis()
+        if client is not None:
+            await client.delete(f"appr:graph_thread:{approval_id}")
+    except Exception as e:
+        logger.warning("Failed to clean approval index %s: %s", approval_id, e)
+
+    return success({
+        "agent": "orchestrator",
+        "status": final_status,
+        "summary": summary,
+        "outputs": final_results,
+        "total_sub_tasks": len(final_results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "awaiting_approval": next_awaiting,
+    })
+
+
+async def _resume_legacy(approval_id: str) -> dict:
+    """PR-V.4 之前的兼容路径：从 OrchestratorSession 恢复（无 graph 索引时）。"""
+    from app.agents.orchestrator_session import OrchestratorSession
+    from app.agents.orchestrator_agent import OrchestratorAgent
+
+    session = await OrchestratorSession.find_by_approval_id(approval_id)
     if session is None:
         return error("orchestrator session not found", status_code=404)
-
-    from app.agents.orchestrator_agent import OrchestratorAgent
 
     orch = OrchestratorAgent()
     orch.shared_context = dict(session.shared_context)
@@ -157,7 +279,7 @@ async def resume_after_approval(req: HumanLoopRequest):
     for i, r in enumerate(session.results):
         if r and r.get("status") == "awaiting_approval":
             aid = (r.get("details") or {}).get("approval", {}).get("approval_id", "")
-            if aid == req.approval_id:
+            if aid == approval_id:
                 session.results[i] = {**r, "status": "approved", "summary": r.get("summary", "") + "（已审批）"}
 
     remaining_levels = session.levels[session.paused_at_level:]

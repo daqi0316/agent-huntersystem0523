@@ -17,6 +17,7 @@ from typing import Annotated, TypedDict, Any
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.runnables import RunnableConfig
 
 from app.agents.router_agent import RouterAgent
 
@@ -268,13 +269,21 @@ async def _multi_stage_decompose(state: OrchestratorState) -> dict:
     }
 
 
-async def _run_sub_task(sub_task: dict, shared_context: dict, user_id: str) -> dict:
+async def _run_sub_task(
+    sub_task: dict,
+    shared_context: dict,
+    user_id: str,
+    thread_id: str | None = None,
+) -> dict:
     """执行单个 sub-task，与 OrchestratorAgent.execute_sub_task 语义一致。
 
     1. 解析 agent_name（_TYPE_TO_AGENT 映射）
     2. AgentRegistry.resolve → agent.run()，构造 shared_context-aware input
     3. 写回 shared_context
     4. 命中 _needs_human_review → HumanLoopAgent.create_proposal → awaiting_approval
+       此时把 graph 的 thread_id 透传给 create_proposal，写入 Redis 索引
+       （appr:graph_thread:{approval_id} → thread_id），让 PR-V.2 的 /resume 端点
+       能从 approval_id 反查 thread_id，恢复 graph 状态。
     """
     task_type = sub_task.get("type", "chat")
     agent_name = _TYPE_TO_AGENT.get(task_type, task_type)
@@ -303,6 +312,7 @@ async def _run_sub_task(sub_task: dict, shared_context: dict, user_id: str) -> d
                             "description": sub_task.get("description", ""),
                             "result": agent_out.get("result", {}),
                         },
+                        thread_id=thread_id,
                     )
                     return {
                         "agent": task_type,
@@ -328,13 +338,19 @@ async def _run_sub_task(sub_task: dict, shared_context: dict, user_id: str) -> d
     }
 
 
-async def _execute_level(state: OrchestratorState) -> dict:
+async def _execute_level(
+    state: OrchestratorState,
+    config: RunnableConfig | None = None,
+) -> dict:
     """并行执行当前 level 的所有 sub-tasks。
 
     - 用 asyncio.gather 跑当前 level 的 sub-tasks
     - 失败时记录到 results（不中断整个 level）
     - 命中 awaiting_approval → 设 paused_at_level → status=awaiting_approval
     - 否则 current_level += 1，状态保持 running
+
+    PR-V.2: 把 graph 的 thread_id 从 RunnableConfig 透传给 _run_sub_task，
+    让 HumanLoopAgent.create_proposal 写入 approval_id → thread_id 的 Redis 索引。
     """
     levels = state.get("levels") or []
     current_level = state.get("current_level", 0)
@@ -342,6 +358,10 @@ async def _execute_level(state: OrchestratorState) -> dict:
     shared_context = dict(state.get("shared_context") or {})
     existing_results = list(state.get("results") or [])
     user_id = state.get("user_id", "")
+
+    thread_id = None
+    if config and isinstance(config, dict):
+        thread_id = (config.get("configurable") or {}).get("thread_id")
 
     # 边界处理
     if not levels or not sub_tasks or current_level >= len(levels):
@@ -355,7 +375,10 @@ async def _execute_level(state: OrchestratorState) -> dict:
     level_sub_tasks = [sub_tasks[i] for i in level_indices]
 
     # 并行执行当前 level 的所有子任务
-    coros = [_run_sub_task(st, shared_context, user_id) for st in level_sub_tasks]
+    coros = [
+        _run_sub_task(st, shared_context, user_id, thread_id=thread_id)
+        for st in level_sub_tasks
+    ]
     level_outputs = await asyncio.gather(*coros, return_exceptions=True)
 
     # 合并到 results

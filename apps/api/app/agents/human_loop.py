@@ -53,7 +53,13 @@ class HumanLoopAgent(BaseAgent):
         session = AsyncSessionLocal()
         return ApprovalService(session), session
 
-    async def create_proposal(self, user_id: str, action_type: str, params: dict) -> dict:
+    async def create_proposal(
+        self,
+        user_id: str,
+        action_type: str,
+        params: dict,
+        thread_id: str | None = None,
+    ) -> dict:
         proposal = await self._generate_proposal(action_type, params)
         svc, session = await self._with_db()
         try:
@@ -66,6 +72,8 @@ class HumanLoopAgent(BaseAgent):
                 target_id=params.get("target_id", ""),
                 candidate_email=params.get("candidate_email", "") or params.get("email", ""),
             )
+            if thread_id:
+                await self._index_approval_to_thread(approval.id, thread_id)
             return {
                 "approval_id": approval.id,
                 "action_type": approval.action_type,
@@ -77,6 +85,32 @@ class HumanLoopAgent(BaseAgent):
             }
         finally:
             await session.close()
+
+    @staticmethod
+    async def _index_approval_to_thread(approval_id: str, thread_id: str) -> None:
+        """Write a Redis index approval_id -> graph thread_id.
+
+        PR-V.2: lets /resume resolve the LangGraph checkpointer key for a
+        given approval so we can call graph.update_state + ainvoke(None).
+        TTL matches OrchestratorSession (24h) so old indices age out.
+        """
+        from app.core.redis import get_redis
+
+        try:
+            client = await get_redis()
+        except Exception as e:
+            logger.warning("Redis unavailable for approval index (%s): %s", approval_id, e)
+            return
+        if client is None:
+            return
+        try:
+            await client.set(
+                f"appr:graph_thread:{approval_id}",
+                thread_id,
+                ex=86400,
+            )
+        except Exception as e:
+            logger.warning("Failed to write approval index %s: %s", approval_id, e)
 
     async def confirm(self, approval_id: str, user_id: str, approved: bool, feedback: str | None = None) -> dict:
         svc, session = await self._with_db()
