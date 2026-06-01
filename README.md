@@ -52,8 +52,8 @@ docker compose up -d postgres redis qdrant minio
 
 ```bash
 cd apps/api
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+uv venv .venv && source .venv/bin/activate
+uv pip install -r requirements.txt
 
 # Run migrations
 alembic upgrade head

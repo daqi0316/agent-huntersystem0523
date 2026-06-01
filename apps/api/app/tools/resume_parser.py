@@ -23,14 +23,36 @@ async def _handle_parse_resume(
     content: str = "",
     file_url: str = "",
     file_type: str = "",
+    filename: str = "",
     target_job_id: str = "",
+    auto_create: bool = True,
 ) -> dict[str, Any]:
     """Parse a single resume: extract structured data, assess quality, detect duplicates."""
     if not content and not file_url:
         return {"status": "failed", "error": {"code": "INVALID_INPUT", "message": "content or file_url required"}}
 
-    if not content and file_url:
-        content = file_url
+    # ── 文件下载：file_url → 临时文件 → 解析 ────────────────────────
+    if file_url and not content:
+        from app.tools.file_parser import download_and_save, cleanup_temp_file
+        from app.services.resume_parser import parse_resume as _parse_resume_file, ResumeParseError
+
+        tmp_path = None
+        try:
+            # 生成临时文件名（保留扩展名）
+            ext = file_type or (filename.rsplit(".", 1)[-1].lower() if filename else "pdf")
+            resolved_filename = filename or f"resume.{ext}"
+            tmp_path = await download_and_save(file_url, resolved_filename)
+
+            with open(tmp_path, "rb") as f:
+                file_bytes = f.read()
+            content = _parse_resume_file(file_bytes, resolved_filename)
+        except ResumeParseError as e:
+            return {"status": "failed", "error": {"code": "PARSE_ERROR", "message": str(e), "retryable": True}}
+        except Exception as e:
+            return {"status": "failed", "error": {"code": "DOWNLOAD_ERROR", "message": f"文件下载失败: {e}"}}
+        finally:
+            if tmp_path:
+                cleanup_temp_file(tmp_path)
 
     candidate = None
     try:
@@ -46,9 +68,31 @@ async def _handle_parse_resume(
             "data": {"raw_text_snippet": content[:500]},
         }
 
+    candidate_id = ""
+    if auto_create:
+        try:
+            from app.schemas.candidate import CandidateCreate
+            async with AsyncSessionLocal() as db:
+                svc = CandidateService(db)
+                create_data = CandidateCreate(
+                    name=candidate.name or "Unknown",
+                    email=candidate.email,
+                    phone=candidate.phone or None,
+                    skills=list(candidate.skills or []),
+                    experience_years=candidate.experience_years,
+                    education=candidate.education or None,
+                    current_company=candidate.current_company or None,
+                    current_title=candidate.current_title or None,
+                )
+                created = await svc.create(create_data)
+                candidate_id = created.id
+                logger.info("Auto-created candidate %s from resume parse", candidate_id)
+        except Exception as e:
+            logger.warning("Auto-create candidate failed (non-blocking): %s", e)
+
     skills = list(candidate.skills or [])
     result = {
-        "candidate_id": "",
+        "candidate_id": candidate_id,
         "basic_info": {
             "name": mask_pii(candidate.name or ""),
             "phone": mask_pii(candidate.phone or ""),
@@ -176,10 +220,12 @@ tools = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "content": {"type": "string", "description": "简历文本内容"},
-                    "file_url": {"type": "string", "description": "简历文件URL"},
-                    "file_type": {"type": "string", "enum": ["pdf", "docx", "txt", "jpg", "png"], "description": "文件类型"},
+                    "content": {"type": "string", "description": "简历文本内容（已有纯文本时使用）"},
+                    "file_url": {"type": "string", "description": "简历文件URL（上传后的临时路径，优先使用）"},
+                    "file_type": {"type": "string", "enum": ["pdf", "docx", "doc", "txt", "jpg", "png"], "description": "文件类型"},
+                    "filename": {"type": "string", "description": "原始文件名（用于推断类型和临时文件名）"},
                     "target_job_id": {"type": "string", "description": "关联的职位ID（可选）"},
+                    "auto_create": {"type": "boolean", "description": "解析成功后是否自动创建候选人（默认 True）"},
                 },
             },
         },

@@ -46,13 +46,6 @@ interface EvalSummary {
   date: string;
 }
 
-const mockCandidates: CandidateItem[] = [
-  { id: "m1", name: "张明", email: "zhangming@example.com", summary: "5 年前端开发经验，精通 React/Vue/TypeScript，参与过多个大型 B 端项目。", skills: ["React", "Vue", "TypeScript", "Webpack", "Node.js", "CSS"], experience_years: 5, current_company: "字节跳动", current_title: "高级前端工程师", education: "本科 - 计算机科学与技术", status: "active", created_at: "2026-05-20" },
-  { id: "m2", name: "李华", email: "lihua@example.com", summary: "8 年后端开发经验，专注于分布式系统与微服务架构设计。", skills: ["Java", "Spring Boot", "Kubernetes", "Docker", "PostgreSQL", "Kafka"], experience_years: 8, current_company: "阿里巴巴", current_title: "后端架构师", education: "硕士 - 软件工程", status: "active", created_at: "2026-05-19" },
-  { id: "m3", name: "王芳", email: "wangfang@example.com", summary: "6 年产品经验，从 0 到 1 打造过 3 款 SaaS 产品。", skills: ["产品策略", "数据分析", "用户研究", "A/B 测试", "PRD", "敏捷管理"], experience_years: 6, current_company: "腾讯", current_title: "资深产品经理", education: "MBA", status: "active", created_at: "2026-05-18" },
-  { id: "m4", name: "陈静", email: "chenjing@example.com", summary: "4 年 UI/UX 设计经验，擅长用户研究与交互设计。", skills: ["Figma", "用户研究", "交互设计", "设计系统", "动效设计", "Sketch"], experience_years: 4, current_company: "美团", current_title: "UI/UX 设计师", education: "本科 - 视觉传达", status: "active", created_at: "2026-05-22" },
-];
-
 const mockJobFits = [
   { job: "高级前端工程师", fit: 92 },
   { job: "全栈开发工程师", fit: 85 },
@@ -78,7 +71,7 @@ function getRadarData(skills: string[]) {
 export default function TalentProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [candidates, setCandidates] = useState<CandidateItem[]>(mockCandidates);
+  const [candidates, setCandidates] = useState<CandidateItem[]>([]);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<CandidateItem | null>(null);
   const [evalData, setEvalData] = useState<EvalSummary | null>(null);
@@ -93,7 +86,7 @@ export default function TalentProfilePage() {
           setCandidates(items.slice(0, 20));
         }
       } catch {
-        setError("使用模拟数据展示");
+        setError("无法加载候选人数据");
       } finally {
         setLoading(false);
       }

@@ -71,16 +71,16 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install uv
+          uv pip install -r requirements.txt --system
 
       - name: Ruff lint
         run: |
-          pip install ruff
+          uv pip install ruff --system
           ruff check apps/api/ --output-format=github
 
       - name: Install bandit
-        run: pip install bandit
+        run: uv pip install bandit --system
 
       - name: Bandit security scan
         run: bandit -r apps/api/app/ -f custom -q 2>&1 || true
@@ -249,6 +249,17 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+          - 6334:6334
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/healthz || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     defaults:
       run:
         working-directory: apps/web
@@ -263,8 +274,11 @@ jobs:
           cache: pip
           cache-dependency-path: apps/api/requirements.txt
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install Python dependencies
-        run: pip install -r ../../apps/api/requirements.txt
+        run: uv pip install -r ../../apps/api/requirements.txt --system
         working-directory: apps/web
 
       - name: Set up Node.js ${{ env.NODE_VERSION }}

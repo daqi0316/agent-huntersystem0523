@@ -10,10 +10,11 @@ from app.models.memory_fact import MemoryFact
 from app.models.interview_evaluation import InterviewEvaluation, InterviewRound, EvaluationVerdict
 from app.models.conversation import ConversationSession, ConversationMessage
 from app.models.recommendation import Recommendation, RecommendationType
+from app.models.command_audit_log import CommandAuditLog
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
     "Setting", "SessionSummary", "MemoryFact", "MCPServer", "InterviewEvaluation",
     "InterviewRound", "EvaluationVerdict", "ConversationSession", "ConversationMessage",
-    "Recommendation", "RecommendationType",
+    "Recommendation", "RecommendationType", "CommandAuditLog",
 ]

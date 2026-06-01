@@ -4,10 +4,10 @@
   Step 1: 多阶段任务检测 → orchestrator_graph（复杂任务分解 + DAG）
   Step 2: 意图分发 → RouterAgent → Specialist Agent（单意图专业任务）
   Step 3: 回退 → LLM 工具调用循环（通用对话）
-
-工具定义来自 app/skills/ 下的可插拔插件。
-内置招聘工具同样以 skill 形式注册。
 """
+
+from app.core.prompts import SYSTEM_PROMPT
+
 
 import asyncio
 import json
@@ -19,6 +19,11 @@ from app.llm import get_llm_client
 from app.mcp.manager import mcp_manager
 from app.skills import all_handlers as all_skill_handlers, all_tools as all_skill_tools
 from app.tools import all_handlers as all_builtin_handlers, all_tools as all_builtin_tools
+from app.tools.metadata import get_metadata, get_max_retries, should_escalate, EscalationMode
+
+from app.commands import CommandContext, CommandResult, CommandErrorCode
+from app.commands.executor import CommandExecutor
+from app.commands.registry import get_default_registry, register_all
 
 logger = logging.getLogger(__name__)
 
@@ -119,43 +124,6 @@ def _get_handlers() -> dict[str, callable]:
                     return await mcp_manager.call_tool(server_id, tool_name, kwargs)
                 handlers[name] = _mcp_handler
     return handlers
-
-
-SYSTEM_PROMPT = """你是一个由多 Agent 编排驱动的 AI 招聘系统，而非单个 AI 个体。
-
-底层由以下 Agent 集群组成：
-- Orchestrator Agent（编排中枢）— 统一调度，自动将用户需求拆解为子任务并分发
-- Sourcing Agent（寻源）— 候选人搜索、渠道策略、话术模板、JD 生成
-- Screening Agent（初筛）— 简历筛选、多维评分、风险标记（无 LLM 时可规则降级）
-- Interview Agent（面试）— 轮次规划、评价表生成、面试安排
-- Offering Agent（Offer）— 薪酬计算、录用方案
-- Onboarding Agent（入职）— 入职计划、里程碑管理
-- Analytics Agent（数据）— 漏斗分析、KPI 报表
-
-你的能力（通过 Agent 编排实现）：
-- 搜索和查看候选人信息
-- AI 简历初筛（评估候选人与职位的匹配度）
-- 查看职位列表
-- 生成职位描述（JD）
-- 安排面试
-- 查看招聘看板统计数据
-- 知识库问答
-- 查看评估报告
-- 实时天气查询（如候选人所在城市天气）
-- 互联网搜索（获取最新新闻、行业信息、技术动态等）
-- **安装新技能**：当用户需要新的功能时，你可以使用 install_skill 动态创建并安装技能
-- **列出已安装技能**：使用 list_skills 查看当前所有可用技能
-
-注意事项：
-- 对于招聘相关的具体需求（筛选、面试、JD 生成等），系统会自动调度对应的 Specialist Agent 处理
-- 每次只调用一个工具，根据用户的意图选择最合适的工具
-- 如果用户没有明确指定参数，可以根据上下文推断，或者主动询问
-- 工具调用后，根据返回的数据生成自然语言回复
-- 如果用户问的问题超出你的能力范围，**且该问题不属于招聘范畴**，你可以尝试：
-  1. 使用 web_search 搜索答案
-  2. 或者安装一个新的 Skill 来提供该能力
-- 回复用中文
-- 不要输出思考过程或推理步骤，直接给出答案"""
 
 
 async def _load_and_merge_history(
@@ -333,6 +301,41 @@ async def _background_summarize(
                 )
     except Exception as e:
         logger.warning("Background summary generation failed (non-blocking): %s", e)
+
+
+def _build_tool_messages_manually(
+    base_msgs: list[dict],
+    reply: str,
+    tool_calls: list,
+    tool_results: list[dict],
+) -> list[dict]:
+    """Build tool-call + tool-result message chain without ContextBuilder."""
+    msgs = list(base_msgs)
+    tool_call_stubs = [
+        {
+            "id": tc.id,
+            "type": "function",
+            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+        }
+        for tc in tool_calls
+    ]
+    msgs.append({
+        "role": "assistant",
+        "content": reply or None,
+        "tool_calls": tool_call_stubs,
+    })
+    for idx, tr in enumerate(tool_results):
+        tool_call_id = tool_call_stubs[idx]["id"] if idx < len(tool_call_stubs) else "unknown"
+        if "error" in tr:
+            content = json.dumps({"error": tr["error"]}, ensure_ascii=False)
+        else:
+            content = json.dumps(tr["result"], ensure_ascii=False, default=str)
+        msgs.append({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": content,
+        })
+    return msgs
 
 
 async def _background_record_facts(
@@ -555,6 +558,8 @@ async def chat_with_tools(
     temperature: float = 0.7,
     max_tokens: int = 2048,
     system_prompt: str | None = None,
+    attachment: dict | None = None,
+    command_context: CommandContext | None = None,
 ) -> dict:
     """统一 Agent 对话入口：三层分发 → Orchestrator → Router → LLM 工具循环。
 
@@ -570,12 +575,42 @@ async def chat_with_tools(
     """
     await _register_builtins()
 
-    # Step 0: Conversation memory
-    last_user_msg = _extract_last_message(messages)
-    user_id, session_id = await _ensure_session(user_id, session_id, last_user_msg)
-    messages = await _load_and_merge_history(messages, user_id, session_id)
+    last_user_msg = ""
+    for m in reversed(messages):
+        if m.get("role") == "user" and m.get("content", "").strip():
+            last_user_msg = m["content"].strip()
+            break
+
+    if last_user_msg and last_user_msg.strip().startswith("/"):
+        registry = get_default_registry()
+        executor = CommandExecutor(registry=registry)
+        ctx = CommandContext(
+            session_id=session_id or "",
+            user_id=user_id or "",
+            permissions=command_context.permissions if command_context else [],
+            user_role=command_context.user_role if command_context else None,
+        )
+        result = await executor.execute(last_user_msg.strip(), ctx)
+        if result.action == "passthrough":
+            pass
+        else:
+            return {
+                "reply": result.message,
+                "tool_calls": [],
+                "model": "",
+                "session_id": session_id,
+            }
 
     if last_user_msg:
+        if attachment:
+            att = attachment
+            last_user_msg = (
+                f"{last_user_msg}\n\n[附件文件]\n"
+                f"文件名: {att.get('filename', 'resume')}\n"
+                f"类型: {att.get('file_type', 'pdf')}\n"
+                f"路径: {att.get('file_url', '')}\n"
+                f"请调用 parse_resume 工具解析此文件，file_url 为 {att.get('file_url', '')}，file_type 为 {att.get('file_type', '')}，filename 为 {att.get('filename', '')}。"
+            )
         # Step 1: Orchestrator 统一处理 (Phase V PR-V.3 graph-based ainvoke)
         try:
             from app.graphs.orchestrator_graph import (
@@ -624,8 +659,25 @@ async def chat_with_tools(
 
     system_content = system_prompt if system_prompt is not None else SYSTEM_PROMPT
     system_content = await _inject_memory_context(system_content, user_id, messages)
-    system_msg = {"role": "system", "content": system_content}
-    msgs = [system_msg] + messages[-20:]
+    msgs = [system_content] if system_content else []
+
+    cb = None
+    try:
+        from app.core.context_builder import ContextBuilder
+        from app.core.qdrant import get_qdrant
+        qdrant_client = await get_qdrant()
+        async with AsyncSessionLocal() as db:
+            cb = ContextBuilder(
+                db=db,
+                llm=llm,
+                qdrant=QdrantService(client=qdrant_client, collection=getattr(settings, "qdrant_memory_collection", "memory")) if qdrant_client else None,
+                model=llm.model,
+            )
+            msgs = await cb.build(user_id, messages[-20:])
+    except Exception as e:
+        logger.warning("ContextBuilder.build() failed: %s, using fallback", e)
+        system_msg = {"role": "system", "content": system_content}
+        msgs = [system_msg] + messages[-20:]
 
     # LLM 推理（带工具）
     response = await llm.client.chat.completions.create(
@@ -641,55 +693,67 @@ async def chat_with_tools(
     reply = choice.message.content or ""
     tool_calls = choice.message.tool_calls or []
 
-    # 依次执行工具调用
+    # 执行工具调用（含重试 + escalation 策略）
     tool_results = []
     for tc in tool_calls:
         fn = tc.function
-        try:
-            args = json.loads(fn.arguments)
-            handler = handlers.get(fn.name)
-            if handler:
+        tool_name = fn.name
+        meta = get_metadata(tool_name)
+        max_retries = get_max_retries(tool_name)
+        escalation = should_escalate(tool_name)
+
+        last_error = None
+        succeeded = False
+
+        for attempt in range(max_retries + 1):
+            try:
+                args = json.loads(fn.arguments)
+                handler = handlers.get(tool_name)
+                if not handler:
+                    last_error = f"Unknown tool: {tool_name}"
+                    break
                 result = await handler(**args)
-                tool_results.append({"tool": fn.name, "args": args, "result": result})
-            else:
-                tool_results.append({"tool": fn.name, "error": f"Unknown tool: {fn.name}"})
-        except Exception as e:
-            logger.error("Tool %s failed: %s", fn.name, e)
-            tool_results.append({"tool": fn.name, "error": str(e)})
+                if isinstance(result, dict) and result.get("status") == "failed":
+                    err = result.get("error", {})
+                    err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                    if attempt < max_retries and meta.retryable:
+                        logger.warning("Tool %s attempt %d failed (retriable): %s — retrying", tool_name, attempt + 1, err_msg)
+                        last_error = err_msg
+                        await asyncio.sleep(0.25 * (attempt + 1))
+                        continue
+                    else:
+                        last_error = err_msg
+                else:
+                    succeeded = True
+                    tool_results.append({"tool": tool_name, "args": args, "result": result, "needs_human": escalation != EscalationMode.NONE})
+                    break
+            except Exception as e:
+                last_error = str(e)
+                if attempt < max_retries and meta.retryable:
+                    logger.warning("Tool %s exception attempt %d: %s — retrying", tool_name, attempt + 1, last_error)
+                    await asyncio.sleep(0.25 * (attempt + 1))
+                    continue
+                break
+
+        if not succeeded and last_error is not None:
+            logger.error("Tool %s exhausted retries (or non-retryable): %s", tool_name, last_error)
+            tool_results.append({"tool": tool_name, "args": json.loads(fn.arguments) if fn.arguments else {}, "error": last_error, "needs_human": escalation != EscalationMode.NONE})
 
     # 如果有工具调用，把结果给 LLM 生成最终回复
     if tool_results:
-        tool_messages = list(msgs)
-        tool_call_stubs = [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-            }
-            for tc in tool_calls
-        ]
-        assistant_msg = {
-            "role": "assistant",
-            "content": reply or None,
-            "tool_calls": tool_call_stubs,
-        }
-        tool_messages.append(assistant_msg)
-
-        for idx, tr in enumerate(tool_results):
-            tool_call_id = tool_call_stubs[idx]["id"] if idx < len(tool_call_stubs) else "unknown"
-            if "error" in tr:
-                content = json.dumps({"error": tr["error"]}, ensure_ascii=False)
-            else:
-                content = json.dumps(tr["result"], ensure_ascii=False, default=str)
-            tool_messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "content": content,
-            })
-
+        if cb is not None:
+            try:
+                msgs2 = await cb.build_with_tools(
+                    user_id, messages, reply, tool_calls, tool_results
+                )
+            except Exception as e:
+                logger.warning("Second build_with_tools failed: %s", e)
+                msgs2 = _build_tool_messages_manually(msgs, reply, tool_calls, tool_results)
+        else:
+            msgs2 = _build_tool_messages_manually(msgs, reply, tool_calls, tool_results)
         final = await llm.client.chat.completions.create(
             model=llm.model,
-            messages=tool_messages,
+            messages=msgs2,
             temperature=temperature,
             max_tokens=max_tokens,
         )
@@ -706,7 +770,12 @@ async def chat_with_tools(
     return {
         "reply": reply,
         "tool_calls": [
-            {"name": t["tool"], "args": t.get("args", {}), "error": t.get("error")}
+            {
+                "name": t["tool"],
+                "args": t.get("args", {}),
+                "error": t.get("error"),
+                "needs_human": t.get("needs_human", False),
+            }
             for t in tool_results
         ],
         "model": llm.model,

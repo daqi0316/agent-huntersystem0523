@@ -11,7 +11,7 @@ import logging
 import time
 from collections import defaultdict
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class RateStoreProtocol:
 
 
 class InMemoryRateStore(RateStoreProtocol):
-    """ per-process in-memory rate counter.
+    """per-process in-memory rate counter.
 
     Not shared across replicas — suitable for single-instance deployments
     or development. Replace with RedisStore for production multi-replica setups.
@@ -93,9 +93,6 @@ class RedisStore(RateStoreProtocol):
         await self._redis.delete(key)
 
 
-_store: RateStoreProtocol = InMemoryRateStore()
-
-
 def create_rate_limit_middleware(
     limit: int = 100,
     window: int = 60,
@@ -110,13 +107,17 @@ def create_rate_limit_middleware(
     effective_store = store if store is not None else InMemoryRateStore()
 
     async def rate_limit_dispatch(request: Request, call_next):
-        if request.url.path in exclude_paths or request.url.path.startswith("/docs") or request.url.path.startswith("/redoc"):
+        if (
+            request.url.path in exclude_paths
+            or request.url.path.startswith("/docs")
+            or request.url.path.startswith("/redoc")
+        ):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
-        key = f"{client_ip}:{request.url.path}"
+        key = f"ratelimit:{client_ip}:{request.url.path}"
 
-        allowed, remaining = await _store.check(key, limit, window)
+        allowed, remaining = await effective_store.check(key, limit, window)
         if not allowed:
             logger.warning("Rate limit exceeded for %s (limit=%d/%ds)", key, limit, window)
             return JSONResponse(
@@ -126,6 +127,7 @@ def create_rate_limit_middleware(
                     "Retry-After": str(window),
                     "X-RateLimit-Limit": str(limit),
                     "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(int(time.time()) + window),
                 },
             )
 

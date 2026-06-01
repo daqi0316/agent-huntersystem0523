@@ -21,6 +21,19 @@ async def get_current_user_id(
     return user_id
 
 
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
+) -> dict:
+    payload = decode_access_token(credentials.credentials)
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    return {"user_id": user_id, "role": payload.get("role", "user")}
+
+
 async def get_optional_user_id(
     credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
 ) -> str | None:

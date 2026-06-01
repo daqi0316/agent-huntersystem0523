@@ -1,8 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Loader2, AlertCircle, Sparkles, Briefcase, Users, Calendar, FileText, BarChart3, Library, Trash2, Brain, X, Check, XCircle, RefreshCw } from "lucide-react";
+import { Send, Bot, User, Loader2, AlertCircle, Sparkles, Briefcase, Users, Calendar, FileText, BarChart3, Library, Trash2, Brain, X, Check, XCircle, RefreshCw, Paperclip } from "lucide-react";
 import { api } from "@/lib/trpc";
+import { ResumeUpload } from "@/components/features/chat/ResumeUpload";
+import { OperationPanel } from "@/components/features/chat/OperationPanel";
+import { CommandPalette } from "@/components/features/chat/CommandPalette";
+import type { UploadedFile } from "@/hooks/useResumeUpload";
 
 // ── Types ──
 
@@ -10,6 +14,7 @@ interface ToolCallInfo {
   name: string;
   args: Record<string, unknown>;
   error?: string | null;
+  needs_human?: boolean;
 }
 
 interface AgentActionInfo {
@@ -275,6 +280,17 @@ export default function AgentChatPage() {
   const [loading, setLoading] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [approval, setApproval] = useState<ApprovalState>({ visible: false, approval_id: "", summary: "", loading: false });
+  const [attachment, setAttachment] = useState<UploadedFile | null>(null);
+  const [showUpload, setShowUpload] = useState(false);
+  const [operationPanel, setOperationPanel] = useState<{
+    open: boolean;
+    errorMessage?: string;
+    operationType?: string;
+    operationInput?: Record<string, unknown>;
+    needsHuman?: boolean;
+  }>({ open: false });
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [lastToolCalls, setLastToolCalls] = useState<ToolCallInfo[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyRef = useRef<ChatMessage[]>(messages);
@@ -349,14 +365,21 @@ export default function AgentChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
+  const handleOperationPanelSuccess = useCallback((summary: string) => {
+    setMessages(prev => [...prev, {
+      role: "assistant",
+      content: `✅ ${summary}`,
+    }]);
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || loading) return;
+    if (!text.trim() && !attachment) return;
 
-    const userMsg: ChatMessage = { role: "user", content: text.trim() };
+    const userMsg: ChatMessage = { role: "user", content: text.trim() || (attachment ? `上传简历: ${attachment.filename}` : "") };
     const currentHistory = historyRef.current;
     setMessages(prev => [...prev, userMsg]);
     setInput("");
@@ -364,9 +387,10 @@ export default function AgentChatPage() {
 
     try {
       const data = await api.post<AgentChatResponse>("/agent/chat", {
-        message: text.trim(),
+        message: text.trim() || (attachment ? `解析这份简历: ${attachment.filename}` : ""),
         history: currentHistory.map(m => ({ role: m.role, content: m.content })),
         session_id: getSessionId(),
+        attachment: attachment ? { file_url: attachment.file_url, file_type: attachment.file_type, filename: attachment.filename } : undefined,
       });
 
       const assistantMsg: ChatMessage = {
@@ -377,21 +401,51 @@ export default function AgentChatPage() {
         model: data.model,
       };
       setMessages(prev => [...prev, assistantMsg]);
+      setLastToolCalls(data.tool_calls?.filter(tc => tc.name) || []);
+      setAttachment(null);
+      setShowUpload(false);
 
       if (data.model === "orchestrator/awaiting_approval" && data.agent_actions) {
         handleApprovalAutoResume(data.agent_actions, text);
       }
+
+      // Auto-open OperationPanel if any tool_call returned an error
+      const toolCallsWithError = data.tool_calls?.filter(tc => tc.name && tc.error);
+      if (toolCallsWithError?.length) {
+        const failedTool = toolCallsWithError[0];
+        setOperationPanel({
+          open: true,
+          errorMessage: failedTool.error || "工具执行失败",
+          operationType: failedTool.name,
+          operationInput: failedTool.args,
+          needsHuman: failedTool.needs_human ?? false,
+        });
+      }
     } catch (err: any) {
+      const errorMsg = err.message || "请求失败，请稍后重试";
       setMessages(prev => [
         ...prev,
-        { role: "assistant", content: err.message || "请求失败，请稍后重试", error: true },
+        { role: "assistant", content: errorMsg, error: true },
       ]);
+      const failedTool = lastToolCalls.find(tc => tc.error) || lastToolCalls[0];
+      let opType: string | undefined;
+      let opInput: Record<string, unknown> | undefined;
+      if (failedTool) {
+        opType = failedTool.name;
+        opInput = failedTool.args;
+      }
+      setOperationPanel({ open: true, errorMessage: errorMsg, operationType: opType, operationInput: opInput });
     } finally {
       setLoading(false);
     }
-  }, [loading]);
+  }, [loading, attachment]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "/" && input === "") {
+      e.preventDefault();
+      setCommandPaletteOpen(true);
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage(input);
@@ -593,7 +647,42 @@ export default function AgentChatPage() {
 
       {/* Input */}
       <div className="border-t p-4">
+        {showUpload && (
+          <div className="max-w-4xl mx-auto mb-3">
+            <ResumeUpload
+              onUploadSuccess={(file) => {
+                setAttachment(file);
+                setShowUpload(false);
+              }}
+              onCancel={() => setShowUpload(false)}
+            />
+          </div>
+        )}
+        {attachment && !showUpload && (
+          <div className="flex items-center gap-2 max-w-4xl mx-auto mb-3">
+            <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-sm">
+              <FileText className="h-4 w-4 text-primary" />
+              <span className="truncate max-w-[200px]">{attachment.filename}</span>
+              <span className="text-xs text-muted-foreground">
+                ({(attachment.file_size / 1024).toFixed(0)} KB)
+              </span>
+            </div>
+            <button
+              onClick={() => { setAttachment(null); setShowUpload(false); }}
+              className="rounded-md p-1 hover:bg-accent transition-colors"
+            >
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
+          </div>
+        )}
         <div className="flex gap-3 max-w-4xl mx-auto">
+          <button
+            onClick={() => setShowUpload(v => !v)}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border bg-background hover:bg-accent transition-colors"
+            title="上传简历"
+          >
+            <Paperclip className="h-4 w-4 text-muted-foreground" />
+          </button>
           <textarea
             ref={inputRef}
             value={input}
@@ -605,7 +694,7 @@ export default function AgentChatPage() {
           />
           <button
             onClick={() => sendMessage(input)}
-            disabled={!input.trim() || loading}
+            disabled={(!input.trim() && !attachment) || loading}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-40 transition-opacity"
           >
             <Send className="h-4 w-4" />
@@ -617,6 +706,25 @@ export default function AgentChatPage() {
       </div>
 
       <MemoryPanel open={showMemory} onClose={() => setShowMemory(false)} />
+      <OperationPanel
+        open={operationPanel.open}
+        onClose={() => setOperationPanel(p => ({ ...p, open: false }))}
+        errorMessage={operationPanel.errorMessage}
+        operationType={operationPanel.operationType}
+        operationInput={operationPanel.operationInput}
+        needsHuman={operationPanel.needsHuman}
+        onSuccess={handleOperationPanelSuccess}
+      />
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onSelect={(cmd) => {
+          setInput(cmd + " ");
+          setCommandPaletteOpen(false);
+          inputRef.current?.focus();
+        }}
+        triggerInput={input}
+      />
     </div>
   );
 }

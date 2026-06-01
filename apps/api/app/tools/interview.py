@@ -12,6 +12,17 @@ from app.services.interview import InterviewService
 logger = logging.getLogger(__name__)
 
 
+async def _handle_cancel_interview(interview_id: str = "", reason: str = "") -> dict[str, Any]:
+    """取消已安排的面试。"""
+    async with AsyncSessionLocal() as db:
+        from app.services.interview import InterviewService
+        svc = InterviewService(db)
+        result = await svc.cancel(interview_id)
+        if not result:
+            return {"status": "failed", "error": {"code": "NOT_FOUND", "message": "面试不存在"}}
+        return {"status": "success", "data": {"interview_id": interview_id, "status": "cancelled", "reason": reason}}
+
+
 async def _handle_schedule_interview(candidate_id="", job_id="", scheduled_time="", notes=""):
     from app.schemas.candidate import InterviewCreate
     async with AsyncSessionLocal() as db:
@@ -43,9 +54,11 @@ async def _handle_record_feedback(interview_id="", score=0, evaluation=""):
 tools = [
     {"type": "function", "function": {"name": "schedule_interview", "description": "安排面试。创建一条面试记录，需要候选人、职位和面试时间。", "parameters": {"type": "object", "properties": {"candidate_id": {"type": "string", "description": "候选人 ID"}, "job_id": {"type": "string", "description": "职位 ID"}, "scheduled_time": {"type": "string", "description": "面试时间（ISO 格式）"}, "notes": {"type": "string", "description": "面试备注（可选）"}}, "required": ["candidate_id", "job_id", "scheduled_time"]}}},
     {"type": "function", "function": {"name": "record_feedback", "description": "记录面试反馈/评估结果。", "parameters": {"type": "object", "properties": {"interview_id": {"type": "string", "description": "面试 ID"}, "score": {"type": "integer", "description": "评分 1-10"}, "evaluation": {"type": "string", "description": "评价内容"}}, "required": ["interview_id"]}}},
+    {"type": "function", "function": {"name": "cancel_interview", "description": "取消已安排的面试。", "parameters": {"type": "object", "properties": {"interview_id": {"type": "string", "description": "面试 ID"}, "reason": {"type": "string", "description": "取消原因（可选）"}}, "required": ["interview_id"]}}},
 ]
 
 handlers = {
     "schedule_interview": _handle_schedule_interview,
     "record_feedback": _handle_record_feedback,
+    "cancel_interview": _handle_cancel_interview,
 }

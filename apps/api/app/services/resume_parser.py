@@ -6,7 +6,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".jpg", ".png"}
 
 
 class ResumeParseError(Exception):
@@ -57,6 +57,25 @@ def _parse_txt(file_bytes: bytes) -> str:
             continue
 
 
+def _parse_image(file_bytes: bytes) -> str:
+    """用 OCR 从图片中提取文本（JPG/PNG）。"""
+    try:
+        from PIL import Image
+        import pytesseract
+    except ImportError:
+        raise ResumeParseError("Pillow 或 pytesseract 未安装，请运行: pip install Pillow pytesseract")
+    try:
+        image = Image.open(io.BytesIO(file_bytes))
+        text = pytesseract.image_to_string(image, lang="chi+eng")
+        if not text.strip():
+            raise ResumeParseError("无法从图片中提取文本（OCR失败，图片可能为空或无法识别）")
+        return text.strip()
+    except ResumeParseError:
+        raise
+    except Exception as e:
+        raise ResumeParseError(f"OCR 处理失败: {e}")
+
+
 def parse_resume(file_bytes: bytes, filename: str) -> str:
     """根据文件扩展名选择解析器，返回纯文本。"""
     ext = os.path.splitext(filename)[1].lower()
@@ -73,6 +92,8 @@ def parse_resume(file_bytes: bytes, filename: str) -> str:
         ".docx": _parse_docx,
         ".doc": _parse_docx,
         ".txt": _parse_txt,
+        ".jpg": _parse_image,
+        ".png": _parse_image,
     }
 
     parser = parsers[ext]

@@ -29,11 +29,19 @@ export default defineConfig({
         storageState: ".auth/user.json",
       },
     },
+    {
+      name: "standalone",
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: ".auth/user.json",
+        baseURL: "http://localhost:3001",
+      },
+    },
   ],
   webServer: {
-    command: "pnpm dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
+    command: "pnpm dev --port 3001",
+    url: "http://localhost:3001",
+    reuseExistingServer: true,
     timeout: 120 * 1000,
     cwd: ".",
   },

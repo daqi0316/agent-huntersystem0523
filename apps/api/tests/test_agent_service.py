@@ -12,8 +12,10 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore::_pytest.warning_types.PytestUnraisableExceptionWarning"
 )
 
+from app.core.prompts import SYSTEM_PROMPT
 from app.services.agent_service import (
-    SYSTEM_PROMPT,
+    _build_tool_messages_manually,
+    chat_with_tools,
     _BUILTIN_HANDLERS,
     _BUILTIN_TOOLS,
     _background_record_facts,

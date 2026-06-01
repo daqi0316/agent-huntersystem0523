@@ -127,6 +127,7 @@ class SnapshotManager:
             return [
                 {
                     "snapshot_id": r[0],
+                    "task_id": task_id,
                     "created_at": r[1],
                     "agent_type": r[2],
                     "step_name": r[3],
