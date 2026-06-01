@@ -54,3 +54,8 @@ test-results/
 # Session runtime state (not source)
 .omo/run-continuation/
 .omo/sessions/
+
+# Local SQLite databases (runtime artifacts)
+*.db
+*.sqlite
+*.sqlite3

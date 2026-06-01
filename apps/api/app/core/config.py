@@ -32,9 +32,6 @@ class Settings(BaseSettings):
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "resumes"
 
-    # RabbitMQ
-    rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
-
     # JWT — min 32 characters for production safety
     jwt_secret: str = Field(
         default="your-jwt-secret-change-in-production",

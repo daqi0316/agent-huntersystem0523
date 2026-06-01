@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -12,6 +13,9 @@ from app.core.rate_limit import create_rate_limit_middleware
 from app.core.redis import close_redis
 from app.core.qdrant import close_qdrant
 from app.api.router import api_router
+from app.agents.bootstrap import init_agents
+from app.services.recommendation_scheduler import recommendation_scheduler_loop
+from app.services.aggregation_service import aggregation_loop
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +23,56 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s v0.1.0", settings.app_name)
+
+    # ── 加载已启用的 MCP Server ──
+    try:
+        import json
+        from sqlalchemy import select
+        from app.core.database import AsyncSessionLocal
+        from app.models.mcp_server import MCPServer
+        from app.mcp.manager import mcp_manager
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(MCPServer).where(MCPServer.enabled == True))
+            servers = result.scalars().all()
+            for s in servers:
+                tools = json.loads(s.tools_cache) if s.tools_cache else None
+                await mcp_manager.register(
+                    server_id=s.id, name=s.name, url=s.server_url,
+                    auth_type=s.auth_type, auth_token=s.auth_token or "",
+                    tools_cache_data=tools,
+                )
+            if servers:
+                logger.info("Loaded %d MCP server(s) from database", len(servers))
+    except Exception as e:
+        logger.warning("MCP server auto-load skipped: %s", e)
+
+    # ── 初始化所有 Agent ──
+    try:
+        init_agents()
+        logger.info("All specialist agents initialized and registered")
+    except Exception as e:
+        logger.error("Agent initialization failed: %s", e)
+
+    # ── 启动推荐扫描定时器 ──
+    scheduler_task = asyncio.create_task(recommendation_scheduler_loop())
+    logger.info("Recommendation scheduler started in background")
+
+    aggregation_task = asyncio.create_task(aggregation_loop())
+    logger.info("Operation stats aggregation loop started in background")
+
     yield
+
+    scheduler_task.cancel()
+    aggregation_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        logger.info("Recommendation scheduler cancelled")
+    try:
+        await aggregation_task
+    except asyncio.CancelledError:
+        logger.info("Aggregation loop cancelled")
     await close_redis()
     await close_qdrant()
     logger.info("Shutdown complete")

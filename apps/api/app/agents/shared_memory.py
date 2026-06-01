@@ -1,0 +1,250 @@
+"""KV Shared Memory — 跨 Agent 共享状态层。
+
+后端: Redis（优先）→ In-Memory（降级）。
+设计: Agent 通过名称空间隔离 key（如 `screening:score:candidate-123`）。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_TTL = 3600  # 1 hour
+
+
+class InMemoryBackend:
+    """进程内内存 KV 存储，支持 TTL。"""
+
+    def __init__(self) -> None:
+        self._store: dict[str, bytes] = {}
+        self._ttls: dict[str, float] = {}
+
+    async def get(self, key: str) -> bytes | None:
+        self._evict_expired()
+        return self._store.get(key)
+
+    async def set(self, key: str, value: bytes, ttl: int | None = None) -> None:
+        self._store[key] = value
+        if ttl is not None:
+            self._ttls[key] = time.time() + ttl
+        elif key in self._ttls:
+            del self._ttls[key]
+
+    async def delete(self, key: str) -> bool:
+        self._store.pop(key, None)
+        return self._ttls.pop(key, None) is not None or True
+
+    async def exists(self, key: str) -> bool:
+        self._evict_expired()
+        return key in self._store
+
+    async def keys(self, pattern: str = "*") -> list[str]:
+        self._evict_expired()
+        if pattern == "*":
+            return list(self._store.keys())
+        import fnmatch
+        return [k for k in self._store if fnmatch.fnmatch(k, pattern)]
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        if key in self._store:
+            self._ttls[key] = time.time() + ttl
+            return True
+        return False
+
+    async def ttl(self, key: str) -> int:
+        if key in self._ttls:
+            remaining = int(self._ttls[key] - time.time())
+            return max(remaining, 0)
+        return -1
+
+    async def clear(self) -> None:
+        self._store.clear()
+        self._ttls.clear()
+
+    def _evict_expired(self) -> None:
+        now = time.time()
+        expired = [k for k, exp in self._ttls.items() if exp <= now]
+        for k in expired:
+            self._store.pop(k, None)
+            self._ttls.pop(k, None)
+
+
+class RedisBackend:
+    """Redis 后端 — 封装 async Redis 操作。"""
+
+    def __init__(self, redis_client: Any) -> None:
+        self._redis = redis_client
+
+    async def get(self, key: str) -> bytes | None:
+        try:
+            val = await self._redis.get(key)
+            return val.encode() if isinstance(val, str) else val
+        except Exception as e:
+            logger.warning("Redis get(%s) failed: %s", key, e)
+            return None
+
+    async def set(self, key: str, value: bytes, ttl: int | None = None) -> None:
+        try:
+            if ttl is not None:
+                await self._redis.setex(key, ttl, value)
+            else:
+                await self._redis.set(key, value)
+        except Exception as e:
+            logger.warning("Redis set(%s) failed: %s", key, e)
+
+    async def delete(self, key: str) -> bool:
+        try:
+            return bool(await self._redis.delete(key))
+        except Exception as e:
+            logger.warning("Redis delete(%s) failed: %s", key, e)
+            return False
+
+    async def exists(self, key: str) -> bool:
+        try:
+            return bool(await self._redis.exists(key))
+        except Exception as e:
+            logger.warning("Redis exists(%s) failed: %s", key, e)
+            return False
+
+    async def keys(self, pattern: str = "*") -> list[str]:
+        try:
+            return await self._redis.keys(pattern)
+        except Exception as e:
+            logger.warning("Redis keys(%s) failed: %s", pattern, e)
+            return []
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        try:
+            return bool(await self._redis.expire(key, ttl))
+        except Exception as e:
+            logger.warning("Redis expire(%s) failed: %s", key, e)
+            return False
+
+    async def ttl(self, key: str) -> int:
+        try:
+            return await self._redis.ttl(key)
+        except Exception as e:
+            logger.warning("Redis ttl(%s) failed: %s", key, e)
+            return -2
+
+    async def clear(self) -> None:
+        pass  # Redis clear is dangerous — omit
+
+
+class SharedMemory:
+    """统一共享内存入口 — 优先 Redis，降级到 In-Memory。
+
+    用法:
+        mem = SharedMemory()
+        await mem.set("screening:score:c-123", 85, ttl=3600)
+        score = await mem.get("screening:score:c-123")
+    """
+
+    def __init__(self) -> None:
+        self._in_memory: InMemoryBackend | None = InMemoryBackend()
+        self._redis: RedisBackend | None = None
+        self._redis_available: bool | None = None
+
+    async def _ensure_redis(self) -> RedisBackend | None:
+        if self._redis_available is False:
+            return None
+        if self._redis is not None:
+            return self._redis
+        try:
+            from app.core.redis import get_redis
+            client = await get_redis()
+            if client is None:
+                raise ConnectionError("Redis client is None")
+            await client.ping()
+            self._redis = RedisBackend(client)
+            self._redis_available = True
+            logger.info("SharedMemory: Redis connected")
+            return self._redis
+        except Exception as e:
+            logger.warning("SharedMemory: Redis unavailable, using in-memory: %s", e)
+            self._redis_available = False
+            return None
+
+    async def get(self, key: str) -> Any:
+        redis = await self._ensure_redis()
+        if redis:
+            raw = await redis.get(key)
+            if raw is not None:
+                try:
+                    return json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    return raw
+        raw = await self._in_memory.get(key)
+        if raw is not None:
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return raw
+        return None
+
+    async def set(self, key: str, value: Any, ttl: int | None = DEFAULT_TTL) -> None:
+        raw = json.dumps(value, ensure_ascii=False, default=str).encode()
+        redis = await self._ensure_redis()
+        if redis:
+            await redis.set(key, raw, ttl=ttl)
+        await self._in_memory.set(key, raw, ttl=ttl)
+
+    async def delete(self, key: str) -> bool:
+        redis = await self._ensure_redis()
+        r1 = await redis.delete(key) if redis else False
+        r2 = await self._in_memory.delete(key)
+        return r1 or r2
+
+    async def exists(self, key: str) -> bool:
+        redis = await self._ensure_redis()
+        if redis and await redis.exists(key):
+            return True
+        return await self._in_memory.exists(key)
+
+    async def keys(self, pattern: str = "*") -> list[str]:
+        redis_keys: list[str] = []
+        redis = await self._ensure_redis()
+        if redis:
+            redis_keys = await redis.keys(pattern)
+        mem_keys = await self._in_memory.keys(pattern)
+        combined = list(set(redis_keys + mem_keys))
+        combined.sort()
+        return combined
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        redis = await self._ensure_redis()
+        r1 = await redis.expire(key, ttl) if redis else False
+        r2 = await self._in_memory.expire(key, ttl)
+        return r1 or r2
+
+    async def ttl(self, key: str) -> int:
+        redis = await self._ensure_redis()
+        if redis:
+            r_ttl = await redis.ttl(key)
+            if r_ttl >= 0:
+                return r_ttl
+        return await self._in_memory.ttl(key)
+
+    async def clear(self) -> None:
+        redis = await self._ensure_redis()
+        if redis:
+            keys = await redis.keys("*")
+            for key in keys:
+                await redis.delete(key)
+        await self._in_memory.clear()
+
+
+_shared_memory_instance: SharedMemory | None = None
+
+
+def get_shared_memory() -> SharedMemory:
+    """获取全局 SharedMemory 单例。"""
+    global _shared_memory_instance
+    if _shared_memory_instance is None:
+        _shared_memory_instance = SharedMemory()
+    return _shared_memory_instance
