@@ -1,115 +1,93 @@
-"""Retrieval API tests: vector search & text embedding."""
+"""Retrieval API tests with mocked dependencies — no real DB needed."""
 
-import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import FastAPI
+from starlette.testclient import TestClient
 
 
-def _unique_email():
-    return f"test-{uuid.uuid4().hex[:8]}@test.com"
+@pytest.fixture
+def app():
+    _app = FastAPI()
+    from app.api.retrieval import router
+    _app.include_router(router, prefix="/api/v1/retrieval")
+    return _app
 
 
-def _auth_headers(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
+@pytest.fixture
+def client(app):
+    return TestClient(app)
 
 
-@pytest.mark.asyncio
-async def test_vector_search_success(client):
-    """Mock KnowledgeService returns search results."""
-    mock_service = AsyncMock()
-    mock_service.search.return_value = [
-        {"id": "doc-1", "title": "Interview Guide", "content": "Tips for interviewing...", "score": 0.95},
-    ]
-
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Retrieval User",
-    })
-    token = reg.json()["access_token"]
-
-    with patch("app.api.retrieval.KnowledgeService", return_value=mock_service):
-        resp = await client.post("/api/v1/retrieval/search", json={
-            "query": "interview guide",
-            "top_k": 5,
-        }, headers=_auth_headers(token))
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert len(data["results"]) == 1
-    assert data["results"][0]["title"] == "Interview Guide"
+@pytest.fixture
+def override_auth(app):
+    from app.core.dependencies import get_current_user_id
+    app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    yield
+    app.dependency_overrides.pop(get_current_user_id, None)
 
 
-@pytest.mark.asyncio
-async def test_vector_search_no_query_returns_422(client):
-    """Empty search query returns 422."""
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Retrieval User",
-    })
-    token = reg.json()["access_token"]
+class TestVectorSearch:
+    ROUTE = "/api/v1/retrieval/search"
 
-    resp = await client.post("/api/v1/retrieval/search", json={
-        "query": "",
-    }, headers=_auth_headers(token))
-    assert resp.status_code == 422
+    def test_returns_results(self, client, override_auth):
+        mock_svc = AsyncMock()
+        mock_svc.search.return_value = [
+            {"id": "doc-1", "title": "Interview Guide", "content": "Tips for interviewing...", "score": 0.95},
+        ]
+        with patch("app.api.retrieval.KnowledgeService", return_value=mock_svc):
+            resp = client.post(self.ROUTE, json={"query": "interview guide", "top_k": 5})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert len(data["results"]) == 1
+        assert data["results"][0]["title"] == "Interview Guide"
 
+    def test_empty_results(self, client, override_auth):
+        mock_svc = AsyncMock()
+        mock_svc.search.return_value = []
+        with patch("app.api.retrieval.KnowledgeService", return_value=mock_svc):
+            resp = client.post(self.ROUTE, json={"query": "nothing", "top_k": 5})
+        assert resp.status_code == 200
+        assert resp.json()["results"] == []
 
-@pytest.mark.asyncio
-async def test_embed_success(client):
-    """Mock LLM client returns a fixed embedding vector."""
-    mock_llm = AsyncMock()
-    mock_llm.embed.return_value = [0.1, 0.2, 0.3, 0.4, 0.5]
+    def test_skips_error_items(self, client, override_auth):
+        """Items containing an 'error' key are filtered out."""
+        mock_svc = AsyncMock()
+        mock_svc.search.return_value = [
+            {"id": "doc-1", "title": "Good Doc", "content": "Ok", "score": 0.9},
+            {"error": "rate limit", "content": "failed"},
+        ]
+        with patch("app.api.retrieval.KnowledgeService", return_value=mock_svc):
+            resp = client.post(self.ROUTE, json={"query": "test", "top_k": 5})
+        assert resp.status_code == 200
+        assert len(resp.json()["results"]) == 1
+        assert resp.json()["results"][0]["title"] == "Good Doc"
 
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Embed User",
-    })
-    token = reg.json()["access_token"]
+    def test_invalid_query_returns_422(self, client, override_auth):
+        resp = client.post(self.ROUTE, json={"query": ""})
+        assert resp.status_code == 422
 
-    with patch("app.api.retrieval.get_llm_client", return_value=mock_llm):
-        resp = await client.post("/api/v1/retrieval/embed", json={
-            "text": "Embed this text",
-        }, headers=_auth_headers(token))
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert len(data["embedding"]) == 5
-    assert data["dimension"] == 5
-
-
-@pytest.mark.asyncio
-async def test_vector_search_no_results(client):
-    mock_service = AsyncMock()
-    mock_service.search.return_value = []
-
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Retrieval User",
-    })
-    token = reg.json()["access_token"]
-
-    with patch("app.api.retrieval.KnowledgeService", return_value=mock_service):
-        resp = await client.post("/api/v1/retrieval/search", json={
-            "query": "nothing matches this",
-            "top_k": 5,
-        }, headers=_auth_headers(token))
-
-    assert resp.status_code == 200
-    assert resp.json()["results"] == []
+    def test_missing_query_returns_422(self, client, override_auth):
+        resp = client.post(self.ROUTE, json={})
+        assert resp.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_embed_empty_text_returns_422(client):
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Embed User",
-    })
-    token = reg.json()["access_token"]
+class TestEmbedText:
+    ROUTE = "/api/v1/retrieval/embed"
 
-    resp = await client.post("/api/v1/retrieval/embed", json={
-        "text": "",
-    }, headers=_auth_headers(token))
-    assert resp.status_code == 422
+    def test_returns_embedding(self, client, override_auth):
+        mock_llm = AsyncMock()
+        mock_llm.embed.return_value = [0.1, 0.2, 0.3, 0.4, 0.5]
+        with patch("app.api.retrieval.get_llm_client", return_value=mock_llm):
+            resp = client.post(self.ROUTE, json={"text": "Embed this text"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert len(data["embedding"]) == 5
+        assert data["dimension"] == 5
+
+    def test_empty_text_returns_422(self, client, override_auth):
+        resp = client.post(self.ROUTE, json={"text": ""})
+        assert resp.status_code == 422

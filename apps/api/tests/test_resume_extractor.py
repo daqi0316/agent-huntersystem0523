@@ -1,6 +1,6 @@
 """Tests for resume_extractor — LLM text → structured candidate data."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -59,6 +59,25 @@ class TestExtractFromText:
         result = await extract_from_text("联系邮箱: test@foo.com 电话: 13800138001", llm=mock_llm)
         assert result.email == "test@foo.com"
         assert result.phone == "13800138001"
+
+    async def test_auto_create_llm_when_none(self):
+        """Line 44: OMLXClient created automatically when llm=None."""
+        with patch("app.services.resume_extractor.OMLXClient") as MockOMLX:
+            mock_instance = AsyncMock()
+            mock_instance.chat = AsyncMock(return_value='{"name": "Auto"}')
+            MockOMLX.return_value = mock_instance
+
+            result = await extract_from_text("简历文本", llm=None)
+            assert isinstance(result, ExtractedCandidate)
+            assert result.name == "Auto"
+            MockOMLX.assert_called_once()
+
+    async def test_regex_match_but_json_invalid(self, mock_llm):
+        """Lines 74-77: regex match finds JSON-like text but it's invalid."""
+        mock_llm.chat.return_value = '{"name": "Bot", "skills": [broken}'
+        result = await extract_from_text("Python, Java", llm=mock_llm)
+        assert isinstance(result, ExtractedCandidate)
+        assert "python" in result.skills or "java" in result.skills
 
     async def test_llm_returns_junk_falls_back_to_keyword(self, mock_llm):
         mock_llm.chat.return_value = "纯垃圾文本无结构"

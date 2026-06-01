@@ -34,6 +34,20 @@ class TestParseTxt:
         assert isinstance(result, str)
 
 
+class TestParsePdfImportError:
+    def test_missing_fitz_raises(self):
+        with patch.dict("sys.modules", {"fitz": None}):
+            with pytest.raises(ResumeParseError, match="PyMuPDF 未安装"):
+                _parse_pdf(b"test")
+
+
+class TestParseDocxImportError:
+    def test_missing_docx_raises(self):
+        with patch.dict("sys.modules", {"docx": None}):
+            with pytest.raises(ResumeParseError, match="python-docx 未安装"):
+                _parse_docx(b"test")
+
+
 class TestParseDocx:
     def _inject_docx(self, paragraph_texts):
         mock_paragraphs = [MagicMock(text=t) for t in paragraph_texts]

@@ -5,21 +5,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.core.security import create_access_token
+
 pytestmark = pytest.mark.asyncio
 
 
-async def _token(client):
-    email = f"summaries-{uuid.uuid4().hex[:8]}@test.com"
-    resp = await client.post("/api/v1/auth/register", json={
-        "email": email,
-        "password": "Pass123!",
-        "name": "Summaries User",
-    })
-    return resp.json()["access_token"]
+def _token() -> str:
+    return create_access_token(f"test-user-{uuid.uuid4().hex[:8]}")
 
 
 async def test_list_summaries_success(client):
-    token = await _token(client)
+    token = _token()
     mock_svc = AsyncMock()
     mock_svc.list_by_user.return_value = (
         [{"id": "s1", "session_id": "sess-1", "summary": "test", "created_at": "2025-01-01"}],
@@ -37,7 +33,7 @@ async def test_list_summaries_success(client):
 
 
 async def test_list_summaries_empty(client):
-    token = await _token(client)
+    token = _token()
     mock_svc = AsyncMock()
     mock_svc.list_by_user.return_value = ([], 0)
 
@@ -51,7 +47,7 @@ async def test_list_summaries_empty(client):
 
 
 async def test_update_summary_success(client):
-    token = await _token(client)
+    token = _token()
     mock_svc = AsyncMock()
     mock_svc.update_summary.return_value = True
 
@@ -68,7 +64,7 @@ async def test_update_summary_success(client):
 
 
 async def test_update_summary_not_found(client):
-    token = await _token(client)
+    token = _token()
     mock_svc = AsyncMock()
     mock_svc.update_summary.return_value = False
 
@@ -83,7 +79,7 @@ async def test_update_summary_not_found(client):
 
 
 async def test_delete_summary_success(client):
-    token = await _token(client)
+    token = _token()
     mock_svc = AsyncMock()
     mock_svc.delete_summary.return_value = True
 
@@ -99,7 +95,7 @@ async def test_delete_summary_success(client):
 
 
 async def test_delete_summary_not_found(client):
-    token = await _token(client)
+    token = _token()
     mock_svc = AsyncMock()
     mock_svc.delete_summary.return_value = False
 

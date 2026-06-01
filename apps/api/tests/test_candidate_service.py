@@ -10,7 +10,26 @@ from app.services.candidate import CandidateService
 
 @pytest.fixture
 def mock_db():
-    return AsyncMock()
+    """MagicMock-based db to avoid AsyncMock._execute_mock_call coroutine leaks.
+
+    CandidateService uses db primarily via ``await db.execute(...)``. Using
+    AsyncMock for the whole fixture would create internal ``_execute_mock_call``
+    coroutines that Python 3.14's GC flags as unawaited. Instead we use a
+    ``MagicMock`` with a real async ``execute`` function.
+    """
+    db = MagicMock()
+    db.add = MagicMock(return_value=None)
+    db.commit = AsyncMock(return_value=None)
+    db.refresh = AsyncMock(return_value=None)
+    db.delete = AsyncMock(return_value=None)
+
+    async def _execute(*args, **kwargs):
+        _execute.called = True
+        return db._execute_result
+    _execute.called = False
+    db.execute = _execute
+    db._execute_result = MagicMock()
+    return db
 
 
 @pytest.fixture
@@ -31,10 +50,10 @@ def _make_candidate(
 
 
 def _configure_db(mock_db, candidates, total=1):
-    mr = Mock()
+    mr = MagicMock()
     mr.scalars.return_value.all.return_value = candidates
     mr.scalar.return_value = total
-    mock_db.execute.return_value = mr
+    mock_db._execute_result = mr
     return mr
 
 
@@ -65,16 +84,16 @@ class TestList:
 class TestGetById:
     async def test_found(self, service, mock_db):
         c = _make_candidate()
-        mr = AsyncMock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.get_by_id("00000000-0000-0000-0000-000000000001")
         assert result is not None
 
     async def test_not_found(self, service, mock_db):
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.get_by_id("00000000-0000-0000-0000-000000000001")
         assert result is None
 
@@ -96,18 +115,18 @@ class TestCreate:
 class TestUpdate:
     async def test_found(self, service, mock_db):
         c = _make_candidate()
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
 
         from app.schemas.candidate import CandidateUpdate
         await service.update("00000000-0000-0000-0000-000000000001", CandidateUpdate(name="新名字"))
         assert mock_db.commit.called
 
     async def test_not_found(self, service, mock_db):
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         from app.schemas.candidate import CandidateUpdate
         result = await service.update("00000000-0000-0000-0000-000000000001", CandidateUpdate())
         assert result is None
@@ -116,40 +135,40 @@ class TestUpdate:
 class TestDelete:
     async def test_success(self, service, mock_db):
         c = _make_candidate()
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         assert await service.delete("00000000-0000-0000-0000-000000000001") is True
 
     async def test_not_found(self, service, mock_db):
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         assert await service.delete("00000000-0000-0000-0000-000000000001") is False
 
 
 class TestStartScreening:
     async def test_success(self, service, mock_db):
         c = _make_candidate(status=CandidateStatus.ACTIVE)
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.start_screening("00000000-0000-0000-0000-000000000001")
         assert result is not None
         assert result.status == CandidateStatus.EVALUATING
 
     async def test_wrong_status(self, service, mock_db):
         c = _make_candidate(status=CandidateStatus.EVALUATED)
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         with pytest.raises(ValueError):
             await service.start_screening("00000000-0000-0000-0000-000000000001")
 
     async def test_not_found(self, service, mock_db):
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.start_screening("00000000-0000-0000-0000-000000000001")
         assert result is None
 
@@ -157,26 +176,26 @@ class TestStartScreening:
 class TestCompleteScreening:
     async def test_passed(self, service, mock_db):
         c = _make_candidate(status=CandidateStatus.EVALUATING)
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.complete_screening("00000000-0000-0000-0000-000000000001", True)
         assert result is not None
         assert result.status == CandidateStatus.EVALUATED
 
     async def test_failed(self, service, mock_db):
         c = _make_candidate(status=CandidateStatus.EVALUATING)
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.complete_screening("00000000-0000-0000-0000-000000000001", False)
         assert result is not None
         assert result.status == CandidateStatus.FAILED
 
     async def test_not_found(self, service, mock_db):
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.complete_screening("00000000-0000-0000-0000-000000000001", True)
         assert result is None
 
@@ -184,9 +203,9 @@ class TestCompleteScreening:
 class TestMoveToInterview:
     async def test_success(self, service, mock_db):
         c = _make_candidate(status=CandidateStatus.EVALUATED)
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.move_to_interview("00000000-0000-0000-0000-000000000001")
         assert result is not None
         assert result.status == CandidateStatus.IN_INTERVIEW
@@ -195,25 +214,25 @@ class TestMoveToInterview:
     async def test_from_in_interview(self, service, mock_db):
         """Already in_interview should still succeed (re-schedule)."""
         c = _make_candidate(status=CandidateStatus.IN_INTERVIEW)
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.move_to_interview("00000000-0000-0000-0000-000000000001")
         assert result is not None
         assert result.status == CandidateStatus.IN_INTERVIEW
 
     async def test_wrong_status(self, service, mock_db):
         c = _make_candidate(status=CandidateStatus.ACTIVE)
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         with pytest.raises(ValueError, match="不允许安排面试"):
             await service.move_to_interview("00000000-0000-0000-0000-000000000001")
 
     async def test_not_found(self, service, mock_db):
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.move_to_interview("00000000-0000-0000-0000-000000000001")
         assert result is None
 
@@ -221,24 +240,24 @@ class TestMoveToInterview:
 class TestCompleteInterview:
     async def test_success(self, service, mock_db):
         c = _make_candidate(status=CandidateStatus.IN_INTERVIEW)
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.complete_interview("00000000-0000-0000-0000-000000000001")
         assert result is not None
         assert result.status == CandidateStatus.COMPLETED
 
     async def test_wrong_status(self, service, mock_db):
         c = _make_candidate(status=CandidateStatus.EVALUATED)
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = c
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         with pytest.raises(ValueError, match="不允许完成面试"):
             await service.complete_interview("00000000-0000-0000-0000-000000000001")
 
     async def test_not_found(self, service, mock_db):
-        mr = Mock()
+        mr = MagicMock()
         mr.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mr
+        mock_db._execute_result = mr
         result = await service.complete_interview("00000000-0000-0000-0000-000000000001")
         assert result is None

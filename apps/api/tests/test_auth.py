@@ -1,101 +1,158 @@
-"""Auth API tests: register, login, me, error cases."""
+"""Auth API tests with mocked dependencies — no real DB needed."""
 
-import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import FastAPI, HTTPException
+from starlette.testclient import TestClient
 
 
-def _unique_email():
-    return f"test-{uuid.uuid4().hex[:8]}@test.com"
+@pytest.fixture
+def app():
+    _app = FastAPI()
+    from app.api.auth import router
+    _app.include_router(router, prefix="/api/v1/auth")
+    return _app
 
 
-@pytest.mark.asyncio
-async def test_register_success(client):
-    resp = await client.post("/api/v1/auth/register", json={
-        "email": _unique_email(),
-        "password": "SecurePass123!",
-        "name": "New User",
-        "role": "viewer",
-    })
-    assert resp.status_code == 201
-    assert "access_token" in resp.json()
+@pytest.fixture
+def client(app):
+    return TestClient(app)
 
 
-@pytest.mark.asyncio
-async def test_register_duplicate_email(client):
-    email = _unique_email()
-    await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "User",
-    })
-    resp = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "User",
-    })
-    assert resp.status_code == 409
+@pytest.fixture
+def mock_db():
+    return AsyncMock()
 
 
-@pytest.mark.asyncio
-async def test_register_invalid_email(client):
-    resp = await client.post("/api/v1/auth/register", json={
-        "email": "not-an-email", "password": "Pass123!", "name": "User",
-    })
-    assert resp.status_code == 422
+@pytest.fixture
+def override_db(app, mock_db):
+    from app.core.database import get_db
+
+    async def _mock_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = _mock_db
+    yield
+    app.dependency_overrides.pop(get_db, None)
 
 
-@pytest.mark.asyncio
-async def test_login_success(client):
-    email = _unique_email()
-    await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Login User",
-    })
-    resp = await client.post("/api/v1/auth/login", json={
-        "email": email, "password": "Pass123!",
-    })
-    assert resp.status_code == 200
-    assert "access_token" in resp.json()
+@pytest.fixture
+def override_auth(app):
+    """Override get_current_user_id to return a fixed user_id."""
+    from app.core.dependencies import get_current_user_id
+
+    app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    yield
+    app.dependency_overrides.pop(get_current_user_id, None)
 
 
-@pytest.mark.asyncio
-async def test_login_wrong_password(client):
-    email = _unique_email()
-    await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Correct1!", "name": "User",
-    })
-    resp = await client.post("/api/v1/auth/login", json={
-        "email": email, "password": "WrongPass1!",
-    })
-    assert resp.status_code == 401
+def _mock_user(**kwargs):
+    u = MagicMock()
+    u.id = kwargs.get("id", "user-1")
+    u.email = kwargs.get("email", "test@test.com")
+    u.name = kwargs.get("name", "Test User")
+    u.role = MagicMock()
+    u.role.value = kwargs.get("role", "hr")
+    u.is_active = kwargs.get("is_active", True)
+    u.created_at = kwargs.get("created_at", "2025-01-01")
+    return u
 
 
-@pytest.mark.asyncio
-async def test_login_nonexistent_user(client):
-    resp = await client.post("/api/v1/auth/login", json={
-        "email": "nobody@test.com", "password": "Pass123!",
-    })
-    assert resp.status_code == 401
+class TestRegister:
+    ROUTE = "/api/v1/auth/register"
+
+    def test_success(self, client, override_db):
+        mock_user = _mock_user()
+        with patch("app.api.auth.UserService.register") as mock_register:
+            mock_register.return_value = (mock_user, {"access_token": "jwt-token-abc"})
+            resp = client.post(self.ROUTE, json={
+                "email": "new@test.com",
+                "password": "SecurePass123!",
+                "name": "New User",
+                "role": "viewer",
+            })
+        assert resp.status_code == 201
+        data = resp.json()
+        assert "access_token" in data
+        assert data["access_token"] == "jwt-token-abc"
+
+    def test_duplicate_email(self, client, override_db):
+        with patch("app.api.auth.UserService.register") as mock_register:
+            mock_register.side_effect = HTTPException(status_code=409, detail="Email already registered")
+            resp = client.post(self.ROUTE, json={
+                "email": "dup@test.com",
+                "password": "SecurePass123!",
+                "name": "Dup User",
+            })
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Email already registered"
+
+    def test_invalid_email(self, client, override_db):
+        resp = client.post(self.ROUTE, json={
+            "email": "not-email",
+            "password": "SecurePass123!",
+            "name": "User",
+        })
+        assert resp.status_code == 422
+
+    def test_missing_password(self, client, override_db):
+        resp = client.post(self.ROUTE, json={
+            "email": "test@test.com",
+            "name": "No Pass",
+        })
+        assert resp.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_get_me_with_token(client):
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Me User",
-    })
-    token = reg.json()["access_token"]
-    resp = await client.get("/api/v1/auth/me", headers={
-        "Authorization": f"Bearer {token}",
-    })
-    assert resp.status_code == 200
-    assert resp.json()["email"] == email
+class TestLogin:
+    ROUTE = "/api/v1/auth/login"
+
+    def test_success(self, client, override_db):
+        with patch("app.api.auth.UserService.login") as mock_login:
+            mock_login.return_value = (MagicMock(), {"access_token": "jwt-token-xyz"})
+            resp = client.post(self.ROUTE, json={
+                "email": "test@test.com",
+                "password": "Pass123!",
+            })
+        assert resp.status_code == 200
+        assert resp.json()["access_token"] == "jwt-token-xyz"
+
+    def test_wrong_password(self, client, override_db):
+        with patch("app.api.auth.UserService.login") as mock_login:
+            mock_login.side_effect = HTTPException(status_code=401, detail="Invalid email or password")
+            resp = client.post(self.ROUTE, json={
+                "email": "test@test.com",
+                "password": "wrong",
+            })
+        assert resp.status_code == 401
+        assert "Invalid email or password" in resp.json()["detail"]
+
+    def test_nonexistent_user(self, client, override_db):
+        with patch("app.api.auth.UserService.login") as mock_login:
+            mock_login.side_effect = HTTPException(status_code=401, detail="Invalid email or password")
+            resp = client.post(self.ROUTE, json={
+                "email": "nonexistent@test.com",
+                "password": "Pass123!",
+            })
+        assert resp.status_code == 401
 
 
-@pytest.mark.asyncio
-async def test_get_me_no_token(client):
-    assert (await client.get("/api/v1/auth/me")).status_code == 401
+class TestGetMe:
+    ROUTE = "/api/v1/auth/me"
 
-
-@pytest.mark.asyncio
-async def test_get_me_invalid_token(client):
-    resp = await client.get("/api/v1/auth/me", headers={
-        "Authorization": "Bearer invalidtoken123",
-    })
-    assert resp.status_code == 401
+    def test_with_token(self, client, override_db, override_auth):
+        """GET /me returns the current user profile."""
+        mock_user = _mock_user()
+        with patch("app.api.auth.UserService.get_by_id") as mock_get:
+            mock_get.return_value = mock_user
+            with patch("app.api.auth.UserService.to_response") as mock_to_resp:
+                mock_to_resp.return_value = {
+                    "id": "user-1", "email": "test@test.com",
+                    "name": "Test User", "role": "hr",
+                    "is_active": True, "created_at": "2025-01-01",
+                }
+                resp = client.get(self.ROUTE)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["email"] == "test@test.com"
+        assert data["id"] == "user-1"

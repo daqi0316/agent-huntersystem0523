@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -11,7 +11,10 @@ from app.services.user import UserService
 
 @pytest.fixture
 def mock_db():
-    return AsyncMock()
+    db = AsyncMock()
+    db.add = MagicMock(return_value=None)
+    db.delete = AsyncMock(return_value=None)
+    return db
 
 
 class TestRegister:

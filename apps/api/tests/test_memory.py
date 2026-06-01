@@ -1,7 +1,20 @@
 """Agent Memory API tests: CRUD operations via in-memory fallback."""
 
+import socket
+
 import pytest
 from unittest.mock import AsyncMock, patch
+
+
+def _has_redis() -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", 6379), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+redis_required = pytest.mark.skipif(not _has_redis(), reason="requires Redis (run docker compose up)")
 
 MEMORY_BASE = "/api/v1/memory"
 
@@ -18,10 +31,10 @@ async def test_memory_write_and_read(client):
     assert write_resp.status_code == 200
     wdata = write_resp.json()
     assert wdata["success"] is True
-    assert wdata["key"] == "candidate_123"
-    assert wdata["value"]["name"] == "张三"
-    assert wdata["value"]["score"] == 85
-    assert wdata["created_at"] != ""
+    assert wdata["data"]["key"] == "candidate_123"
+    assert wdata["data"]["value"]["name"] == "张三"
+    assert wdata["data"]["value"]["score"] == 85
+    assert wdata["data"]["created_at"] != ""
 
     with patch("app.api.memory.get_redis", side_effect=ConnectionError("No Redis")):
         read_resp = await client.post(f"{MEMORY_BASE}/read", json={
@@ -31,8 +44,8 @@ async def test_memory_write_and_read(client):
     assert read_resp.status_code == 200
     rdata = read_resp.json()
     assert rdata["success"] is True
-    assert rdata["key"] == "candidate_123"
-    assert rdata["value"]["name"] == "张三"
+    assert rdata["data"]["key"] == "candidate_123"
+    assert rdata["data"]["value"]["name"] == "张三"
 
 
 @pytest.mark.asyncio
@@ -46,7 +59,7 @@ async def test_memory_read_missing_returns_empty(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
-    assert data["value"] == {}
+    assert data["data"]["value"] == {}
 
 
 @pytest.mark.asyncio
@@ -71,7 +84,7 @@ async def test_memory_delete(client):
             "session_id": "session-c",
             "key": "temp_key",
         })
-    assert read_resp.json()["value"] == {}
+    assert read_resp.json()["data"]["value"] == {}
 
 
 @pytest.mark.asyncio
@@ -91,10 +104,10 @@ async def test_memory_keys(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
-    assert len(data["keys"]) == 3
-    assert "k_0" in data["keys"]
-    assert "k_1" in data["keys"]
-    assert "k_2" in data["keys"]
+    assert len(data["data"]["keys"]) == 3
+    assert "k_0" in data["data"]["keys"]
+    assert "k_1" in data["data"]["keys"]
+    assert "k_2" in data["data"]["keys"]
 
 
 @pytest.mark.asyncio
@@ -105,7 +118,7 @@ async def test_memory_keys_empty_session(client):
             "session_id": "empty-session",
         })
     assert resp.status_code == 200
-    assert resp.json()["keys"] == []
+    assert resp.json()["data"]["keys"] == []
 
 
 @pytest.mark.asyncio
@@ -126,6 +139,7 @@ async def test_memory_write_validation(client):
     assert resp.status_code == 422
 
 
+@redis_required
 @pytest.mark.asyncio
 async def test_memory_write_via_redis(client):
     """写入记忆时优先走 Redis 路径（不 mock get_redis）。"""
@@ -137,15 +151,67 @@ async def test_memory_write_via_redis(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
-    assert data["key"] == "redis-key-1"
-    assert data["value"]["source"] == "redis"
-    assert data["expires_at"] is not None
+    assert data["data"]["key"] == "redis-key-1"
+    assert data["data"]["value"]["source"] == "redis"
+    assert data["data"]["expires_at"] is not None
 
     read_resp = await client.post(f"{MEMORY_BASE}/read", json={
         "session_id": "redis-session",
         "key": "redis-key-1",
     })
-    assert read_resp.json()["value"]["source"] == "redis"
+    assert read_resp.json()["data"]["value"]["source"] == "redis"
+
+
+@pytest.mark.asyncio
+async def test_memory_delete_via_redis(client):
+    """Delete via real Redis path (lines 90-91)."""
+    from unittest.mock import AsyncMock, MagicMock, patch as mock_patch
+
+    mock_redis = MagicMock()
+    mock_redis.delete = AsyncMock(return_value=1)
+    mock_redis.setex = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+
+    with mock_patch("app.api.memory.get_redis", return_value=mock_redis):
+        write_resp = await client.post(f"{MEMORY_BASE}/write", json={
+            "session_id": "redis-del", "key": "del-key", "value": {"x": 1},
+        })
+        assert write_resp.status_code == 200
+
+        del_resp = await client.post(f"{MEMORY_BASE}/delete", json={
+            "session_id": "redis-del", "key": "del-key",
+        })
+    assert del_resp.status_code == 200
+    data = del_resp.json()
+    assert data["success"] is True
+    assert data["data"]["key"] == "del-key"
+
+
+@pytest.mark.asyncio
+async def test_memory_keys_via_redis(client):
+    """List keys via real Redis path (lines 99-101)."""
+    from unittest.mock import AsyncMock, MagicMock, patch as mock_patch
+
+    mock_redis = MagicMock()
+    mock_redis.setex = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.scan = AsyncMock(return_value=(0, ["m:redis-ks:a", "m:redis-ks:b"]))
+    mock_redis.delete = AsyncMock(return_value=1)
+
+    with mock_patch("app.api.memory.get_redis", return_value=mock_redis):
+        for k in ["a", "b"]:
+            await client.post(f"{MEMORY_BASE}/write", json={
+                "session_id": "redis-ks", "key": k, "value": {"idx": k},
+            })
+
+        resp = await client.post(f"{MEMORY_BASE}/keys", json={
+            "session_id": "redis-ks",
+        })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert "a" in data["data"]["keys"]
+    assert "b" in data["data"]["keys"]
 
 
 @pytest.mark.asyncio
@@ -159,4 +225,4 @@ async def test_memory_delete_nonexistent(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is False
-    assert data["key"] == "nonexistent-key"
+    assert data["data"]["key"] == "nonexistent-key"

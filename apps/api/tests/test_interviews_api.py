@@ -310,6 +310,58 @@ async def test_from_proposal_slot_conflict(client):
     assert resp.status_code == 409
 
 
+async def test_from_proposal_with_application_lookup(client):
+    """Covers UUID-based application lookup + status update (lines 155-166, 186-187)."""
+    import uuid
+    from unittest.mock import MagicMock
+
+    from app.core.database import get_db
+    from app.main import app
+
+    mock_db = MagicMock()
+    mock_app = MagicMock()
+    mock_app.id = uuid.uuid4()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_app
+
+    async def mock_execute(*args, **kwargs):
+        return mock_result
+    mock_db.execute = mock_execute
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    mock_candidate_svc = MagicMock()
+    mock_candidate_svc.move_to_interview = AsyncMock(return_value=MagicMock())
+
+    mock_interview_svc = AsyncMock()
+    mock_interview_svc.schedule.return_value = {
+        "id": "iv-app",
+        "candidate_id": str(uuid.uuid4()),
+        "status": "scheduled",
+    }
+
+    mock_app_svc = AsyncMock()
+
+    with (
+        patch("app.api.interviews.CandidateService", return_value=mock_candidate_svc),
+        patch("app.api.interviews.InterviewService", return_value=mock_interview_svc),
+        patch("app.api.interviews.ApplicationService", return_value=mock_app_svc),
+    ):
+        resp = await client.post(
+            "/api/v1/interviews/from-proposal",
+            json={
+                "candidate_id": str(uuid.uuid4()),
+                "job_id": str(uuid.uuid4()),
+                "scheduled_at": "2025-06-01T10:00:00",
+                "type": "video",
+                "duration_minutes": 60,
+            },
+        )
+
+    app.dependency_overrides.pop(get_db, None)
+    assert resp.status_code == 201
+    mock_app_svc.update.assert_awaited_once()
+
+
 async def test_from_proposal_wrong_status(client):
     """POST /api/v1/interviews/from-proposal returns 400 when candidate not evaluatable."""
     mock_candidate_svc = MagicMock()

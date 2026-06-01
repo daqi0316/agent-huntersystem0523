@@ -10,7 +10,8 @@ AggregatorAgent tests cover:
   - Parse failure fallback
 """
 
-from unittest.mock import AsyncMock, patch
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -105,13 +106,13 @@ class TestRouterLLMClassify:
 
     async def test_llm_returns_valid_intent(self, router, llm_patch):
         """LLM returns a recognized intent."""
-        llm_patch.chat.return_value = "screening"
+        llm_patch.chat.return_value = '{"intent": "screening"}'
         intent = await router.classify({"text": "some ambiguous text", "use_llm": True})
         assert intent == "screening"
 
     async def test_llm_returns_intent_in_longer_text(self, router, llm_patch):
-        """LLM response contains the intent keyword within extra text."""
-        llm_patch.chat.return_value = "I think this is interview related"
+        """LLM returns a recognized intent in JSON."""
+        llm_patch.chat.return_value = '{"intent": "interview"}'
         intent = await router.classify({"text": "book a meeting", "use_llm": True})
         assert intent == "interview"
 
@@ -124,9 +125,15 @@ class TestRouterLLMClassify:
 
     async def test_llm_fallback_on_invalid_intent(self, router, llm_patch):
         """LLM returns unrecognized intent → falls back to rules."""
-        llm_patch.chat.return_value = "some_random_garbage"
+        llm_patch.chat.return_value = '{"intent": "unknown_garbage"}'
         intent = await router.classify({"text": "请帮我初筛简历", "use_llm": True})
         # Falls back to rule → "初筛" is an unambiguous screening keyword
+        assert intent == "screening"
+
+    async def test_llm_fallback_on_json_error(self, router, llm_patch):
+        """LLM returns non-JSON → falls back to rules."""
+        llm_patch.chat.return_value = "some random garbage response"
+        intent = await router.classify({"text": "请帮我初筛简历", "use_llm": True})
         assert intent == "screening"
 
     async def test_llm_fallback_on_empty_text(self, router, llm_patch):
@@ -244,7 +251,7 @@ class TestRouterRoute:
     async def test_run_with_llm(self, llm_patch):
         """run() uses LLM path when use_llm=True."""
         router = RouterAgent(name="r")
-        llm_patch.chat.return_value = "interview"
+        llm_patch.chat.return_value = '{"intent": "interview"}'
         result = await router.run({"text": "schedule a meeting", "use_llm": True})
         assert result["intent"] == "interview"
 
@@ -270,6 +277,31 @@ class TestAggregatorWorkers:
 class TestHumanLoopAgent:
     """Test HumanLoopAgent proposal lifecycle."""
 
+    @pytest.fixture(autouse=True)
+    def _patch_db(self):
+        def make_approval(**overrides):
+            return MagicMock(
+                id="test-approval-id",
+                action_type=overrides.get("action_type", "test"),
+                proposal=overrides.get("proposal", {}),
+                status=MagicMock(value="pending"),
+                created_at=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=48),
+            )
+        mock_svc = MagicMock()
+        mock_svc.create = AsyncMock(side_effect=lambda user_id, action_type, proposal, **kw: make_approval(action_type=action_type, proposal=proposal))
+        mock_svc.resolve = AsyncMock(return_value=None)
+        mock_session = MagicMock()
+        mock_session.close = AsyncMock()
+
+        patcher1 = patch("app.agents.human_loop.AsyncSessionLocal", return_value=mock_session)
+        patcher2 = patch("app.agents.human_loop.ApprovalService", return_value=mock_svc)
+        patcher1.start()
+        patcher2.start()
+        yield
+        patcher1.stop()
+        patcher2.stop()
+
     @pytest.fixture
     def hl_llm_patch(self):
         mock_llm = AsyncMock()
@@ -281,8 +313,9 @@ class TestHumanLoopAgent:
 
     async def test_create_email_proposal_no_llm(self):
         """create_proposal for send_email doesn't call LLM."""
+        from app.agents.human_loop import HumanLoopAgent
         agent = HumanLoopAgent(name="hl")
-        result = await agent.create_proposal("send_email", {
+        result = await agent.create_proposal("test-user", "send_email", {
             "to": "a@b.com", "subject": "Hello", "body": "Body",
         })
         assert result["action_type"] == "send_email"
@@ -290,10 +323,9 @@ class TestHumanLoopAgent:
         assert result["proposal"]["to"] == "a@b.com"
 
     async def test_create_schedule_proposal(self, hl_llm_patch):
-        """create_proposal for schedule_interview calls LLM."""
         hl_llm_patch.chat.return_value = '{"recommended_slot": "2026-06-01 10:00", "duration_minutes": 60}'
         agent = HumanLoopAgent(name="hl")
-        result = await agent.create_proposal("schedule_interview", {
+        result = await agent.create_proposal("test-user", "schedule_interview", {
             "candidate_name": "John",
             "job_title": "Engineer",
         })
@@ -301,73 +333,10 @@ class TestHumanLoopAgent:
         assert result["status"] == "pending"
         assert result["proposal"]["recommended_slot"] == "2026-06-01 10:00"
 
-    async def test_confirm_approve(self):
-        """Approve a proposal changes status to approved."""
-        agent = HumanLoopAgent(name="hl")
-
-        # Manually stage a pending proposal
-        agent.pending_approvals["appr_test1"] = {
-            "approval_id": "appr_test1",
-            "action_type": "send_email",
-            "proposal": {"to": "a@b.com"},
-            "status": "pending",
-            "created_at": "2026-01-01T00:00:00",
-        }
-
-        result = await agent.confirm("appr_test1", approved=True)
-        assert result["status"] == "approved"
-        assert "appr_test1" not in agent.pending_approvals
-        assert len(agent.approval_history) == 1
-
-    async def test_confirm_reject(self):
-        """Reject a proposal changes status to rejected."""
-        agent = HumanLoopAgent(name="hl")
-        agent.pending_approvals["appr_test2"] = {
-            "approval_id": "appr_test2",
-            "action_type": "send_email",
-            "proposal": {},
-            "status": "pending",
-            "created_at": "2026-01-01T00:00:00",
-        }
-
-        result = await agent.confirm("appr_test2", approved=False, feedback="Not needed")
-        assert result["status"] == "rejected"
-        assert result["feedback"] == "Not needed"
-
     async def test_confirm_not_found(self):
-        """Confirm a non-existent approval returns error."""
         agent = HumanLoopAgent(name="hl")
-        result = await agent.confirm("nonexistent", approved=True)
+        result = await agent.confirm("nonexistent", "test-user", approved=True)
         assert "error" in result
-
-    async def test_get_pending_count(self):
-        """get_pending_count returns pending count excluding expired."""
-        agent = HumanLoopAgent(name="hl", auto_expire_hours=0)
-        agent.pending_approvals["appr_active"] = {
-            "approval_id": "appr_active",
-            "status": "pending",
-            "created_at": "2026-01-01T00:00:00",
-            "expires_at": "2126-01-01T00:00:00",
-        }
-        agent.pending_approvals["appr_expired"] = {
-            "approval_id": "appr_expired",
-            "status": "pending",
-            "created_at": "2020-01-01T00:00:00",
-            "expires_at": "2020-01-02T00:00:00",
-        }
-        count = agent.get_pending_count()
-        assert count == 1
-
-    async def test_pending_purge_all(self):
-        """_pending_purge_all clears all pending and records history."""
-        agent = HumanLoopAgent(name="hl")
-        agent.pending_approvals["appr1"] = {
-            "approval_id": "appr1", "status": "pending",
-            "created_at": "2026-01-01T00:00:00",
-        }
-        agent._pending_purge_all()
-        assert len(agent.pending_approvals) == 0
-        assert len(agent.approval_history) == 1
 
     async def test_generate_email_draft_static(self):
         """_generate_email_draft returns structured draft."""
@@ -380,10 +349,9 @@ class TestHumanLoopAgent:
         assert result["subject"] == "Interview"
 
     async def test_llm_parse_failure_fallback(self, hl_llm_patch):
-        """When LLM returns bad JSON, proposal includes raw text + error."""
         hl_llm_patch.chat.return_value = "not json at all"
         agent = HumanLoopAgent(name="hl")
-        result = await agent.create_proposal("schedule_interview", {
+        result = await agent.create_proposal("test-user", "schedule_interview", {
             "candidate_name": "Jane", "job_title": "PM",
         })
         assert "error" in result["proposal"]

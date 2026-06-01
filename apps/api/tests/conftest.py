@@ -1,4 +1,4 @@
-"""pytest fixtures: FastAPI test client against real Docker PostgreSQL."""
+"""pytest fixtures: FastAPI test client + singleton cleanup."""
 
 import asyncio
 
@@ -8,6 +8,14 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.core.database import engine
+
+
+@pytest.fixture(autouse=True)
+def _clear_agent_registry():
+    """Clear AgentRegistry before each test to prevent singleton state leaking."""
+    from app.agents.registry import AgentRegistry
+    AgentRegistry.clear()
+    yield
 
 
 @pytest.fixture(scope="session")

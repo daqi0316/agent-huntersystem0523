@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock, Mock, MagicMock
 
 import pytest
 
-from app.services.summary_service import SummaryService as SUT
+from app.services.summary_service import (
+    SummaryService as SUT,
+    SEARCH_MODE_VECTOR,
+    SEARCH_MODE_FTS,
+    SEARCH_MODE_HYBRID,
+)
 
 
 # ── Fixtures ──
@@ -17,15 +22,21 @@ def mock_db():
     Each call to db.execute() returns a MagicMock that mimics SQLAlchemy's
     async Result, where .scalar_one_or_none() / .scalars() / .scalar() are
     all sync (not async) methods.
+
+    Also supports db.execute() with a text() SQL (returns mappings via .mappings()).
     """
     db = AsyncMock()
-    db.execute = AsyncMock(
-        return_value=MagicMock(
-            scalar_one_or_none=Mock(return_value=None),
-            scalars=Mock(return_value=Mock(all=Mock(return_value=[]))),
-            scalar=Mock(return_value=0),
-        )
+    mappings_result = MagicMock()
+    mappings_result.__iter__.return_value = iter([])
+    mappings_result.all.return_value = []
+    default_result = MagicMock(
+        scalar_one_or_none=Mock(return_value=None),
+        scalars=Mock(return_value=Mock(all=Mock(return_value=[]))),
+        scalar=Mock(return_value=0),
     )
+    # .mappings() used by raw SQL queries in search_fts — must be iterable
+    default_result.mappings = Mock(return_value=mappings_result)
+    db.execute = AsyncMock(return_value=default_result)
     db.commit = AsyncMock()
     db.add = Mock()
     db.delete = AsyncMock()
@@ -38,6 +49,25 @@ def mock_llm():
     llm = AsyncMock()
     llm.embed = AsyncMock(return_value=[0.1] * 1024)
     llm.chat = AsyncMock(return_value="Mock summary text.")
+    return llm
+
+
+@pytest.fixture
+def mock_llm_json():
+    """Return a mock LLM client that returns structured JSON (summary + key_insights)."""
+    llm = AsyncMock()
+    llm.embed = AsyncMock(return_value=[0.1] * 1024)
+    llm.chat = AsyncMock(return_value=(
+        '{\n'
+        '  "summary": "Reviewed Python candidates and arranged tech interviews.",\n'
+        '  "key_insights": {\n'
+        '    "preferred_skills": ["Python", "FastAPI"],\n'
+        '    "salary_range": "30k-40k",\n'
+        '    "screening_patterns": ["tech lead background preferred"],\n'
+        '    "rejected_reasons": []\n'
+        '  }\n'
+        '}'
+    ))
     return llm
 
 
@@ -115,10 +145,10 @@ async def test_generate_embed_fallback(service, mock_llm, mock_qdrant, mock_db):
 
 
 async def test_call_summary_llm_empty_content(service, mock_llm):
-    """_call_summary_llm returns empty string when messages have no content."""
+    """_call_summary_llm returns None when messages have no content."""
     messages = [{"role": "user", "content": None}, {"role": "assistant", "content": None}]
     result = await service._call_summary_llm(messages)
-    assert result == ""
+    assert result is None
 
 
 async def test_generate_updates_existing_record(service, mock_db, mock_llm, mock_qdrant):
@@ -199,11 +229,12 @@ async def test_injection_context_skips_duplicate(service, mock_qdrant):
 
 
 async def test_list_by_user(service, mock_db):
-    """list_by_user returns paginated summaries."""
+    """list_by_user returns paginated summaries with key_insights."""
     mock_rec = MagicMock()
     mock_rec.id = "sum-1"
     mock_rec.session_id = "sess-1"
     mock_rec.summary = "test"
+    mock_rec.key_insights = {"preferred_skills": ["Python"]}
     mock_rec.created_at = None
     mock_rec.updated_at = None
 
@@ -215,6 +246,7 @@ async def test_list_by_user(service, mock_db):
     items, total = await service.list_by_user("user-1", skip=0, limit=20)
     assert total == 1
     assert items[0]["id"] == "sum-1"
+    assert items[0]["key_insights"] == {"preferred_skills": ["Python"]}
 
 
 async def test_update_summary_not_found(service, mock_db):
@@ -230,6 +262,7 @@ async def test_update_summary_success(service, mock_db, mock_llm, mock_qdrant):
     mock_rec.id = "sum-1"
     mock_rec.session_id = "sess-1"
     mock_rec.summary = "old"
+    mock_rec.key_insights = None
     mock_rec.created_at = None
     mock_db.execute.return_value.scalar_one_or_none.return_value = mock_rec
 
@@ -258,3 +291,174 @@ async def test_delete_summary_success(service, mock_db, mock_qdrant):
     assert ok is True
     mock_db.delete.assert_called_once_with(mock_rec)
     mock_qdrant.delete.assert_awaited_once_with("sess-1")
+
+
+# ── FTS search ──
+
+
+async def test_search_fts_empty_query(service):
+    """search_fts returns empty list for empty query string."""
+    result = await service.search_fts("user-1", "")
+    assert result == []
+
+
+async def test_search_fts_empty_results(service, mock_db):
+    """search_fts returns empty list when no rows match."""
+    # mappings() already returns an empty iterable from fixture
+    result = await service.search_fts("user-1", "nonexistent")
+    assert result == []
+
+
+async def test_search_fts_returns_results(service, mock_db):
+    """search_fts returns ranked results from raw SQL."""
+    row = {
+        "id": "sum-1",
+        "session_id": "sess-1",
+        "summary": "Reviewed Python candidate",
+        "key_insights": {"preferred_skills": ["Python"]},
+        "created_at": None,
+        "updated_at": None,
+        "rank": 0.75,
+    }
+    iter_mock = MagicMock()
+    iter_mock.__iter__.return_value = iter([row])
+    mock_db.execute.return_value.mappings.return_value = iter_mock
+
+    results = await service.search_fts("user-1", "Python", top_k=5)
+    assert len(results) == 1
+    assert results[0]["session_id"] == "sess-1"
+    assert results[0]["rank"] == 0.75
+    assert results[0]["key_insights"]["preferred_skills"] == ["Python"]
+
+
+# ── get_relevant modes ──
+
+
+async def test_get_relevant_fts_mode(service, mock_db):
+    """get_relevant with mode=fts delegates to search_fts."""
+    row = {
+        "id": "sum-1",
+        "session_id": "sess-1",
+        "summary": "Python developer",
+        "key_insights": None,
+        "created_at": None,
+        "updated_at": None,
+        "rank": 0.85,
+    }
+    iter_mock = MagicMock()
+    iter_mock.__iter__.return_value = iter([row])
+    mock_db.execute.return_value.mappings.return_value = iter_mock
+
+    results = await service.get_relevant("user-1", "Python", mode=SEARCH_MODE_FTS)
+    assert len(results) == 1
+    assert results[0]["rank"] == 0.85
+
+
+async def test_get_relevant_empty_query_all_modes(service):
+    """get_relevant returns empty list for empty query regardless of mode."""
+    vector_result = await service.get_relevant("user-1", "", mode=SEARCH_MODE_VECTOR)
+    fts_result = await service.get_relevant("user-1", "", mode=SEARCH_MODE_FTS)
+    hybrid_result = await service.get_relevant("user-1", "", mode=SEARCH_MODE_HYBRID)
+    assert vector_result == []
+    assert fts_result == []
+    assert hybrid_result == []
+
+
+async def test_get_relevant_hybrid_mode(service, mock_db, mock_llm):
+    """get_relevant in hybrid mode merges vector + FTS results."""
+    fts_row = {
+        "id": "sum-3",
+        "session_id": "sess-3",
+        "summary": "Screened frontend developers",
+        "key_insights": None,
+        "created_at": None,
+        "updated_at": None,
+        "rank": 0.90,
+    }
+    iter_mock = MagicMock()
+    iter_mock.__iter__.return_value = iter([fts_row])
+    mock_db.execute.return_value.mappings.return_value = iter_mock
+
+    results = await service.get_relevant("user-1", "developer", mode=SEARCH_MODE_HYBRID)
+    assert len(results) > 0
+    session_ids = {r["session_id"] for r in results}
+    assert "sess-1" in session_ids
+    assert "sess-3" in session_ids
+
+
+async def test_get_relevant_hybrid_fallback_fts(service, mock_db, mock_llm):
+    """hybrid mode falls back to FTS-only when embedding fails."""
+    mock_llm.embed = AsyncMock(return_value=[])
+    fts_row = {
+        "id": "sum-1",
+        "session_id": "sess-1",
+        "summary": "Fallback result",
+        "key_insights": None,
+        "created_at": None,
+        "updated_at": None,
+        "rank": 0.70,
+    }
+    iter_mock = MagicMock()
+    iter_mock.__iter__.return_value = iter([fts_row])
+    mock_db.execute.return_value.mappings.return_value = iter_mock
+
+    results = await service.get_relevant("user-1", "anything", mode=SEARCH_MODE_HYBRID)
+    assert len(results) == 1
+    assert results[0]["session_id"] == "sess-1"
+
+
+# ── JSON-structured key_insights extraction ──
+
+
+async def test_generate_with_key_insights(mock_db, mock_llm_json, mock_qdrant):
+    """generate extracts key_insights when LLM returns structured JSON."""
+    svc = SUT(db=mock_db, llm=mock_llm_json, qdrant=mock_qdrant)
+    mock_db.execute.return_value.scalar_one_or_none.return_value = None
+
+    messages = [{"role": "user", "content": f"Message {i}"} for i in range(8)]
+    result = await svc.generate("user-1", "sess-1", messages)
+
+    assert result == "Reviewed Python candidates and arranged tech interviews."
+
+    # Verify key_insights was passed to _upsert_pg — check db.add was called
+    # with a SessionSummary that has key_insights
+    added = mock_db.add.call_args[0][0]
+    assert added.key_insights == {
+        "preferred_skills": ["Python", "FastAPI"],
+        "salary_range": "30k-40k",
+        "screening_patterns": ["tech lead background preferred"],
+        "rejected_reasons": [],
+    }
+
+
+async def test_call_summary_llm_json_parse(service, mock_llm_json):
+    """_call_summary_llm parses structured JSON correctly."""
+    service.llm = mock_llm_json  # replace default mock_llm with JSON-returning one
+    message = [{"role": "user", "content": f"Message {i}"} for i in range(8)]
+    summary_text, key_insights = await service._call_summary_llm(message)
+    assert summary_text == "Reviewed Python candidates and arranged tech interviews."
+    assert key_insights["preferred_skills"] == ["Python", "FastAPI"]
+    assert key_insights["salary_range"] == "30k-40k"
+
+
+async def test_generate_with_key_insights_update(mock_db, mock_llm_json, mock_qdrant):
+    """generate updates key_insights on an existing record."""
+    existing = Mock()
+    existing.summary = "old"
+    existing.key_insights = None
+    existing.updated_at = None
+    mock_db.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=Mock(return_value=existing))
+    )
+
+    svc = SUT(db=mock_db, llm=mock_llm_json, qdrant=mock_qdrant)
+    messages = [{"role": "user", "content": f"Message {i}"} for i in range(8)]
+    result = await svc.generate("user-1", "sess-1", messages)
+
+    assert result == "Reviewed Python candidates and arranged tech interviews."
+    assert existing.key_insights == {
+        "preferred_skills": ["Python", "FastAPI"],
+        "salary_range": "30k-40k",
+        "screening_patterns": ["tech lead background preferred"],
+        "rejected_reasons": [],
+    }

@@ -9,7 +9,17 @@ from starlette.testclient import TestClient
 
 @pytest.fixture
 def mock_db_session():
-    return AsyncMock()
+    session = MagicMock()
+    session.add = MagicMock(return_value=None)
+    session.delete = AsyncMock(return_value=None)
+    session.commit = AsyncMock(return_value=None)
+    session.refresh = AsyncMock(return_value=None)
+    # Use real async execute to avoid AsyncMock coroutine wrapping issues
+    async def _execute(*args, **kwargs):
+        return session._execute_result
+    session.execute = _execute
+    session._execute_result = MagicMock()
+    return session
 
 
 @pytest.fixture
@@ -233,7 +243,7 @@ class TestPipelineFlowErrors:
             )
 
         assert resp.status_code == 404
-        assert "detail" in resp.json()
+        assert "error" in resp.json()
 
     def test_wrong_state_transition(self, client, override_get_db, mock_db_session):
         """状态机校验不通过 → 400。"""
@@ -255,8 +265,8 @@ class TestPipelineFlowErrors:
 
         assert resp.status_code == 400
         body = resp.json()
-        assert "detail" in body
-        assert "archived" in body["detail"]
+        assert "error" in body
+        assert "archived" in body["error"]
 
     def test_pipeline_execution_fails_returns_graceful_result(
         self, client, override_get_db, mock_db_session

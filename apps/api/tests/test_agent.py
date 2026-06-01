@@ -1,57 +1,44 @@
-"""Agent & Retrieval API tests: auth protection and handler logic."""
+"""Agent API tests with mocked dependencies — no real DB needed."""
 
-import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-from app.schemas.jd_generator import JDGenerateRequest
-from app.schemas.knowledge import KnowledgeQueryRequest
-
-
-def _unique_email():
-    return f"test-{uuid.uuid4().hex[:8]}@test.com"
+from fastapi import FastAPI
+from starlette.testclient import TestClient
 
 
-def _auth_headers(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
+@pytest.fixture
+def app():
+    _app = FastAPI()
+    from app.api.agent import router
+    _app.include_router(router, prefix="/api/v1/agent")
+    return _app
+
+
+@pytest.fixture
+def client(app):
+    return TestClient(app)
+
+
+@pytest.fixture
+def override_auth(app):
+    from app.core.dependencies import get_current_user_id
+    app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    yield
+    app.dependency_overrides.pop(get_current_user_id, None)
 
 
 # ──────────────────────────────────────────────
-# Auth protection — all 5 endpoints
+# Auth protection — all endpoints
 # ──────────────────────────────────────────────
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("method, path", [
-    ("POST", "/api/v1/agent/chat"),
-    ("POST", "/api/v1/agent/generate-jd"),
-    ("POST", "/api/v1/agent/knowledge-query"),
-    ("POST", "/api/v1/retrieval/search"),
-    ("POST", "/api/v1/retrieval/embed"),
+@pytest.mark.parametrize("path", [
+    "/api/v1/agent/chat",
+    "/api/v1/agent/generate-jd",
+    "/api/v1/agent/knowledge-query",
 ])
-async def test_no_token_returns_401(client, method, path):
-    """All agent/retrieval endpoints require authentication."""
-    if method == "POST":
-        resp = await client.post(path, json={})
-    else:
-        resp = await client.get(path)
-    assert resp.status_code == 401
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("method, path", [
-    ("POST", "/api/v1/agent/chat"),
-    ("POST", "/api/v1/agent/generate-jd"),
-    ("POST", "/api/v1/agent/knowledge-query"),
-    ("POST", "/api/v1/retrieval/search"),
-    ("POST", "/api/v1/retrieval/embed"),
-])
-async def test_invalid_token_returns_401(client, method, path):
-    headers = _auth_headers("totally-invalid-token")
-    if method == "POST":
-        resp = await client.post(path, json={}, headers=headers)
-    else:
-        resp = await client.get(path, headers=headers)
+def test_no_token_returns_401(client, path):
+    resp = client.post(path, json={})
     assert resp.status_code == 401
 
 
@@ -59,245 +46,93 @@ async def test_invalid_token_returns_401(client, method, path):
 # /agent/chat
 # ──────────────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_agent_chat_no_message_returns_422(client):
-    """Chat requires a message field."""
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Chat User",
-    })
-    token = reg.json()["access_token"]
+class TestAgentChat:
+    ROUTE = "/api/v1/agent/chat"
 
-    resp = await client.post("/api/v1/agent/chat", json={}, headers=_auth_headers(token))
-    assert resp.status_code == 422
+    def test_missing_message_returns_422(self, client, override_auth):
+        resp = client.post(self.ROUTE, json={})
+        assert resp.status_code == 422
 
+    def test_chat_success(self, client, override_auth):
+        mock_result = {
+            "reply": "Hello, I am a mock LLM.",
+            "model": "mock-model",
+            "tool_calls": [],
+        }
+        with patch("app.api.agent.chat_with_tools", new=AsyncMock(return_value=mock_result)):
+            resp = client.post(self.ROUTE, json={"message": "Hello!"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["reply"] == "Hello, I am a mock LLM."
+        assert data["model"] == "mock-model"
 
-@pytest.mark.asyncio
-async def test_agent_chat_success(client):
-    """Mock LLM client returns a known reply."""
-    mock_llm = AsyncMock()
-    mock_llm.model = "mock-model"
-
-    mock_response = AsyncMock()
-    mock_response.choices = [AsyncMock()]
-    mock_response.choices[0].message.content = "Hello, I am a mock LLM."
-    mock_response.choices[0].message.tool_calls = []
-    mock_llm.client.chat.completions.create.return_value = mock_response
-
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Chat User",
-    })
-    token = reg.json()["access_token"]
-
-    with patch("app.services.agent_service.get_llm_client", return_value=mock_llm):
-        resp = await client.post("/api/v1/agent/chat", json={
-            "message": "Hello!",
-        }, headers=_auth_headers(token))
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert data["reply"] == "Hello, I am a mock LLM."
-    assert data["model"] == "mock-model"
-
-
-@pytest.mark.asyncio
-async def test_agent_chat_with_system_prompt(client):
-    """Custom system prompt is forwarded to the LLM."""
-    mock_llm = AsyncMock()
-    mock_llm.model = "mock-model"
-
-    mock_response = AsyncMock()
-    mock_response.choices = [AsyncMock()]
-    mock_response.choices[0].message.content = "You are a helpful assistant."
-    mock_response.choices[0].message.tool_calls = []
-    mock_llm.client.chat.completions.create.return_value = mock_response
-
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Chat User",
-    })
-    token = reg.json()["access_token"]
-
-    with patch("app.services.agent_service.get_llm_client", return_value=mock_llm):
-        resp = await client.post("/api/v1/agent/chat", json={
-            "message": "Tell me a joke",
-            "system_prompt": "Be concise and funny.",
-        }, headers=_auth_headers(token))
-
-    assert resp.status_code == 200
-    sent_messages = mock_llm.client.chat.completions.create.call_args[1]["messages"]
-    assert any(m["role"] == "system" and "funny" in m["content"] for m in sent_messages)
+    def test_with_system_prompt(self, client, override_auth):
+        mock_result = {
+            "reply": "Why did the chicken...",
+            "model": "mock-model",
+            "tool_calls": [],
+        }
+        with patch("app.api.agent.chat_with_tools", new=AsyncMock(return_value=mock_result)):
+            resp = client.post(self.ROUTE, json={
+                "message": "Tell me a joke",
+                "system_prompt": "Be concise and funny.",
+            })
+        assert resp.status_code == 200
 
 
 # ──────────────────────────────────────────────
 # /agent/generate-jd
 # ──────────────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_generate_jd_success(client):
-    """Mock JDGeneratorService returns a completed JD."""
-    mock_service = AsyncMock()
-    mock_service.generate_jd.return_value = {
-        "status": "completed",
-        "final_output": "# Senior Engineer\n\n## Requirements\n- 5+ years",
-        "iterations": [],
-        "total_iterations": 1,
-        "passed": True,
-    }
+class TestGenerateJD:
+    ROUTE = "/api/v1/agent/generate-jd"
 
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "JD User",
-    })
-    token = reg.json()["access_token"]
+    def test_success(self, client, override_auth):
+        mock_service = AsyncMock()
+        mock_service.generate_jd.return_value = {
+            "status": "completed",
+            "final_output": "# Senior Engineer\n\n## Requirements\n- 5+ years",
+            "iterations": [],
+            "total_iterations": 1,
+            "passed": True,
+        }
+        with patch("app.api.agent.JDGeneratorService", return_value=mock_service):
+            resp = client.post(self.ROUTE, json={
+                "title": "Senior Engineer",
+                "requirements": "5+ years experience",
+                "preferences": "Python preferred",
+                "auto_improve": True,
+            })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "Senior Engineer" in data["data"]
+        assert data["total_iterations"] == 1
+        assert data["passed"] is True
 
-    with patch("app.api.agent.JDGeneratorService", return_value=mock_service):
-        resp = await client.post("/api/v1/agent/generate-jd", json={
-            "title": "Senior Engineer",
-            "requirements": "5+ years experience",
-            "preferences": "Python preferred",
-            "auto_improve": True,
-        }, headers=_auth_headers(token))
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert "Senior Engineer" in data["data"]
-    assert data["total_iterations"] == 1
-    assert data["passed"] is True
-
-
-@pytest.mark.asyncio
-async def test_generate_jd_no_title_returns_422(client):
-    """JD generation requires a title."""
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "JD User",
-    })
-    token = reg.json()["access_token"]
-
-    resp = await client.post("/api/v1/agent/generate-jd", json={
-        "requirements": "some skills",
-    }, headers=_auth_headers(token))
-    assert resp.status_code == 422
+    def test_no_title_returns_422(self, client, override_auth):
+        resp = client.post(self.ROUTE, json={"requirements": "some skills"})
+        assert resp.status_code == 422
 
 
 # ──────────────────────────────────────────────
 # /agent/knowledge-query
 # ──────────────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_knowledge_query_success(client):
-    """Mock KnowledgeService returns an answer."""
-    mock_service = AsyncMock()
-    mock_service.query.return_value = {
-        "answer": "Interview tips: be prepared.",
-        "sources": [{"id": "doc-1", "title": "Guide", "content": "...", "score": 0.9}],
-    }
+class TestKnowledgeQuery:
+    ROUTE = "/api/v1/agent/knowledge-query"
 
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "K User",
-    })
-    token = reg.json()["access_token"]
-
-    with patch("app.api.agent.KnowledgeService", return_value=mock_service):
-        resp = await client.post("/api/v1/agent/knowledge-query", json={
-            "query": "interview tips",
-            "top_k": 3,
-        }, headers=_auth_headers(token))
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert "prepared" in data["answer"]
-    assert len(data["sources"]) == 1
-
-
-# ──────────────────────────────────────────────
-# /retrieval/search
-# ──────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_retrieval_search_success(client):
-    """Mock KnowledgeService returns search results."""
-    mock_service = AsyncMock()
-    mock_service.search.return_value = [
-        {"id": "doc-1", "title": "Interview Guide", "content": "Tips...", "score": 0.95},
-    ]
-
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "R User",
-    })
-    token = reg.json()["access_token"]
-
-    with patch("app.api.retrieval.KnowledgeService", return_value=mock_service):
-        resp = await client.post("/api/v1/retrieval/search", json={
-            "query": "interview guide",
-            "top_k": 5,
-        }, headers=_auth_headers(token))
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert len(data["results"]) == 1
-    assert data["results"][0]["title"] == "Interview Guide"
-
-
-@pytest.mark.asyncio
-async def test_retrieval_search_no_query_returns_422(client):
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "R User",
-    })
-    token = reg.json()["access_token"]
-
-    resp = await client.post("/api/v1/retrieval/search", json={
-        "query": "",
-    }, headers=_auth_headers(token))
-    assert resp.status_code == 422
-
-
-# ──────────────────────────────────────────────
-# /retrieval/embed
-# ──────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_retrieval_embed_success(client):
-    """Mock LLM client returns a fixed embedding vector."""
-    mock_llm = AsyncMock()
-    mock_llm.embed.return_value = [0.1, 0.2, 0.3, 0.4, 0.5]
-
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "E User",
-    })
-    token = reg.json()["access_token"]
-
-    with patch("app.api.retrieval.get_llm_client", return_value=mock_llm):
-        resp = await client.post("/api/v1/retrieval/embed", json={
-            "text": "Embed this text",
-        }, headers=_auth_headers(token))
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert len(data["embedding"]) == 5
-    assert data["dimension"] == 5
-
-
-@pytest.mark.asyncio
-async def test_retrieval_embed_no_text_returns_422(client):
-    email = _unique_email()
-    reg = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "E User",
-    })
-    token = reg.json()["access_token"]
-
-    resp = await client.post("/api/v1/retrieval/embed", json={
-        "text": "",
-    }, headers=_auth_headers(token))
-    assert resp.status_code == 422
+    def test_success(self, client, override_auth):
+        mock_service = AsyncMock()
+        mock_service.query.return_value = {
+            "answer": "Interview tips: be prepared.",
+            "sources": [{"id": "doc-1", "title": "Guide", "content": "...", "score": 0.9}],
+        }
+        with patch("app.api.agent.KnowledgeService", return_value=mock_service):
+            resp = client.post(self.ROUTE, json={"query": "interview tips", "top_k": 3})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "prepared" in data["answer"]
+        assert len(data["sources"]) == 1

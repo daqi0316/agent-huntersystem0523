@@ -26,7 +26,7 @@ class TestUploadResume:
     def test_unsupported_extension(self, client):
         resp = client.post("/upload-resume", files={"file": ("resume.exe", b"data", "application/octet-stream")})
         assert resp.status_code == 400
-        assert "不支持的文件格式" in resp.json()["detail"]
+        assert "不支持的文件格式" in resp.json()["error"]
 
     def test_empty_filename_returns_422(self, client):
         resp = client.post("/upload-resume", files={"file": ("", b"data", "text/plain")})
@@ -35,7 +35,7 @@ class TestUploadResume:
     def test_empty_file(self, client):
         resp = client.post("/upload-resume", files={"file": ("resume.txt", b"", "text/plain")})
         assert resp.status_code == 400
-        assert "文件为空" in resp.json()["detail"]
+        assert "文件为空" in resp.json()["error"]
 
     def test_parse_error(self, client):
         with patch("app.api.resume.parse_resume") as mock_parse:
@@ -57,7 +57,7 @@ class TestUploadResume:
         big_data = b"x" * (10 * 1024 * 1024 + 1)
         resp = client.post("/upload-resume", files={"file": ("resume.txt", big_data, "text/plain")})
         assert resp.status_code == 400
-        assert "文件过大" in resp.json()["detail"]
+        assert "文件过大" in resp.json()["error"]
 
 
 class TestExtractResume:
@@ -105,7 +105,7 @@ class TestExtractResume:
         big_data = b"x" * (10 * 1024 * 1024 + 1)
         resp = client.post("/extract-resume", files={"file": ("resume.txt", big_data, "text/plain")})
         assert resp.status_code == 400
-        assert "文件过大" in resp.json()["detail"]
+        assert "文件过大" in resp.json()["error"]
 
 
 class TestConfirmResume:
@@ -116,13 +116,19 @@ class TestConfirmResume:
     @pytest.fixture
     def override_get_db(self, app, mock_db_session):
         from app.core.database import get_db
+        from app.core.dependencies import get_current_user_id
 
         async def _mock_get_db():
             yield mock_db_session
 
+        async def _mock_user_id():
+            return "test-user-id"
+
         app.dependency_overrides[get_db] = _mock_get_db
+        app.dependency_overrides[get_current_user_id] = _mock_user_id
         yield
         app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user_id, None)
 
     def test_missing_email(self, client, override_get_db):
         resp = client.post("/confirm-resume", json={
@@ -135,7 +141,7 @@ class TestConfirmResume:
             },
         })
         assert resp.status_code == 422
-        assert "邮箱不能为空" in resp.json()["detail"]
+        assert "邮箱不能为空" in resp.json()["error"]
 
     def test_success(self, client, override_get_db, mock_db_session):
         mock_candidate = MagicMock()
@@ -165,6 +171,54 @@ class TestConfirmResume:
         assert data["candidate_id"] == "cand-123"
         assert data["candidate_name"] == "Test User"
 
+    def test_create_candidate_failure(self, client, override_get_db, mock_db_session):
+        """Non-unique error returns 500."""
+        with patch("app.api.resume.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.create.side_effect = Exception("database connection lost")
+            MockSvc.return_value = svc
+            resp = client.post("/confirm-resume", json={
+                "parsed": {
+                    "name": "Fail", "email": "fail@test.com", "phone": "",
+                    "skills": [], "experience_years": None,
+                },
+            })
+        assert resp.status_code == 500
+        assert "创建候选人失败" in resp.json()["error"]
+
+    def test_screening_failure_non_blocking(self, client, override_get_db, mock_db_session):
+        """Screening failure after import is non-blocking."""
+        mock_candidate = MagicMock()
+        mock_candidate.id = "cand-screen-fail"
+        mock_candidate.name = "Screen Fail"
+
+        with (
+            patch("app.api.resume.CandidateService") as MockSvc,
+            patch("app.services.screening.ScreeningService") as MockScrSvc,
+        ):
+            svc = AsyncMock()
+            svc.create.return_value = mock_candidate
+            MockSvc.return_value = svc
+
+            scr_svc = MagicMock()
+            scr_svc.screen_resume = AsyncMock(side_effect=Exception("LLM unavailable"))
+            MockScrSvc.return_value = scr_svc
+
+            resp = client.post("/confirm-resume", json={
+                "parsed": {
+                    "name": "Screen Fail",
+                    "email": "screenfail@test.com",
+                    "phone": "",
+                    "skills": [],
+                    "experience_years": None,
+                    "raw_text": "resume text",
+                },
+                "run_screening": True,
+                "job_id": "job-1",
+            })
+        assert resp.status_code == 200
+        assert resp.json()["screening_result"] is None
+
     def test_duplicate_email(self, client, override_get_db, mock_db_session):
         with patch("app.api.resume.CandidateService") as MockSvc:
             svc = AsyncMock()
@@ -177,7 +231,7 @@ class TestConfirmResume:
                 },
             })
         assert resp.status_code == 409
-        assert "该邮箱已存在候选人" in resp.json()["detail"]
+        assert "该邮箱已存在候选人" in resp.json()["error"]
 
     def test_with_screening(self, client, override_get_db, mock_db_session):
         mock_candidate = MagicMock()

@@ -1,12 +1,13 @@
 """Tests for RateLimitMiddleware and rate stores."""
 
+import asyncio
 import time as time_module
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core.rate_limit import InMemoryRateStore, create_rate_limit_middleware, RedisStore
+from app.core.rate_limit import InMemoryRateStore, RateStoreProtocol, create_rate_limit_middleware, RedisStore
 
 
 @pytest.fixture
@@ -50,6 +51,25 @@ class TestInMemoryRateStore:
         store._buckets["prune-key"] = [ts - 120, ts - 90]
         allowed, _ = await store.check("prune-key", limit=5, window=60)
         assert allowed is True
+
+
+class TestRateStoreProtocol:
+    """Lines 24, 27, 30: abstract base class raises NotImplementedError."""
+
+    def test_check_not_implemented(self):
+        store = RateStoreProtocol()
+        with pytest.raises(NotImplementedError):
+            asyncio.run(store.check("k", 5, 60))
+
+    def test_remaining_not_implemented(self):
+        store = RateStoreProtocol()
+        with pytest.raises(NotImplementedError):
+            asyncio.run(store.remaining("k", 5, 60))
+
+    def test_reset_not_implemented(self):
+        store = RateStoreProtocol()
+        with pytest.raises(NotImplementedError):
+            asyncio.run(store.reset("k"))
 
 
 class TestRedisStore:

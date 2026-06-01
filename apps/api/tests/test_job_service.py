@@ -10,7 +10,10 @@ from app.services.job import JobService
 
 @pytest.fixture
 def mock_db():
-    return AsyncMock()
+    db = AsyncMock()
+    db.add = MagicMock(return_value=None)
+    db.delete = AsyncMock(return_value=None)
+    return db
 
 
 @pytest.fixture

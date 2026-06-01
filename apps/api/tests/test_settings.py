@@ -11,6 +11,8 @@ import pytest
 def mock_db_session():
     """Create and configure a mock DB session."""
     session = AsyncMock()
+    session.add = MagicMock(return_value=None)
+    session.delete = AsyncMock(return_value=None)
     return session
 
 

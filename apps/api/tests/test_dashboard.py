@@ -1,9 +1,22 @@
 """Dashboard API tests: stats aggregation."""
 
+import os
+import socket
 import uuid
 from unittest.mock import patch
 
 import pytest
+
+
+def _has_postgres() -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", 5432), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+docker_required = pytest.mark.skipif(not _has_postgres(), reason="requires PostgreSQL (run docker compose up)")
 
 
 def _unique_email():
@@ -21,6 +34,7 @@ async def test_dashboard_stats_auth_required(client):
     assert resp.status_code == 401
 
 
+@docker_required
 @pytest.mark.asyncio
 async def test_dashboard_stats_success(client):
     """Returns KPIs, trend, and recent activities."""
@@ -35,16 +49,17 @@ async def test_dashboard_stats_success(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
-    assert len(data["kpis"]) == 4
+    assert len(data["data"]["kpis"]) == 4
     # KPI keys
-    kpi_keys = {k["key"] for k in data["kpis"]}
+    kpi_keys = {k["key"] for k in data["data"]["kpis"]}
     assert kpi_keys == {"candidates", "jobs", "interviews", "onboards"}
     # Trend is a list
-    assert isinstance(data["trend"], list)
+    assert isinstance(data["data"]["trend"], list)
     # Recent activities is a list
-    assert isinstance(data["recent_activities"], list)
+    assert isinstance(data["data"]["recent_activities"], list)
 
 
+@docker_required
 @pytest.mark.asyncio
 async def test_dashboard_stats_structure(client):
     """KPI values are numeric and present."""
@@ -57,12 +72,13 @@ async def test_dashboard_stats_structure(client):
     resp = await client.get("/api/v1/dashboard/stats", headers=_auth_headers(token))
     data = resp.json()
 
-    for kpi in data["kpis"]:
+    for kpi in data["data"]["kpis"]:
         assert isinstance(kpi["value"], (int, float))
         assert kpi["value"] >= 0
         assert kpi["label"]
 
 
+@docker_required
 @pytest.mark.asyncio
 async def test_dashboard_stats_with_data(client):
     """Insert candidates and jobs via API, verify dashboard reflects them."""
@@ -91,5 +107,5 @@ async def test_dashboard_stats_with_data(client):
     data = resp.json()
 
     assert resp.status_code == 200
-    assert isinstance(data["trend"], list)
-    assert isinstance(data["recent_activities"], list)
+    assert isinstance(data["data"]["trend"], list)
+    assert isinstance(data["data"]["recent_activities"], list)

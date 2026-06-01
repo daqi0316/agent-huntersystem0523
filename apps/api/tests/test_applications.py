@@ -1,10 +1,27 @@
 """Applications API + service tests."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# Keep existing API-level tests below
+from app.core.database import get_db
+from app.main import app
+
+
+@pytest.fixture
+def mock_db_session():
+    return AsyncMock()
+
+
+@pytest.fixture
+def override_get_db(mock_db_session):
+    async def _mock_get_db():
+        yield mock_db_session
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    yield
+    app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.mark.asyncio
@@ -26,8 +43,16 @@ async def test_get_nonexistent_application_404(client):
 
 
 @pytest.mark.asyncio
-async def test_list_applications_default_pagination(client):
+async def test_list_applications_default_pagination(client, override_get_db, mock_db_session):
     """List applications returns paginated structure."""
+    mock_result = Mock()
+    mock_result.scalars.return_value.all.return_value = []
+    mock_result.scalar.return_value = 0
+
+    async def mock_execute(*args, **kwargs):
+        return mock_result
+
+    mock_db_session.execute = mock_execute
     resp = await client.get("/api/v1/applications")
     assert resp.status_code == 200
     data = resp.json()
@@ -106,7 +131,10 @@ class TestApplicationService:
 
     @pytest.fixture
     def mock_db(self):
-        return AsyncMock()
+        db = AsyncMock()
+        db.add = MagicMock(return_value=None)
+        db.delete = AsyncMock(return_value=None)
+        return db
 
     @pytest.fixture
     def service(self, mock_db):

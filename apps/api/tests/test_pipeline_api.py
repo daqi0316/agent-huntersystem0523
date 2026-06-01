@@ -5,7 +5,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from starlette.testclient import TestClient
 
 
@@ -31,6 +31,27 @@ def client(app):
 
 
 # ── ScreeningService tests ──────────────────────────────────────────────────
+
+
+def _extract_sse_data(event_text: str) -> str:
+    """从多行 SSE 事件中提取 data: 行内容。"""
+    for line in event_text.strip().split("\n"):
+        if line.startswith("data: "):
+            return line[len("data: "):]
+    return ""
+
+
+def _parse_sse_events(text: str) -> list[dict]:
+    """解析 SSE 响应文本为 JSON payload 列表。"""
+    events = text.strip().split("\n\n")
+    payloads = []
+    for event_block in events:
+        if not event_block.strip():
+            continue
+        data_line = _extract_sse_data(event_block)
+        if data_line:
+            payloads.append(json.loads(data_line))
+    return payloads
 
 
 class TestScreeningService:
@@ -271,6 +292,86 @@ class TestScreenResumeAPI:
         data = resp.json()
         assert data["report"] == {"report": "ok"}
 
+    # ── Coverage edge: report generation failure (lines 145-147) ─────
+
+    def test_screen_resume_report_failure(self, client, override_get_db, mock_db_session):
+        """application_id set, ReportService.generate_report raises — non-blocking."""
+        mock_candidate_svc = self._make_mock_candidate_service()
+        with (
+            patch("app.api.pipeline.CandidateService", return_value=mock_candidate_svc),
+            patch("app.api.pipeline.ReportService") as MockReportSvc,
+            patch("app.api.pipeline.ApplicationService") as MockAppSvc,
+            patch("app.api.pipeline.service.screen_resume") as mock_screen,
+        ):
+            mock_report = AsyncMock()
+            mock_report.generate_report.side_effect = RuntimeError("LLM report failure")
+            MockReportSvc.return_value = mock_report
+            MockAppSvc.return_value = AsyncMock()
+
+            mock_screen.return_value = {
+                "pipeline_id": "x", "candidate_id": "c1", "job_id": "j1",
+                "overall_score": 8, "dimensions": {}, "parsed_resume": {},
+                "gate_passed": True, "needs_human_review": False,
+                "strengths": [], "weaknesses": [], "recommendation": "推荐",
+                "summary": "通过", "steps": [],
+            }
+            resp = client.post(
+                "/screen-resume",
+                json={
+                    "candidate_id": "c1",
+                    "job_id": "j1",
+                    "resume_text": "text",
+                    "job_requirements": "req",
+                    "application_id": "app-123",
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["gate_passed"] is True
+        assert data["report"] is None
+
+    # ── Coverage edge: application sync failure (lines 161-162) ──────
+
+    def test_screen_resume_application_sync_failure(self, client, override_get_db, mock_db_session):
+        """application_id set, ApplicationService.update raises — non-blocking."""
+        mock_candidate_svc = self._make_mock_candidate_service()
+        with (
+            patch("app.api.pipeline.CandidateService", return_value=mock_candidate_svc),
+            patch("app.api.pipeline.ReportService") as MockReportSvc,
+            patch("app.api.pipeline.ApplicationService") as MockAppSvc,
+            patch("app.api.pipeline.service.screen_resume") as mock_screen,
+        ):
+            mock_report = AsyncMock()
+            mock_report.generate_report.return_value = {"report": "ok"}
+            MockReportSvc.return_value = mock_report
+
+            mock_app_svc = AsyncMock()
+            mock_app_svc.update.side_effect = RuntimeError("App sync failed")
+            MockAppSvc.return_value = mock_app_svc
+
+            mock_screen.return_value = {
+                "pipeline_id": "x", "candidate_id": "c1", "job_id": "j1",
+                "overall_score": 8, "dimensions": {}, "parsed_resume": {},
+                "gate_passed": True, "needs_human_review": False,
+                "strengths": [], "weaknesses": [], "recommendation": "推荐",
+                "summary": "通过", "steps": [],
+            }
+            resp = client.post(
+                "/screen-resume",
+                json={
+                    "candidate_id": "c1",
+                    "job_id": "j1",
+                    "resume_text": "text",
+                    "job_requirements": "req",
+                    "application_id": "app-123",
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["gate_passed"] is True
+        assert data["report"] == {"report": "ok"}
+        mock_app_svc.update.assert_called_once()
+
     # ── Coverage edge: candidate not found (404) ─────────────────────
 
     def test_screen_resume_candidate_not_found(self, client, override_get_db):
@@ -329,6 +430,95 @@ class TestScreenResumeAPI:
         assert data["needs_human_review"] is True
         assert "系统错误" in data["recommendation"]
 
+    # ── Coverage edge: general Exception with pipeline_task_id (lines 201-207) ─
+
+    def test_screen_resume_service_exception_with_task_id(self, client, override_get_db, mock_db_session):
+        """Service exception with pipeline_task_id writes failure progress + complete_screening."""
+        mock_candidate_svc = self._make_mock_candidate_service()
+        from app.api.pipeline import _pipeline_store
+        _pipeline_store.clear()
+        with (
+            patch("app.api.pipeline.CandidateService", return_value=mock_candidate_svc),
+            patch("app.api.pipeline.service.screen_resume") as mock_screen,
+        ):
+            mock_screen.side_effect = RuntimeError("LLM crashed with task")
+            resp = client.post(
+                "/screen-resume",
+                json={
+                    "candidate_id": "c1",
+                    "job_id": "j1",
+                    "resume_text": "text",
+                    "job_requirements": "req",
+                    "pipeline_task_id": "gen-exc-task",
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["gate_passed"] is False
+        assert data["needs_human_review"] is True
+        assert "系统错误" in data["recommendation"]
+        assert "gen-exc-task" in _pipeline_store
+        assert _pipeline_store["gen-exc-task"]["status"] == "failed"
+        mock_candidate_svc.complete_screening.assert_called_with("c1", False)
+        _pipeline_store.clear()
+
+    # ── Coverage edge: HTTPException with pipeline_task_id (lines 193-197) ────
+
+    def test_screen_resume_http_exception_with_task_id(self, client, override_get_db, mock_db_session):
+        """HTTPException raised by service.screen_resume with pipeline_task_id writes failure progress."""
+        mock_candidate_svc = self._make_mock_candidate_service()
+        from app.api.pipeline import _pipeline_store
+        _pipeline_store.clear()
+        with (
+            patch("app.api.pipeline.CandidateService", return_value=mock_candidate_svc),
+            patch("app.api.pipeline.service.screen_resume") as mock_screen,
+        ):
+            mock_screen.side_effect = HTTPException(status_code=422, detail="Bad input")
+            resp = client.post(
+                "/screen-resume",
+                json={
+                    "candidate_id": "c1",
+                    "job_id": "j1",
+                    "resume_text": "text",
+                    "job_requirements": "req",
+                    "pipeline_task_id": "http-exc-task",
+                },
+            )
+        assert resp.status_code == 422
+        data = resp.json()
+        assert data["detail"] == "Bad input"
+        assert "http-exc-task" in _pipeline_store
+        assert _pipeline_store["http-exc-task"]["status"] == "failed"
+        _pipeline_store.clear()
+
+    # ── Coverage edge: complete_screening also fails (lines 206-207) ─────────
+
+    def test_screen_resume_exception_with_failed_cleanup(self, client, override_get_db, mock_db_session):
+        """Exception handler's complete_screening also raises — covers nested except."""
+        mock_candidate_svc = self._make_mock_candidate_service()
+        mock_candidate_svc.complete_screening.side_effect = RuntimeError("cleanup failed")
+        from app.api.pipeline import _pipeline_store
+        _pipeline_store.clear()
+        with (
+            patch("app.api.pipeline.CandidateService", return_value=mock_candidate_svc),
+            patch("app.api.pipeline.service.screen_resume") as mock_screen,
+        ):
+            mock_screen.side_effect = RuntimeError("LLM crashed")
+            resp = client.post(
+                "/screen-resume",
+                json={
+                    "candidate_id": "c1",
+                    "job_id": "j1",
+                    "resume_text": "text",
+                    "job_requirements": "req",
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["gate_passed"] is False
+
 
 class TestProgressAndStreamAPI:
     ROUTE = "/{task_id}/progress"
@@ -382,15 +572,69 @@ class TestProgressAndStreamAPI:
         resp = client.get(f"/{task_id}/stream")
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers.get("content-type", "")
-        events = resp.text.strip().split("\n\n")
-        assert len(events) >= 1
-        for event in events:
-            if not event.strip():
-                continue
-            assert event.startswith("data: ")
-            payload = json.loads(event.replace("data: ", "", 1))
+        payloads = _parse_sse_events(resp.text)
+        assert len(payloads) >= 1
+        for payload in payloads:
             assert "pipeline_id" in payload
             assert "status" in payload
+        pipeline_module._pipeline_store.clear()
+
+    def test_pipeline_stream_timeout(self, client):
+        """SSE timeout when no entry appears in _pipeline_store."""
+        import app.api.pipeline as pipeline_module
+        pipeline_module._pipeline_store.clear()
+        with (
+            patch("app.api.pipeline._STREAM_TIMEOUT", 0.05),
+            patch("app.api.pipeline._POLL_INTERVAL", 0.01),
+        ):
+            task_id = "stream-timeout-id"
+            pipeline_module._pipeline_store.clear()
+            resp = client.get(f"/{task_id}/stream")
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+        payloads = _parse_sse_events(resp.text)
+        assert len(payloads) >= 1
+        payload = payloads[-1]
+        assert payload["message"] == "SSE connection timed out"
+
+    @pytest.mark.asyncio
+    async def test_progress_generator_polls_active_entry(self):
+        """Directly iterate _progress_generator with active→completed transition.
+        Uses a FRESH completed dict (not in-place mutation) so the local `entry`
+        variable captured before yield doesn't see the change.
+        """
+        import app.api.pipeline as pipeline_module
+        task_id = "active-to-done"
+        pipeline_module._pipeline_store.clear()
+        pipeline_module._pipeline_store[task_id] = {
+            "pipeline_id": task_id, "status": "running", "progress": 0.5,
+            "current_step": "match", "step_label": "职位匹配",
+            "step_description": "匹配中",
+            "updated_at": datetime.now().isoformat(),
+        }
+
+        with patch("app.api.pipeline._POLL_INTERVAL", 0.001):
+            gen = pipeline_module._progress_generator(task_id)
+            event1 = await gen.__anext__()
+            payload1 = json.loads(_extract_sse_data(event1))
+            assert payload1["status"] == "running"
+
+            # Replace with a new dict (NOT in-place mutation) so the generator's
+            # local `entry` reference still sees the old "running" status after yield
+            pipeline_module._pipeline_store[task_id] = {
+                "pipeline_id": task_id, "status": "completed", "progress": 1.0,
+                "current_step": "done", "step_label": "完成",
+                "step_description": "流水线执行完成",
+                "updated_at": datetime.now().isoformat(),
+            }
+
+            event2 = await gen.__anext__()
+            payload2 = json.loads(_extract_sse_data(event2))
+            assert payload2["status"] == "completed"
+
+            with pytest.raises(StopAsyncIteration):
+                await gen.__anext__()
+
         pipeline_module._pipeline_store.clear()
 
 

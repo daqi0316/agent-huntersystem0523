@@ -53,6 +53,21 @@ async def test_data_aggregate_success(client):
 
 
 @pytest.mark.asyncio
+async def test_data_aggregate_all_empty_names(client):
+    """Line 62: dimension_results with all-empty names (count stays 0)."""
+    resp = await client.post("/api/v1/parallel/data-aggregate", json={
+        "dimension_results": [
+            {"name": "", "score": 95},
+            {"name": None, "score": 80},
+        ],
+    })
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["success"] is False
+    assert "无可聚合的维度数据" in data["error"]
+
+
+@pytest.mark.asyncio
 async def test_data_aggregate_empty(client):
     """Empty dimension_results returns error."""
     resp = await client.post("/api/v1/parallel/data-aggregate", json={

@@ -1,103 +1,167 @@
-"""Candidate CRUD API tests."""
+"""Candidate CRUD API tests with mocked dependencies — no real DB needed."""
 
-import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import FastAPI
+from starlette.testclient import TestClient
 
 
-def _unique_email(prefix="cand"):
-    return f"{prefix}-{uuid.uuid4().hex[:8]}@test.com"
+@pytest.fixture
+def app():
+    _app = FastAPI()
+    from app.api.candidates import router
+    _app.include_router(router, prefix="/api/v1/candidates")
+    return _app
 
 
-async def _register(client, email):
-    resp = await client.post("/api/v1/auth/register", json={
-        "email": email, "password": "Pass123!", "name": "Test Admin", "role": "admin",
-    })
-    assert resp.status_code == 201
-    return resp.json()["access_token"]
+@pytest.fixture
+def client(app):
+    return TestClient(app)
 
 
-@pytest.mark.asyncio
-async def test_list_candidates_shows_items(client):
-    email = _unique_email()
-    token = await _register(client, email)
-    resp = await client.get("/api/v1/candidates", headers={"Authorization": f"Bearer {token}"})
-    assert resp.status_code == 200
-    assert "total" in resp.json()
-    assert "items" in resp.json()
+@pytest.fixture
+def mock_db():
+    return AsyncMock()
 
 
-@pytest.mark.asyncio
-async def test_create_candidate(client):
-    email = _unique_email()
-    token = await _register(client, email)
-    resp = await client.post("/api/v1/candidates", json={
-        "name": "张三",
-        "email": _unique_email("cand-create"),
-        "phone": "13800138001",
-        "source": "linkedin",
-        "status": "active",
-        "skills": ["Python", "FastAPI"],
-        "experience_years": 5,
-    }, headers={"Authorization": f"Bearer {token}"})
-    assert resp.status_code == 201
-    assert resp.json()["data"]["name"] == "张三"
+@pytest.fixture
+def override_auth(app):
+    """Override auth dependency to return a fixed user_id."""
+    from app.core.dependencies import get_current_user_id
+    app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    yield
+    app.dependency_overrides.pop(get_current_user_id, None)
 
 
-@pytest.mark.asyncio
-async def test_get_candidate(client):
-    email = _unique_email()
-    token = await _register(client, email)
-    cand_email = _unique_email("cand-get")
-    create = await client.post("/api/v1/candidates", json={
-        "name": "李四", "email": cand_email, "status": "active",
-    }, headers={"Authorization": f"Bearer {token}"})
-    cid = create.json()["data"]["id"]
-
-    resp = await client.get(f"/api/v1/candidates/{cid}", headers={"Authorization": f"Bearer {token}"})
-    assert resp.status_code == 200
-    assert resp.json()["data"]["name"] == "李四"
-
-
-@pytest.mark.asyncio
-async def test_get_candidate_not_found(client):
-    email = _unique_email()
-    token = await _register(client, email)
-    resp = await client.get("/api/v1/candidates/nonexistent", headers={"Authorization": f"Bearer {token}"})
-    assert resp.status_code == 404
+def _fake_candidate(**kwargs):
+    """Return a dict that looks like a CandidateRead (Pydantic-friendly)."""
+    return {
+        "id": kwargs.get("id", "cand-1"),
+        "name": kwargs.get("name", "张三"),
+        "email": kwargs.get("email", "test@test.com"),
+        "phone": kwargs.get("phone", "13800138001"),
+        "skills": kwargs.get("skills", ["Python"]),
+        "status": kwargs.get("status", "active"),
+        "experience_years": kwargs.get("experience_years", 3),
+        "summary": kwargs.get("summary", ""),
+        "current_title": kwargs.get("current_title", ""),
+        "current_company": kwargs.get("current_company", ""),
+        "created_at": "2025-01-01T00:00:00",
+        "updated_at": "2025-01-01T00:00:00",
+    }
 
 
-@pytest.mark.asyncio
-async def test_update_candidate(client):
-    email = _unique_email()
-    token = await _register(client, email)
-    cand_email = _unique_email("cand-upd")
-    create = await client.post("/api/v1/candidates", json={
-        "name": "王五", "email": cand_email, "status": "active",
-    }, headers={"Authorization": f"Bearer {token}"})
-    cid = create.json()["data"]["id"]
+class TestListCandidates:
+    ROUTE = "/api/v1/candidates"
 
-    resp = await client.put(f"/api/v1/candidates/{cid}", json={
-        "name": "王五 Updated", "status": "archived",
-    }, headers={"Authorization": f"Bearer {token}"})
-    assert resp.status_code == 200
-    assert resp.json()["data"]["name"] == "王五 Updated"
-    assert resp.json()["data"]["status"] == "archived"
+    def test_shows_items(self, client, override_auth):
+        mock_cand = _fake_candidate()
+        with patch("app.api.candidates.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.list.return_value = ([mock_cand], 1)
+            MockSvc.return_value = svc
+            resp = client.get(self.ROUTE)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["name"] == "张三"
+
+    def test_uses_query_params(self, client, override_auth):
+        with patch("app.api.candidates.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.list.return_value = ([], 0)
+            MockSvc.return_value = svc
+            resp = client.get(f"{self.ROUTE}?skip=10&limit=5&search=Python&status=active")
+        assert resp.status_code == 200
+        svc.list.assert_called_once_with(skip=10, limit=5, search="Python", status="active")
 
 
-@pytest.mark.asyncio
-async def test_delete_candidate(client):
-    email = _unique_email()
-    token = await _register(client, email)
-    cand_email = _unique_email("cand-del")
-    create = await client.post("/api/v1/candidates", json={
-        "name": "赵六", "email": cand_email, "status": "active",
-    }, headers={"Authorization": f"Bearer {token}"})
-    cid = create.json()["data"]["id"]
+class TestCreateCandidate:
+    ROUTE = "/api/v1/candidates"
 
-    del_resp = await client.delete(f"/api/v1/candidates/{cid}", headers={"Authorization": f"Bearer {token}"})
-    assert del_resp.status_code == 200
-    assert del_resp.json()["success"] is True
+    def test_creates_candidate(self, client, override_auth):
+        mock_cand = _fake_candidate(name="New User")
+        with patch("app.api.candidates.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.create.return_value = mock_cand
+            MockSvc.return_value = svc
+            resp = client.post(self.ROUTE, json={
+                "name": "New User",
+                "email": "new@test.com",
+                "status": "active",
+                "skills": ["Go"],
+                "experience_years": 5,
+            })
+        assert resp.status_code == 201
+        data = resp.json()["data"]
+        assert data["name"] == "New User"
+        svc.create.assert_called_once()
 
-    get_resp = await client.get(f"/api/v1/candidates/{cid}", headers={"Authorization": f"Bearer {token}"})
-    assert get_resp.status_code == 404
+
+class TestGetCandidate:
+    ROUTE = "/api/v1/candidates"
+
+    def test_found(self, client, override_auth):
+        mock_cand = _fake_candidate(id="cand-42", name="李四")
+        with patch("app.api.candidates.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.get_by_id.return_value = mock_cand
+            MockSvc.return_value = svc
+            resp = client.get(f"{self.ROUTE}/cand-42")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["name"] == "李四"
+
+    def test_not_found(self, client, override_auth):
+        with patch("app.api.candidates.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.get_by_id.return_value = None
+            MockSvc.return_value = svc
+            resp = client.get(f"{self.ROUTE}/nonexistent")
+        assert resp.status_code == 404
+
+
+class TestUpdateCandidate:
+    ROUTE = "/api/v1/candidates"
+
+    def test_updates(self, client, override_auth):
+        mock_cand = _fake_candidate(name="Updated Name", status="archived")
+        with patch("app.api.candidates.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.update.return_value = mock_cand
+            MockSvc.return_value = svc
+            resp = client.put(f"{self.ROUTE}/cand-1", json={"name": "Updated Name", "status": "archived"})
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["name"] == "Updated Name"
+        assert data["status"] == "archived"
+
+    def test_not_found(self, client, override_auth):
+        with patch("app.api.candidates.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.update.return_value = None
+            MockSvc.return_value = svc
+            resp = client.put(f"{self.ROUTE}/nonexistent", json={"name": "Ghost"})
+        assert resp.status_code == 404
+
+
+class TestDeleteCandidate:
+    ROUTE = "/api/v1/candidates"
+
+    def test_deletes(self, client, override_auth):
+        with patch("app.api.candidates.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.delete.return_value = True
+            MockSvc.return_value = svc
+            resp = client.delete(f"{self.ROUTE}/cand-1")
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+    def test_not_found(self, client, override_auth):
+        with patch("app.api.candidates.CandidateService") as MockSvc:
+            svc = AsyncMock()
+            svc.delete.return_value = False
+            MockSvc.return_value = svc
+            resp = client.delete(f"{self.ROUTE}/nonexistent")
+        assert resp.status_code == 404
