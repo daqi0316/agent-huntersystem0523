@@ -1,5 +1,10 @@
 """OrchestratorAgent — 复杂任务分解与编排执行。
 
+⚠️  DEPRECATED 2026-06-01 — SUNSET 2026-06-08 (1 week)
+    新入口: `app.graphs.orchestrator_graph.create_orchestrator_graph().ainvoke(...)`
+    流量切换: `POST /orchestrator/analyze` (新) vs `/orchestrator/legacy/analyze` (旧)
+    详见: `.omo/plans/S6-findings.md`
+
 接收复杂请求 → 分解为原子子任务 → 按依赖图并行/串行执行 →
 聚合各 Agent 结果 → 返回综合响应。
 使用 prompts/orchestrator.md 作为 system_prompt。

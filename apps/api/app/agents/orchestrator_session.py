@@ -1,5 +1,9 @@
 """Orchestrator Session — 持久化编排器状态，支持审批后恢复执行。
 
+⚠️  DEPRECATED 2026-06-01 — SUNSET 2026-06-08 (1 week)
+    状态恢复改由 LangGraph checkpointer 接管 (PostgresSaver / MemorySaver)。
+    详见: `.omo/plans/S6-findings.md`
+
 当 OrchestratorAgent 因 human-in-the-loop 暂停时，当前状态
 （sub_tasks, shared_context, 已完成的 results 等）被保存到 Redis。
 审批通过后，可通过 session_id 恢复执行。"""
