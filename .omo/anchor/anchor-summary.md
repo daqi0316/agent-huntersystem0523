@@ -1,7 +1,7 @@
 # Anchored Summary
 
 ## SHORT VERSION
-**Phase V ✅ COMPLETE (4 of 4 PRs shipped)**. PR-V.1: `orchestrator_graph.py` multi-stage DAG support — `7bf5d57`. PR-V.2: `human_loop /resume` migrated to `graph.update_state` + `ainvoke(None, config)` with legacy fallback — `c2119e3`. PR-V.3: `chat_with_tools` Step 1 migrated from `OrchestratorAgent().run()/route_single()` to `create_orchestrator_graph().ainvoke()` + `_adapt_graph_result_to_legacy()` — `6f4898c`. **PR-V.4: legacy files deleted + 5 OrchestratorAgent methods inlined into orchestrator_graph** (commit pending). Combined: 70 new tests (PR-V.1+2+3) + 19 file deletions (PR-V.4) + 1140 net additional regression tests = 1320 pass / 4 skip / 24 xfail / 2 xpass / **0 fail**. Phase V exit criteria: 6/7 met (only `/legacy/analyze` 1-week traffic monitoring + Redis `OrchestratorSession` key drain remain — both automated via TTL).
+**Phase V ✅ COMPLETE (4 of 4 PRs shipped)**. PR-V.1: `orchestrator_graph.py` multi-stage DAG support — `7bf5d57`. PR-V.2: `human_loop /resume` migrated to `graph.update_state` + `ainvoke(None, config)` with legacy fallback — `c2119e3`. PR-V.3: `chat_with_tools` Step 1 migrated from `OrchestratorAgent().run()/route_single()` to `create_orchestrator_graph().ainvoke()` + `_adapt_graph_result_to_legacy()` — `6f4898c`. **PR-V.4: legacy files deleted + 5 OrchestratorAgent methods inlined into orchestrator_graph** — `ae5a49e` (feat) + `c6e283d` (docs). Combined: 70 new tests (PR-V.1+2+3) + 19 file deletions (PR-V.4) + 1140 net additional regression tests = 1320 pass / 4 skip / 24 xfail / 2 xpass / **0 fail**. Phase V exit criteria: 6/7 met (only `/legacy/analyze` 1-week traffic monitoring + Redis `OrchestratorSession` key drain remain — both automated via TTL).
 
 ## WHAT WE ARE BUILDING
 AI Recruitment System — FastAPI + Next.js 14 monorepo with 6 Agent patterns (Pipeline, Router, Orchestrator with DAG, Aggregator, GenEvalLoop, HumanLoop), dual LLM support, PostgreSQL/Redis/Qdrant storage, and RAG-powered candidate screening.
@@ -27,12 +27,12 @@ All 4 Phase V PRs complete and committed. The full flow is now:
 - PR-V.3 tests: 4 rewritten + 1 new + 2 deleted (deprecated xfail); all pass
 - PR-V.4 changes: 11 patches rewritten in test_orchestrator_graph_multistage.py; 2 legacy test classes in test_human_loop_api.py refactored (no longer reference OrchestratorSession); 7 files deleted (3 prod + 4 test)
 - Combined regression: **1320 pass / 4 skip / 24 xfail / 2 xpass / 0 fail**
-- Commits: `7bf5d57` (PR-V.1) + `c2119e3` (PR-V.2) + `6a22052` (PR-V.2 docs) + `6f4898c` (PR-V.3) + `7d35ca0` (PR-V.3 docs) + `PR-V.4 commit` (pending)
+- Commits: `7bf5d57` (PR-V.1) + `c2119e3` (PR-V.2) + `6a22052` (PR-V.2 docs) + `6f4898c` (PR-V.3) + `7d35ca0` (PR-V.3 docs) + `ae5a49e` (PR-V.4 feat) + `c6e283d` (PR-V.4 docs)
 - PR-V.4 diff: 19 files, +273 / -2814 lines (net -2541)
 - Branch: `main`, ahead of `origin/main`, 1 untracked file `AI招聘Agent内置命令规划.md` (unrelated)
 
 ## RECENT CHANGES
-- **PR-V.4 legacy sunset + graph inlining** (pending commit):
+- **PR-V.4 legacy sunset + graph inlining** (`ae5a49e`):
   - `app/agents/orchestrator_agent.py` (622 lines) — DELETED
   - `app/agents/orchestrator_session.py` (165 lines) — DELETED
   - `app/services/orchestrator_session_migration.py` (140 lines) — DELETED (no longer needed; no legacy sessions possible)
