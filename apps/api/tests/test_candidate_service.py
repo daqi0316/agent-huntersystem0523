@@ -18,7 +18,7 @@ def mock_db():
     ``MagicMock`` with a real async ``execute`` function.
     """
     db = MagicMock()
-    db.add = MagicMock(return_value=None)
+    db.add = AsyncMock(return_value=None)
     db.commit = AsyncMock(return_value=None)
     db.refresh = AsyncMock(return_value=None)
     db.delete = AsyncMock(return_value=None)

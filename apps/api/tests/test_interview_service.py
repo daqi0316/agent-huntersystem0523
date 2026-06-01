@@ -18,7 +18,7 @@ class TestInterviewServiceUnit:
 
         mock_db = MagicMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.add = MagicMock()
+        mock_db.add = AsyncMock()
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
 
@@ -248,7 +248,7 @@ class TestInterviewServiceUnit:
 
         mock_db = MagicMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.add = MagicMock()
+        mock_db.add = AsyncMock()
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
 
@@ -270,7 +270,7 @@ class TestInterviewServiceUnit:
 
         mock_db = MagicMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.add = MagicMock()
+        mock_db.add = AsyncMock()
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
 

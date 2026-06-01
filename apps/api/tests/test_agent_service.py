@@ -1502,7 +1502,7 @@ class TestBackgroundRecordPreferences:
             return_value="prefers_skill = Python\nprefers_location = Shanghai"
         )
         mock_db = MagicMock()
-        mock_db.add = MagicMock()
+        mock_db.add = AsyncMock()
         mock_db.commit = AsyncMock()
         mock_ctx = MagicMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)

@@ -132,7 +132,7 @@ class TestApplicationService:
     @pytest.fixture
     def mock_db(self):
         db = AsyncMock()
-        db.add = MagicMock(return_value=None)
+        db.add = AsyncMock()
         db.delete = AsyncMock(return_value=None)
         return db
 

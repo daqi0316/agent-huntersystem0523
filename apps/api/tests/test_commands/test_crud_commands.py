@@ -50,7 +50,7 @@ from app.models.application import Application, ApplicationStatus
 def mock_db() -> AsyncMock:
     from unittest.mock import MagicMock
     db = AsyncMock()
-    db.add = MagicMock()
+    db.add = AsyncMock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
     db.rollback = AsyncMock()

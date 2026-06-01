@@ -12,7 +12,7 @@ from app.services.user import UserService
 @pytest.fixture
 def mock_db():
     db = AsyncMock()
-    db.add = MagicMock(return_value=None)
+    db.add = AsyncMock(return_value=None)
     db.delete = AsyncMock(return_value=None)
     return db
 

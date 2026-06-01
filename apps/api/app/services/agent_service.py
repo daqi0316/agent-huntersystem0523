@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.llm import get_llm_client
+from app.llm.retry import llm_chat_with_retry
 from app.mcp.manager import mcp_manager
 from app.skills import all_handlers as all_skill_handlers, all_tools as all_skill_tools
 from app.tools import all_handlers as all_builtin_handlers, all_tools as all_builtin_tools
@@ -679,15 +680,28 @@ async def chat_with_tools(
         system_msg = {"role": "system", "content": system_content}
         msgs = [system_msg] + messages[-20:]
 
-    # LLM 推理（带工具）
-    response = await llm.client.chat.completions.create(
-        model=llm.model,
-        messages=msgs,
-        tools=tools,
-        tool_choice="auto",
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    # LLM 推理（带工具，指数退避重试）
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            response = await llm.client.chat.completions.create(
+                model=llm.model,
+                messages=msgs,
+                tools=tools,
+                tool_choice="auto",
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            break
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                delay = 1.0 * (2 ** attempt)
+                logger.warning("LLM call failed (attempt %d/3): %s, retrying in %.1fs...", attempt + 1, e, delay)
+                await asyncio.sleep(delay)
+            else:
+                logger.error("LLM call failed after 3 attempts: %s", e)
+                raise last_err from None
 
     choice = response.choices[0]
     reply = choice.message.content or ""

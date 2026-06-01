@@ -112,7 +112,7 @@ async def test_list_servers(client, mock_db):
 
 @pytest.mark.asyncio
 async def test_create_server(client, mock_db, mock_test_connection, mock_mcp_manager):
-    mock_db.add = MagicMock()  # AsyncSession.add() is sync
+    mock_db.add = AsyncMock()  # AsyncSession.add() is sync
     mock_db.commit = AsyncMock()
     mock_db.refresh = AsyncMock()
 
@@ -137,7 +137,7 @@ async def test_create_server(client, mock_db, mock_test_connection, mock_mcp_man
 @pytest.mark.asyncio
 async def test_create_server_handles_connection_failure(mock_test_conn, client, mock_db, mock_mcp_manager):
     mock_test_conn.side_effect = Exception("Connection refused")
-    mock_db.add = MagicMock()  # AsyncSession.add() is sync
+    mock_db.add = AsyncMock()  # AsyncSession.add() is sync
     mock_db.commit = AsyncMock()
     mock_db.refresh = AsyncMock()
 

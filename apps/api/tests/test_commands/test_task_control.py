@@ -266,7 +266,7 @@ class TestHandleCancel:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         mock_db = AsyncMock(spec=AsyncSession)
-        mock_db.add = MagicMock()
+        mock_db.add = AsyncMock()
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
         ctx.db = mock_db

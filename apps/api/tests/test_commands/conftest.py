@@ -27,11 +27,11 @@ def event_loop():
 
 
 @pytest_asyncio.fixture
-async def mock_db_session() -> "AsyncMock":  # type: ignore[name-defined]
+async def mock_db_session():
     """通用 AsyncMock, 用于 audit / executor 测试."""
     from unittest.mock import AsyncMock, MagicMock
     db = AsyncMock()
-    db.add = MagicMock()
+    db.add = AsyncMock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
     db.rollback = AsyncMock()

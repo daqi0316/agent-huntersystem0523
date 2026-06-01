@@ -12,7 +12,7 @@ from app.commands.audit import CommandAuditService, fire_and_forget
 @pytest.fixture
 def mock_db() -> AsyncMock:
     db = AsyncMock()
-    db.add = MagicMock()
+    db.add = AsyncMock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
     db.rollback = AsyncMock()
