@@ -1,21 +1,24 @@
-"""图3: Router模式 - 多类型任务意图分发。
+"""RouterAgent — 意图分类与路由层。
 
-双策略分类:
-1. 关键词规则匹配（降级路径，零依赖）
-2. LLM 增强分类（主路径，失败时自动降级）
+双策略分类：
+1. LLM 优先（使用 prompts/router.md 作为 system_prompt）
+2. 关键词规则匹配（降级路径，零依赖）
 
-8 种意图类型:
-screening / interview / jd_generation / knowledge_query /
-candidate_search / report / settings / chat
+路由到 Specialist Agent (ScreeningAgent/SourcingAgent/InterviewAgent/OfferingAgent/OnboardingAgent/AnalyticsAgent)
 """
 
 from __future__ import annotations
 
+import json
+import logging
+
 from app.agents.base import BaseAgent
 from app.llm import get_llm_client
 
-# 意图类型
+logger = logging.getLogger(__name__)
+
 INTENT_TYPES = [
+    "resume_parser",
     "screening",
     "interview",
     "jd_generation",
@@ -24,10 +27,14 @@ INTENT_TYPES = [
     "report",
     "settings",
     "chat",
+    "offering",
+    "onboarding",
+    "analytics",
 ]
 
-# 关键词规则: (关键词列表, 意图)
+# 关键词规则: (关键词列表, 意图) — 降级用
 _RULES: list[tuple[list[str], str]] = [
+    (["解析简历", "解析", "简历解析", "parse resume", "提取简历", "简历提取", "parse_resume"], "resume_parser"),
     (["筛选", "初筛", "简历筛选", "筛简历", "match resume", "screen"], "screening"),
     (["面试", "安排面试", "预约面试", "schedule interview", "interview"], "interview"),
     (["jd", "职位描述", "生成 jd", "写 jd", "招聘要求", "岗位描述", "generate jd"], "jd_generation"),
@@ -36,27 +43,16 @@ _RULES: list[tuple[list[str], str]] = [
     (["报表", "报告", "数据统计", "统计", "report", "数据看板", "dashboard"], "report"),
     (["设置", "配置", "密码", "个人信息", "settings", "偏好"], "settings"),
     (["聊天", "对话", "你好", "hello", "hi", "help", "帮助"], "chat"),
+    (["offer", "录用", "发 offer", "薪酬", "谈薪", "薪资", "offering"], "offering"),
+    (["入职", "onboarding", "迎新", "入职流程", "转正", "培训", "上岗"], "onboarding"),
+    (["数据", "统计", "分析", "kpi", "漏斗", "渠道", "analytics", "仪表盘"], "analytics"),
 ]
 
-PROMPT_TEMPLATE = """你是一个意图分类器。请判断以下用户输入的意图类型。
-
-可选意图:
-- screening: 简历筛选、候选人初筛
-- interview: 面试安排、预约
-- jd_generation: 生成职位描述
-- knowledge_query: 知识库搜索、RAG 查询
-- candidate_search: 候选人搜索、人才搜索
-- report: 报表、数据统计、dashboard
-- settings: 设置、配置、个人信息
-- chat: 聊天、对话、帮助
-
-用户输入: 「{text}」
-
-请只返回意图类型名称，不要有其他文字。如果你不确定，返回 "chat"。"""
+_MULTI_INTENT_KEYWORDS = ["然后", "并且", "同时", "之后", "接着", "先", "再", "首先", "最后", "and", "then", "also"]
 
 
 class RouterAgent(BaseAgent):
-    """图3: Router模式 - 多类型任务意图分发"""
+    """RouterAgent — 意图分类与路由（LLM 优先，规则兜底）。"""
 
     def __init__(self, name: str = "router"):
         super().__init__(name)
@@ -69,8 +65,68 @@ class RouterAgent(BaseAgent):
             self._llm = get_llm_client()
         return self._llm
 
+    def is_multi_intent(self, text: str) -> bool:
+        """检测是否包含多意图（需要 Orchestrator 编排）。"""
+        text_lower = text.lower()
+        for kw in _MULTI_INTENT_KEYWORDS:
+            if kw in text_lower:
+                return True
+        hit = 0
+        for keywords, _intent in _RULES:
+            for kw in keywords:
+                if kw.lower() in text_lower:
+                    hit += 1
+                    if hit >= 2:
+                        return True
+                    break
+        return False
+
     def register_route(self, intent: str, agent: BaseAgent) -> None:
+        """注册路由，同时写入本地缓存和 AgentRegistry。"""
         self.routes[intent] = agent
+        try:
+            from app.agents.registry import AgentRegistry
+            AgentRegistry.register(f"router_{intent}", agent)
+        except ImportError:
+            pass
+
+    def get_available_intents(self) -> list[str]:
+        """返回当前所有已注册的意图（含 AgentRegistry 中的）。"""
+        local = set(self.routes.keys())
+        try:
+            from app.agents.registry import AgentRegistry
+            for name in AgentRegistry.list_agents():
+                if name.startswith("router_"):
+                    local.add(name[7:])
+        except ImportError:
+            pass
+        return list(local | set(INTENT_TYPES))
+
+    # ── LLM 辅助 ──
+
+    async def _llm_json_chat(self, user_prompt: str, temperature: float = 0.1, max_tokens: int = 50) -> dict | None:
+        """调用 LLM（system_prompt from prompts/router.md）并解析 JSON。"""
+        try:
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            reply = await self.llm.chat(messages, temperature=temperature, max_tokens=max_tokens)
+            if "```" in reply:
+                parts = reply.split("```")
+                for p in parts:
+                    p = p.strip()
+                    if p.startswith("{") or p.startswith("["):
+                        reply = p
+                        break
+            start = reply.find("{")
+            end = reply.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                reply = reply[start: end + 1]
+            return json.loads(reply)
+        except Exception as e:
+            logger.warning("RouterAgent LLM call failed: %s", e)
+            return None
 
     def _rule_classify(self, text: str) -> tuple[str, float]:
         """关键词规则匹配。返回 (intent, confidence)。"""
@@ -91,31 +147,36 @@ class RouterAgent(BaseAgent):
         return best_intent, confidence
 
     async def _llm_classify(self, text: str) -> tuple[str, float]:
-        """LLM 增强意图分类。失败时降级到规则匹配。"""
-        try:
-            prompt = PROMPT_TEMPLATE.format(text=text)
-            reply = await self.llm.chat(
-                [{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=20,
-            )
-            reply = reply.strip().lower()
-            for intent in INTENT_TYPES:
-                if intent in reply:
-                    return intent, 0.97
-        except Exception:
-            pass
+        """LLM 增强意图分类（使用 self.system_prompt）。失败时降级到规则匹配。"""
+        if self.system_prompt:
+            try:
+                user_prompt = (
+                    f"请判断以下用户输入的意图类型。\n\n"
+                    f"用户输入: 「{text}」\n\n"
+                    f"输出 JSON：{{\"intent\": \"screening|interview|jd_generation|knowledge_query|candidate_search|report|settings|chat|offering|onboarding|analytics\"}}"
+                )
+                llm_out = await self._llm_json_chat(user_prompt)
+                if llm_out and "intent" in llm_out:
+                    intent = llm_out["intent"].strip().lower()
+                    if intent in INTENT_TYPES:
+                        return intent, 0.97
+            except Exception:
+                pass
 
         # 降级到规则匹配
         return self._rule_classify(text)
 
     async def classify(self, input_data: dict) -> str:
-        """分类用户输入，返回意图类型。"""
+        """分类用户输入，返回意图类型。如果检测到多意图返回 orchestrator。"""
         text = input_data.get("text", "")
         use_llm = input_data.get("use_llm", True)
 
         if not text:
             return "chat"
+
+        # 多意图检测 → 交给 Orchestrator
+        if self.is_multi_intent(text):
+            return "orchestrator"
 
         if use_llm:
             intent, _ = await self._llm_classify(text)
@@ -126,9 +187,25 @@ class RouterAgent(BaseAgent):
 
     async def run(self, input_data: dict) -> dict:
         intent = await self.classify(input_data)
+
         handler = self.routes.get(intent)
+        if handler is None:
+            try:
+                from app.agents.registry import AgentRegistry
+                handler = AgentRegistry.resolve(f"router_{intent}")
+            except ImportError:
+                pass
+
         if handler:
-            return await handler.run(input_data)
+            text = input_data.get("text", "")
+            try:
+                from app.agents.param_extractor import extract_params
+                params = extract_params(text, intent)
+                enriched = {**input_data, **params}
+            except Exception:
+                logger.warning("Param extraction failed, using raw input", exc_info=True)
+                enriched = input_data
+            return await handler.run(enriched)
         return {
             "agent": self.name,
             "status": "routed",
