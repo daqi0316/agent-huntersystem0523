@@ -615,44 +615,40 @@ class TestBuildApprovalResponse:
         assert resp["tool_calls"] == []
 
 
-ORCH_CLASS_PATH = "app.agents.orchestrator_agent.OrchestratorAgent"
+GRAPH_FACTORY_PATH = "app.graphs.orchestrator_graph.create_orchestrator_graph"
+ADAPTER_PATH = "app.services.agent_service._adapt_graph_result_to_legacy"
 
 
-def _make_orch_mock(**attrs) -> MagicMock:
-    """Create a MagicMock with the OrchestratorAgent sync/async mix.
-
-    OrchestratorAgent has sync methods (is_multi_stage) and async methods
-    (run, route_single).  A plain AsyncMock would make is_multi_stage
-    return a coroutine (sync call → AsyncMock returns awaitable).
-    So we use MagicMock and only mark async methods as AsyncMock.
-    """
-    m = MagicMock()
-    for k, v in attrs.items():
-        setattr(m, k, v)
-    return m
+def _make_graph_mock(*, ainvoke_return: dict) -> MagicMock:
+    """Create a MagicMock graph whose ainvoke() returns the given graph state."""
+    g = MagicMock()
+    g.ainvoke = AsyncMock(return_value=ainvoke_return)
+    return g
 
 
 class TestChatWithToolsOrchestratorFlow:
-    """chat_with_tools Step 1: Orchestrator 统一处理路径。"""
+    """chat_with_tools Step 1: Orchestrator 统一处理路径 (Phase V PR-V.3 graph-based)."""
 
     @pytest.mark.asyncio
-    async def test_single_intent_handled_by_orchestrator(self, mock_llm):
-        """单意图消息经过 Orchestrator.route_single() 处理。"""
-        route_single_result = {
-            "agent": "orchestrator", "status": "completed",
+    async def test_single_intent_handled_by_graph(self, mock_llm):
+        """单意图消息经过 graph.ainvoke() + adapter 处理。"""
+        graph_state = {
+            "intent": "screening", "status": "completed",
+            "agent_result": {"summary": "筛选任务完成", "candidates": []},
+            "error": None,
+        }
+        legacy_result = {
+            "agent": "screening", "status": "completed",
             "summary": "筛选任务完成",
             "outputs": [{"agent": "screening", "status": "completed", "summary": "筛选任务完成"}],
             "total_sub_tasks": 1, "succeeded": 1, "failed": 0,
         }
         with (
             patch("app.services.agent_service._register_builtins"),
-            patch(ORCH_CLASS_PATH) as MockOrch,
+            patch(GRAPH_FACTORY_PATH) as MockGraph,
+            patch(ADAPTER_PATH, return_value=legacy_result),
         ):
-            mock_orch = _make_orch_mock(
-                is_multi_stage=MagicMock(return_value=False),
-                route_single=AsyncMock(return_value=route_single_result),
-            )
-            MockOrch.return_value = mock_orch
+            MockGraph.return_value = _make_graph_mock(ainvoke_return=graph_state)
 
             result = await chat_with_tools(
                 messages=[{"role": "user", "content": "筛选张三的简历"}],
@@ -661,13 +657,18 @@ class TestChatWithToolsOrchestratorFlow:
         assert result["reply"] == "筛选任务完成"
         assert result["model"] == "orchestrator/completed"
         assert len(result.get("agent_actions", [])) == 1
-        mock_orch.is_multi_stage.assert_called_once_with("筛选张三的简历")
-        mock_orch.route_single.assert_awaited_once()
+        MockGraph.return_value.ainvoke.assert_awaited_once()
+        MockGraph.assert_called_once_with(checkpointer=None, with_interrupt=False)
 
     @pytest.mark.asyncio
-    async def test_multi_stage_handled_by_orchestrator_run(self, mock_llm):
-        """多阶段消息经过 Orchestrator.run() 处理。"""
-        run_result = {
+    async def test_multi_stage_handled_by_graph(self, mock_llm):
+        """多阶段消息由 graph 内部 _decide_route 拆解后 ainvoke 处理。"""
+        graph_state = {
+            "intent": "multi", "status": "completed",
+            "agent_result": {"summary": "编排完成"},
+            "error": None,
+        }
+        legacy_result = {
             "agent": "orch", "status": "completed",
             "summary": "编排完成",
             "outputs": [
@@ -678,13 +679,10 @@ class TestChatWithToolsOrchestratorFlow:
         }
         with (
             patch("app.services.agent_service._register_builtins"),
-            patch(ORCH_CLASS_PATH) as MockOrch,
+            patch(GRAPH_FACTORY_PATH) as MockGraph,
+            patch(ADAPTER_PATH, return_value=legacy_result),
         ):
-            mock_orch = _make_orch_mock(
-                is_multi_stage=MagicMock(return_value=True),
-                run=AsyncMock(return_value=run_result),
-            )
-            MockOrch.return_value = mock_orch
+            MockGraph.return_value = _make_graph_mock(ainvoke_return=graph_state)
 
             result = await chat_with_tools(
                 messages=[{"role": "user", "content": "筛选候选人然后发offer"}],
@@ -693,13 +691,18 @@ class TestChatWithToolsOrchestratorFlow:
         assert "搜索完成" in result["reply"]
         assert "筛选完成" in result["reply"]
         assert result["model"] == "orchestrator/completed"
-        mock_orch.run.assert_awaited_once()
+        MockGraph.return_value.ainvoke.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_awaiting_approval_returns_approval_response(self, mock_llm):
         """awaiting_approval 状态返回审批响应，不进入 LLM 循环。"""
-        route_single_result = {
-            "agent": "orch", "status": "awaiting_approval",
+        graph_state = {
+            "intent": "interview", "status": "awaiting_approval",
+            "agent_result": {"approval_id": "appr_123"},
+            "error": None,
+        }
+        legacy_result = {
+            "agent": "interview", "status": "awaiting_approval",
             "summary": "面试安排需审批",
             "outputs": [
                 {"agent": "interview", "status": "awaiting_approval", "summary": "面试安排需审批"},
@@ -707,13 +710,10 @@ class TestChatWithToolsOrchestratorFlow:
         }
         with (
             patch("app.services.agent_service._register_builtins"),
-            patch(ORCH_CLASS_PATH) as MockOrch,
+            patch(GRAPH_FACTORY_PATH) as MockGraph,
+            patch(ADAPTER_PATH, return_value=legacy_result),
         ):
-            mock_orch = _make_orch_mock(
-                is_multi_stage=MagicMock(return_value=False),
-                route_single=AsyncMock(return_value=route_single_result),
-            )
-            MockOrch.return_value = mock_orch
+            MockGraph.return_value = _make_graph_mock(ainvoke_return=graph_state)
 
             result = await chat_with_tools(
                 messages=[{"role": "user", "content": "安排面试"}],
@@ -724,8 +724,8 @@ class TestChatWithToolsOrchestratorFlow:
         assert mock_llm.client.chat.completions.create.await_count == 0
 
     @pytest.mark.asyncio
-    async def test_orchestrator_failure_fallsback_to_llm(self, mock_llm):
-        """Orchestrator 异常时降级到 LLM 工具循环。"""
+    async def test_graph_failure_fallback_to_llm(self, mock_llm):
+        """graph 创建/ainvoke 异常时降级到 LLM 工具循环。"""
         mock_llm.client.chat.completions.create.return_value = MagicMock(
             choices=[MagicMock()]
         )
@@ -734,12 +734,12 @@ class TestChatWithToolsOrchestratorFlow:
 
         with (
             patch("app.services.agent_service._register_builtins"),
-            patch(ORCH_CLASS_PATH) as MockOrch,
+            patch(GRAPH_FACTORY_PATH) as MockGraph,
             patch("app.services.agent_service.get_llm_client", return_value=mock_llm),
             patch("app.services.agent_service._inject_memory_context",
                   AsyncMock(return_value=SYSTEM_PROMPT)),
         ):
-            MockOrch.side_effect = Exception("Orchestrator down")
+            MockGraph.side_effect = Exception("Graph down")
 
             result = await chat_with_tools(
                 messages=[{"role": "user", "content": "hello"}],
@@ -747,6 +747,32 @@ class TestChatWithToolsOrchestratorFlow:
 
         assert result["reply"] == "LLM response"
         assert result["model"] == "test-model"
+
+    @pytest.mark.asyncio
+    async def test_graph_ainvoke_passes_input_text_and_user_id(self, mock_llm):
+        """graph.ainvoke() 收到的初始 state 必须包含 input_text=last_user_msg + 自动生成的 user_id。"""
+        graph_state = {
+            "intent": "screening", "status": "completed",
+            "agent_result": {"summary": "ok"}, "error": None,
+        }
+        legacy_result = {"agent": "screening", "status": "completed", "summary": "ok"}
+        with (
+            patch("app.services.agent_service._register_builtins"),
+            patch(GRAPH_FACTORY_PATH) as MockGraph,
+            patch(ADAPTER_PATH, return_value=legacy_result),
+        ):
+            MockGraph.return_value = _make_graph_mock(ainvoke_return=graph_state)
+
+            await chat_with_tools(
+                messages=[{"role": "user", "content": "hello world"}],
+            )
+
+            call_args = MockGraph.return_value.ainvoke.call_args
+            initial_state = call_args[0][0]
+            assert initial_state["input_text"] == "hello world"
+            assert isinstance(initial_state["user_id"], str)  # auto-generated by _ensure_session (may be empty in test env)
+            assert initial_state["status"] == ""
+            assert initial_state["multi_stage"] is False
 
 
 # ── _get_handlers MCP tool closure (lines 354-361) ──

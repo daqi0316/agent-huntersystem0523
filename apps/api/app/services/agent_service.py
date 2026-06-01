@@ -576,25 +576,23 @@ async def chat_with_tools(
     messages = await _load_and_merge_history(messages, user_id, session_id)
 
     if last_user_msg:
-        # Step 1: Orchestrator 统一处理（RouterAgent 不再直接分发）
+        # Step 1: Orchestrator 统一处理 (Phase V PR-V.3 graph-based ainvoke)
         try:
-            from app.agents.orchestrator_agent import OrchestratorAgent
+            from app.graphs.orchestrator_graph import (
+                create_orchestrator_graph,
+                make_initial_orchestrator_state,
+            )
 
-            orchestrator = OrchestratorAgent()
-            context = {"user_id": user_id, "session_id": session_id}
-
-            if orchestrator.is_multi_stage(last_user_msg):
-                logger.info("Multi-stage task detected: %s", last_user_msg[:80])
-                result = await orchestrator.run({
-                    "task": last_user_msg,
-                    "context": context,
-                })
-            else:
-                logger.info("Single intent routing: %s", last_user_msg[:80])
-                result = await orchestrator.route_single({
-                    "text": last_user_msg,
-                    "context": context,
-                })
+            graph = create_orchestrator_graph(
+                checkpointer=None,
+                with_interrupt=False,
+            )
+            initial_state = make_initial_orchestrator_state(
+                user_id=user_id or "",
+                input_text=last_user_msg,
+            )
+            final_state = await graph.ainvoke(initial_state)
+            result = _adapt_graph_result_to_legacy(final_state)
 
             # Handle awaiting_approval — 返回审批响应，不继续执行
             if result.get("status") == "awaiting_approval":

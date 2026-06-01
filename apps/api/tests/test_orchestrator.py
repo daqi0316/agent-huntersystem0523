@@ -598,34 +598,6 @@ def test_needs_human_review_normal():
     assert OrchestratorAgent._needs_human_review(result, "screening") is False
 
 
-@pytest.mark.xfail(reason="OrchestratorAgent awaiting_approval flow deprecated (sunset 2026-06-08, see S6-findings.md); HumanLoopAgent.create_proposal() missing user_id arg is a pre-existing legacy bug", strict=False)
-@pytest.mark.asyncio
-async def test_execute_sub_task_interview_awaits_approval(orch_agent):
-    """interview sub-task returns awaiting_approval status."""
-    from unittest.mock import MagicMock
-
-    from app.agents.base import BaseAgent
-    from app.agents.registry import AgentRegistry
-
-    mock_interview = MagicMock(spec=BaseAgent)
-    mock_interview.output_keys = ["scheduled"]
-    mock_interview.run = AsyncMock(return_value={
-        "agent": "interview", "status": "completed",
-        "result": {"scheduled": True, "candidate": "John"},
-    })
-    mock_interview.name = "interview"
-    AgentRegistry.register("interview", mock_interview)
-    try:
-        result = await orch_agent.execute_sub_task({
-            "type": "interview", "description": "schedule interview",
-        })
-        assert result["status"] == "awaiting_approval"
-        assert "approval" in result["details"]
-        assert result["details"]["approval"]["approval_id"].startswith("appr_")
-    finally:
-        AgentRegistry.unregister("interview")
-
-
 @pytest.mark.asyncio
 async def test_execute_sub_task_screening_still_completes(orch_agent):
     """Normal screening sub-task still returns completed."""
@@ -633,40 +605,6 @@ async def test_execute_sub_task_screening_still_completes(orch_agent):
         "type": "screening", "description": "filter devs",
     })
     assert result["status"] == "completed"
-
-
-@pytest.mark.xfail(reason="OrchestratorAgent awaiting_approval flow deprecated (sunset 2026-06-08, see S6-findings.md); HumanLoopAgent.create_proposal() missing user_id arg is a pre-existing legacy bug", strict=False)
-@pytest.mark.asyncio
-async def test_run_with_awaiting_approval(orch_llm, orch_agent):
-    """run() returns awaiting_approval when sub-task needs human review."""
-    from unittest.mock import MagicMock
-
-    from app.agents.base import BaseAgent
-    from app.agents.registry import AgentRegistry
-
-    mock_interview = MagicMock(spec=BaseAgent)
-    mock_interview.output_keys = ["scheduled"]
-    mock_interview.name = "interview"
-    mock_interview.run = AsyncMock(return_value={
-        "agent": "interview", "status": "completed",
-        "result": {"scheduled": True},
-    })
-    AgentRegistry.register("interview", mock_interview)
-    try:
-        orch_llm.chat.return_value = (
-            '[{"type": "interview", "description": "schedule", "depends_on": []}]'
-        )
-        result = await orch_agent.run({
-            "task": "schedule interview",
-            "context": {},
-        })
-        assert result["agent"] == "orch"
-        assert result["status"] == "awaiting_approval"
-        assert result["awaiting_approval"] == 1
-        assert result["succeeded"] == 0
-        assert result["failed"] == 0
-    finally:
-        AgentRegistry.unregister("interview")
 
 
 # ──────────────────────────────────────────────
