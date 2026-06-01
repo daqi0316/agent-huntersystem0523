@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
 
+    langgraph_pg_dsn: str | None = None
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     def check_production_readiness(self) -> list[str]:

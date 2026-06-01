@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.agents.orchestrator_agent import OrchestratorAgent
+from app.core.config import settings
 from app.graphs.orchestrator_graph import create_orchestrator_graph
 
 logger = logging.getLogger(__name__)
@@ -36,11 +37,38 @@ _legacy_agent = OrchestratorAgent(name="orchestrator_legacy")
 _graph = None
 
 
+def _build_checkpointer():
+    """选择 checkpointer — PostgresSaver (生产) 或 MemorySaver (开发)。
+
+    PostgresSaver 需要 LANGGRAPH_PG_DSN env var (psycopg3 格式)。
+    首次使用会调用 setup() 自动建表（CREATE TABLE IF NOT EXISTS）。
+    未设置时降级到 MemorySaver — 进程重启丢失状态。
+    """
+    dsn = settings.langgraph_pg_dsn
+    if dsn:
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+            saver = PostgresSaver.from_conn_string(dsn)
+            saver.setup()
+            logger.info("LangGraph: using PostgresSaver (DSN=%s...)", dsn[:24])
+            return saver
+        except Exception as e:
+            logger.error("PostgresSaver init failed, falling back to MemorySaver: %s", e)
+    logger.info("LangGraph: using MemorySaver (LANGGRAPH_PG_DSN not set or init failed)")
+    return MemorySaver()
+
+
 def _get_graph():
     global _graph
     if _graph is None:
-        _graph = create_orchestrator_graph(checkpointer=MemorySaver())
+        _graph = create_orchestrator_graph(checkpointer=_build_checkpointer())
     return _graph
+
+
+def reset_graph_cache() -> None:
+    """测试用 — 重置懒加载的 graph，让 _build_checkpointer 重新跑。"""
+    global _graph
+    _graph = None
 
 
 class AnalyzeRequest(BaseModel):
