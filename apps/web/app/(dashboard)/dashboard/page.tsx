@@ -11,6 +11,7 @@ import { ErrorAlert } from "@/components/common/error-alert";
 import RecommendationSection from "@/components/features/recommendations/recommendation-section";
 import OperationFeed from "@/components/features/operations/operation-feed";
 import AIHealth from "@/components/features/monitoring/ai-health";
+import ApprovalCountdown from "@/components/features/approvals/approval-countdown";
 import { api } from "@/lib/trpc";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -197,6 +198,8 @@ export default function DashboardPage() {
         </Card>
 
         <OperationFeed />
+
+        <ApprovalCountdown />
       </div>
     </div>
   );
