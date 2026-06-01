@@ -1,0 +1,134 @@
+> """Skill 自安装器。
+  
+> 允许 Agent 在运行时通过工具调用创建新的 Skill，
+> 无需手动编写 Python 文件。
+> """
+  
+! import importlib
+! import logging
+! import sys
+! from pathlib import Path
+  
+! logger = logging.getLogger(__name__)
+  
+! SKILLS_DIR = Path(__file__).parent
+  
+! _DANGEROUS = [
+!     "__import__", "eval(", "exec(", "os.system", "subprocess",
+!     "shutil.rmtree", "Path.unlink", "open(",
+! ]
+  
+  
+! def _validate(code: str) -> list[str]:
+!     issues = []
+!     for pat in _DANGEROUS:
+!         if pat in code:
+!             issues.append("包含危险操作: " + pat)
+!     if "class " not in code:
+!         issues.append("缺少 class 定义")
+!     if "def " not in code:
+!         issues.append("缺少函数定义")
+!     return issues
+  
+  
+! def _make_init(name: str) -> str:
+!     return "from app.skills." + name + ".skill import skill\n\n__all__ = [\"skill\"]\n"
+  
+  
+! def _make_skill(name: str, description: str, tool_name: str,
+!                 tool_desc: str, handler: str, params: dict) -> str:
+!     import json as _j
+!     schema_str = _j.dumps(params, indent=2, ensure_ascii=False)
+  
+!     lines = []
+!     lines.append('"""' + '自动安装 - ' + description + '"""')
+!     lines.append("")
+!     lines.append("import logging")
+!     lines.append("from app.skills.base import Skill")
+!     lines.append("")
+!     lines.append("logger = logging.getLogger(__name__)")
+!     lines.append("")
+!     lines.append("_TOOL = " + schema_str)
+!     lines.append("")
+!     lines.append("")
+!     lines.append(handler)
+!     lines.append("")
+!     lines.append("")
+!     lines.append("class _AutoSkill(Skill):")
+!     lines.append("    @property")
+!     lines.append("    def name(self):")
+!     lines.append("        return '" + name + "'")
+!     lines.append("")
+!     lines.append("    @property")
+!     lines.append("    def description(self):")
+!     lines.append("        return '" + description + "'")
+!     lines.append("")
+!     lines.append("    def get_tools(self):")
+!     lines.append("        return [_TOOL]")
+!     lines.append("")
+!     lines.append("    def get_handlers(self):")
+!     lines.append("        return {'" + tool_name + "': _" + tool_name + "}")
+!     lines.append("")
+!     lines.append("")
+!     lines.append("skill = _AutoSkill()")
+!     lines.append("")
+!     return "\n".join(lines)
+  
+  
+! async def install_skill(
+!     name: str,
+!     description: str,
+!     tool_name: str,
+!     tool_description: str,
+!     handler_code: str,
+!     parameters: dict | None = None,
+! ) -> dict:
+!     """Install a new skill at runtime.
+  
+!     Args:
+!         name: skill directory name (e.g. 'ip_lookup')
+!         description: human-readable description
+!         tool_name: function-calling tool name (e.g. 'lookup_ip')
+!         tool_description: tool description for LLM
+!         handler_code: async function code, must define _{tool_name}
+!         parameters: OpenAI tool parameters schema
+!     """
+!     if not name.isidentifier():
+!         return {"success": False, "error": "invalid skill name: " + name}
+  
+!     target = SKILLS_DIR / name
+!     if target.exists():
+!         return {"success": False, "error": "skill already exists: " + name}
+  
+!     code = _make_skill(name, description, tool_name,
+!                        tool_description, handler_code, parameters)
+  
+!     issues = _validate(code)
+!     if issues:
+!         return {"success": False, "error": "validation failed: " + "; ".join(issues)}
+  
+!     target.mkdir(parents=True)
+!     (target / "__init__.py").write_text(_make_init(name))
+!     (target / "skill.py").write_text(code)
+  
+!     _reload()
+  
+!     return {"success": True, "path": "app/skills/" + name + "/", "tools": [tool_name]}
+  
+  
+! def _reload():
+!     for mod in list(sys.modules.keys()):
+!         if mod.startswith("app.skills.") and mod not in (
+!             "app.skills", "app.skills.base", "app.skills.installer"
+!         ):
+!             del sys.modules[mod]
+!     importlib.reload(importlib.import_module("app.skills"))
+  
+  
+! def installed_list() -> list[dict]:
+!     from app.skills import discover_skills
+!     return [
+!         {"name": n, "description": s.description,
+!          "tools": [t["function"]["name"] for t in s.get_tools()]}
+!         for n, s in discover_skills().items()
+!     ]

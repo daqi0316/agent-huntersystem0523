@@ -1,0 +1,64 @@
+> """Skill 动态加载系统。
+  
+> 每个子目录是一个独立的 skill，必须包含 skill.py，
+> 其中导出一个 Skill 子类实例（变量名：skill）。
+  
+> 支持的技能自动注册到 agent_service 的工具列表。
+> """
+  
+> import importlib
+> import logging
+> import pkgutil
+> from pathlib import Path
+> from typing import Callable
+  
+> from app.skills.base import Skill
+  
+> logger = logging.getLogger(__name__)
+  
+> SKILLS_DIR = Path(__file__).parent
+  
+> _discovered: dict[str, Skill] | None = None
+  
+  
+> def discover_skills() -> dict[str, Skill]:
+>     """扫描 skills/ 子目录，返回 {skill_name: Skill}。"""
+>     global _discovered
+!     if _discovered is not None:
+!         return _discovered
+  
+!     _discovered = {}
+!     for mod_info in pkgutil.iter_modules([str(SKILLS_DIR)]):
+          # 跳过 __init__ 和 base
+!         if mod_info.name in ("__init__", "base"):
+!             continue
+  
+!         try:
+!             mod = importlib.import_module(f"app.skills.{mod_info.name}")
+!             skill: Skill = getattr(mod, "skill", None)
+!             if skill is not None and isinstance(skill, Skill):
+!                 _discovered[skill.name] = skill
+!                 logger.info("Loaded skill: %s", skill.name)
+!             else:
+!                 logger.debug("Skipped %s: no 'skill' instance found", mod_info.name)
+!         except Exception:
+!             logger.exception("Failed to load skill module: %s", mod_info.name)
+  
+!     return _discovered
+  
+  
+> def all_tools() -> list[dict]:
+>     """合并所有 skill 的 tool schema。"""
+!     tools = []
+!     for name, skill in discover_skills().items():
+!         for t in skill.get_tools():
+!             tools.append(t)
+!     return tools
+  
+  
+> def all_handlers() -> dict[str, Callable]:
+>     """合并所有 skill 的 handler 映射。"""
+!     handlers = {}
+!     for name, skill in discover_skills().items():
+!         handlers.update(skill.get_handlers())
+!     return handlers

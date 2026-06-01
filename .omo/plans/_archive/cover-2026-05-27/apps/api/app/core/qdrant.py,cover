@@ -1,0 +1,21 @@
+> from qdrant_client import AsyncQdrantClient
+  
+> from app.core.config import settings
+  
+> qdrant_client: AsyncQdrantClient | None = None
+  
+  
+> async def get_qdrant() -> AsyncQdrantClient:
+>     global qdrant_client
+>     if qdrant_client is None:
+>         qdrant_client = AsyncQdrantClient(
+>             url=settings.qdrant_url,
+>         )
+>     return qdrant_client
+  
+  
+> async def close_qdrant() -> None:
+>     global qdrant_client
+>     if qdrant_client:
+>         await qdrant_client.close()
+>         qdrant_client = None

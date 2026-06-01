@@ -1,0 +1,589 @@
+> """统一招聘 Agent — 工具调用 + 对话循环。
+  
+> 接收自然语言消息 → LLM 决定调用哪个工具 → 执行工具 →
+> 结果回传 LLM → 生成自然语言回复。
+  
+> 工具定义来自 app/skills/ 下的可插拔插件。
+> 内置招聘工具同样以 skill 形式注册。
+> """
+  
+> import asyncio
+> import json
+> import logging
+> import uuid
+> from datetime import datetime, timezone
+  
+> from app.llm import get_llm_client
+> from app.skills import all_handlers, all_tools
+  
+> logger = logging.getLogger(__name__)
+  
+  # ── 内置招聘 Skill ──
+  # 将原本硬编码的工具定义为内置 skill ── 对用户感知不可见，
+  # 但统一走 skill 路由，方便将来拆分为独立插件。
+  
+> _BUILTIN_TOOLS = [
+>     {
+>         "type": "function",
+>         "function": {
+>             "name": "search_candidates",
+>             "description": "搜索/查询候选人。支持按姓名、邮箱、技能、工作经验等条件筛选。",
+>             "parameters": {
+>                 "type": "object",
+>                 "properties": {
+>                     "query": {"type": "string", "description": "搜索关键词（姓名、技能、公司等）"},
+>                     "skill": {"type": "string", "description": "按技能筛选"},
+>                     "experience_min": {"type": "integer", "description": "最低工作经验年数"},
+>                     "limit": {"type": "integer", "description": "返回数量上限", "default": 10},
+>                 },
+>             },
+>         },
+>     },
+>     {
+>         "type": "function",
+>         "function": {
+>             "name": "get_candidate",
+>             "description": "获取某个候选人的详细信息，包括技能、经验、联系方式等。",
+>             "parameters": {
+>                 "type": "object",
+>                 "properties": {
+>                     "candidate_id": {"type": "string", "description": "候选人 ID"},
+>                 },
+>                 "required": ["candidate_id"],
+>             },
+>         },
+>     },
+>     {
+>         "type": "function",
+>         "function": {
+>             "name": "screen_resume",
+>             "description": "对候选人进行 AI 简历初筛，评估与某个职位的匹配度。",
+>             "parameters": {
+>                 "type": "object",
+>                 "properties": {
+>                     "candidate_id": {"type": "string", "description": "候选人 ID"},
+>                     "job_id": {"type": "string", "description": "职位 ID"},
+>                 },
+>                 "required": ["candidate_id", "job_id"],
+>             },
+>         },
+>     },
+>     {
+>         "type": "function",
+>         "function": {
+>             "name": "list_jobs",
+>             "description": "查看当前招聘中的职位列表。",
+>             "parameters": {
+>                 "type": "object",
+>                 "properties": {
+>                     "status": {"type": "string", "enum": ["active", "closed", "draft"], "description": "按状态筛选"},
+>                     "limit": {"type": "integer", "description": "返回数量上限", "default": 10},
+>                 },
+>             },
+>         },
+>     },
+>     {
+>         "type": "function",
+>         "function": {
+>             "name": "generate_jd",
+>             "description": "生成职位描述（JD）。基于职位名称和要求，自动生成完整的岗位描述。",
+>             "parameters": {
+>                 "type": "object",
+>                 "properties": {
+>                     "title": {"type": "string", "description": "职位名称"},
+>                     "requirements": {"type": "string", "description": "职位要求/描述"},
+>                     "preferences": {"type": "string", "description": "其他偏好（可选）"},
+>                 },
+>                 "required": ["title", "requirements"],
+>             },
+>         },
+>     },
+>     {
+>         "type": "function",
+>         "function": {
+>             "name": "schedule_interview",
+>             "description": "安排面试。创建一条面试记录，需要候选人、职位和面试时间。",
+>             "parameters": {
+>                 "type": "object",
+>                 "properties": {
+>                     "candidate_id": {"type": "string", "description": "候选人 ID"},
+>                     "job_id": {"type": "string", "description": "职位 ID"},
+>                     "scheduled_time": {"type": "string", "description": "面试时间（ISO 格式）"},
+>                     "notes": {"type": "string", "description": "面试备注（可选）"},
+>                 },
+>                 "required": ["candidate_id", "job_id", "scheduled_time"],
+>             },
+>         },
+>     },
+>     {
+>         "type": "function",
+>         "function": {
+>             "name": "get_dashboard_stats",
+>             "description": "获取招聘看板统计数据，包括候选人数量、职位数量、待初筛数量、面试安排数等。",
+>             "parameters": {"type": "object", "properties": {}},
+>         },
+>     },
+>     {
+>         "type": "function",
+>         "function": {
+>             "name": "search_knowledge",
+>             "description": "知识库问答 — 搜索招聘相关的知识文档和资料。",
+>             "parameters": {
+>                 "type": "object",
+>                 "properties": {
+>                     "query": {"type": "string", "description": "查询问题"},
+>                 },
+>                 "required": ["query"],
+>             },
+>         },
+>     },
+>     {
+>         "type": "function",
+>         "function": {
+>             "name": "get_evaluations",
+>             "description": "查看候选人的评估报告。",
+>             "parameters": {
+>                 "type": "object",
+>                 "properties": {
+>                     "candidate_id": {"type": "string", "description": "候选人 ID"},
+>                     "limit": {"type": "integer", "description": "返回数量上限", "default": 5},
+>                 },
+>             },
+>         },
+>     },
+> ]
+  
+> _BUILTIN_TOOLS_END = len(_BUILTIN_TOOLS)
+  
+  # ── 自安装工具 ──
+  
+> _BUILTIN_TOOLS.append({
+>     "type": "function",
+>     "function": {
+>         "name": "install_skill",
+>         "description": "安装一个新 Skill。当用户需要新的功能时，你应当生成对应的 skill 代码并安装。每次只能安装一个 tool。",
+>         "parameters": {
+>             "type": "object",
+>             "properties": {
+>                 "name": {"type": "string", "description": "skill 目录名，如 ip_lookup"},
+>                 "description": {"type": "string", "description": "技能的人类可读描述"},
+>                 "tool_name": {"type": "string", "description": "工具函数名，如 lookup_ip"},
+>                 "tool_description": {"type": "string", "description": "工具的 LLM 描述"},
+>                 "handler_code": {"type": "string", "description": "异步处理函数的完整代码。必须包含 async def _{tool_name}(...) 定义。"},
+>                 "parameters": {"type": "object", "description": "工具的 parameters schema（OpenAI 格式）"},
+>             },
+>             "required": ["name", "description", "tool_name", "tool_description", "handler_code"],
+>         },
+>     },
+> })
+  
+> _BUILTIN_TOOLS.append({
+>     "type": "function",
+>     "function": {
+>         "name": "list_skills",
+>         "description": "列出当前已安装的所有 Skill。",
+>         "parameters": {"type": "object", "properties": {}},
+>     },
+> })
+  
+> _BUILTIN_HANDLERS: dict[str, callable] = {}
+  
+  
+> async def _register_builtins():
+>     """延迟注册内置 handler（避免循环 import）。"""
+!     if _BUILTIN_HANDLERS:
+!         return
+  
+!     from app.services.screening import ScreeningService
+!     from app.services.jd_generator import JDGeneratorService
+!     from app.services.knowledge import KnowledgeService
+!     from app.core.database import AsyncSessionLocal
+!     from app.models.candidate import Candidate
+!     from app.models.job_position import JobPosition
+!     from app.models.interview import Interview
+!     from app.models.application import Application
+!     try:
+!         from app.models.evaluation import Evaluation
+!     except ImportError:
+!         Evaluation = None
+!     from sqlalchemy import select, func
+  
+!     async def _search_candidates(query: str = "", skill: str = "", experience_min: int | None = None, limit: int = 10) -> list[dict]:
+!         from sqlalchemy import or_
+!         async with AsyncSessionLocal() as session:
+!             stmt = select(Candidate).where(Candidate.status == "active")
+!             if query:
+!                 stmt = stmt.where(
+!                     or_(
+!                         Candidate.name.ilike(f"%{query}%"),
+!                         Candidate.email.ilike(f"%{query}%"),
+!                         Candidate.current_company.ilike(f"%{query}%"),
+!                         Candidate.current_title.ilike(f"%{query}%"),
+!                     )
+!                 )
+!             if skill:
+!                 stmt = stmt.where(Candidate.skills.any(skill))
+!             if experience_min is not None:
+!                 stmt = stmt.where(Candidate.experience_years >= experience_min)
+!             stmt = stmt.limit(limit).order_by(Candidate.created_at.desc())
+!             result = await session.execute(stmt)
+!             candidates = result.scalars().all()
+!             return [
+!                 {"id": c.id, "name": c.name, "email": c.email, "phone": c.phone,
+!                  "skills": c.skills, "experience_years": c.experience_years,
+!                  "current_company": c.current_company, "current_title": c.current_title, "status": c.status}
+!                 for c in candidates
+!             ]
+  
+!     async def _get_candidate(candidate_id: str) -> dict | None:
+!         async with AsyncSessionLocal() as session:
+!             result = await session.execute(select(Candidate).where(Candidate.id == candidate_id))
+!             c = result.scalar_one_or_none()
+!             if not c:
+!                 return None
+!             return {
+!                 "id": c.id, "name": c.name, "email": c.email, "phone": c.phone,
+!                 "summary": c.summary, "skills": c.skills, "experience_years": c.experience_years,
+!                 "education": c.education, "current_company": c.current_company,
+!                 "current_title": c.current_title, "status": c.status,
+!                 "created_at": c.created_at.isoformat() if c.created_at else None,
+!             }
+  
+!     async def _screen_resume(candidate_id: str, job_id: str) -> dict:
+!         service = ScreeningService()
+!         try:
+!             result = await service.screen(candidate_id=candidate_id, job_id=job_id)
+!             return {"overall_score": result.get("overall_score", 0), "summary": result.get("summary", ""),
+!                     "dimensions": result.get("dimensions", []), "passed": result.get("passed", False)}
+!         except Exception as e:
+!             logger.warning("Screening failed: %s", e)
+!             return {"error": str(e)}
+  
+!     async def _list_jobs(status: str = "active", limit: int = 10) -> list[dict]:
+!         async with AsyncSessionLocal() as session:
+!             stmt = select(JobPosition)
+!             if status and status != "all":
+!                 stmt = stmt.where(JobPosition.status == status)
+!             stmt = stmt.limit(limit).order_by(JobPosition.created_at.desc())
+!             result = await session.execute(stmt)
+!             jobs = result.scalars().all()
+!             return [{"id": j.id, "title": j.title, "department": j.department,
+!                      "location": j.location, "status": j.status,
+!                      "created_at": j.created_at.isoformat() if j.created_at else None} for j in jobs]
+  
+!     async def _generate_jd(title: str, requirements: str, preferences: str = "") -> dict:
+!         service = JDGeneratorService()
+!         result = await service.generate_jd(title=title, requirements=requirements, preferences=preferences or "", auto_improve=False)
+!         return {"title": title, "jd_content": result.get("final_output", ""),
+!                 "iterations": result.get("total_iterations", 0), "passed": result.get("passed", False)}
+  
+!     async def _schedule_interview(candidate_id: str, job_id: str, scheduled_time: str, notes: str = "") -> dict:
+!         async with AsyncSessionLocal() as session:
+!             result = await session.execute(
+!                 select(Application).where(Application.candidate_id == candidate_id, Application.job_id == job_id)
+!             )
+!             app = result.scalar_one_or_none()
+!             if not app:
+!                 app = Application(candidate_id=candidate_id, job_id=job_id, status="applied")
+!                 session.add(app)
+!                 await session.flush()
+!             interview = Interview(
+!                 candidate_id=candidate_id, application_id=app.id,
+!                 scheduled_at=datetime.fromisoformat(scheduled_time), notes=notes, status="scheduled",
+!             )
+!             session.add(interview)
+!             await session.commit()
+!             await session.refresh(interview)
+!             return {"id": interview.id, "candidate_id": interview.candidate_id,
+!                     "scheduled_at": interview.scheduled_at.isoformat() if interview.scheduled_at else None,
+!                     "status": interview.status, "notes": interview.notes}
+  
+!     async def _get_dashboard_stats() -> dict:
+!         async with AsyncSessionLocal() as session:
+!             total_candidates = (await session.execute(select(func.count(Candidate.id)))).scalar() or 0
+!             total_jobs = (await session.execute(select(func.count(JobPosition.id)).where(JobPosition.status == "active"))).scalar() or 0
+!             total_interviews = (await session.execute(select(func.count(Interview.id)).where(Interview.status == "scheduled"))).scalar() or 0
+!             return {"total_candidates": total_candidates, "active_jobs": total_jobs,
+!                     "scheduled_interviews": total_interviews, "updated_at": datetime.now(timezone.utc).isoformat()}
+  
+!     async def _search_knowledge(query: str) -> dict:
+!         service = KnowledgeService()
+!         result = await service.query(query=query, top_k=5)
+!         return {"answer": result.get("answer", ""), "sources": result.get("sources", [])}
+  
+!     async def _get_evaluations(candidate_id: str, limit: int = 5) -> list[dict]:
+!         if Evaluation is None:
+!             return []
+!         async with AsyncSessionLocal() as session:
+!             stmt = select(Evaluation).where(Evaluation.candidate_id == candidate_id).order_by(Evaluation.created_at.desc()).limit(limit)
+!             result = await session.execute(stmt)
+!             evals = result.scalars().all()
+!             return [{"id": e.id, "candidate_id": e.candidate_id, "total_score": e.total_score,
+!                      "summary": e.summary, "created_at": e.created_at.isoformat() if e.created_at else None} for e in evals]
+  
+!     from app.skills.installer import install_skill as _do_install, installed_list as _do_list
+  
+!     _BUILTIN_HANDLERS.update({
+!         "search_candidates": _search_candidates,
+!         "get_candidate": _get_candidate,
+!         "screen_resume": _screen_resume,
+!         "list_jobs": _list_jobs,
+!         "generate_jd": _generate_jd,
+!         "schedule_interview": _schedule_interview,
+!         "get_dashboard_stats": _get_dashboard_stats,
+!         "search_knowledge": _search_knowledge,
+!         "get_evaluations": _get_evaluations,
+!         "install_skill": _do_install,
+!         "list_skills": _do_list,
+!     })
+  
+  
+> def _get_tools() -> list[dict]:
+>     """内置工具 + 外部 skill 工具。"""
+!     return _BUILTIN_TOOLS + all_tools()
+  
+  
+> def _get_handlers() -> dict[str, callable]:
+!     handlers = dict(_BUILTIN_HANDLERS)
+!     handlers.update(all_handlers())
+!     return handlers
+  
+  
+> SYSTEM_PROMPT = """你是招聘助手，一个专注于招聘领域的 AI Agent。
+  
+> 你的能力：
+> - 搜索和查看候选人信息
+> - AI 简历初筛（评估候选人与职位的匹配度）
+> - 查看职位列表
+> - 生成职位描述（JD）
+> - 安排面试
+> - 查看招聘看板统计数据
+> - 知识库问答
+> - 查看评估报告
+> - 实时天气查询（如候选人所在城市天气）
+> - 互联网搜索（获取最新新闻、行业信息、技术动态等）
+> - **安装新技能**：当用户需要新的功能时，你可以使用 install_skill 动态创建并安装技能
+> - **列出已安装技能**：使用 list_skills 查看当前所有可用技能
+  
+> 注意事项：
+> - 每次只调用一个工具，根据用户的意图选择最合适的工具
+> - 如果用户没有明确指定参数，可以根据上下文推断，或者主动询问
+> - 工具调用后，根据返回的数据生成自然语言回复
+> - 如果用户问的问题超出你的能力范围，**且该问题不属于招聘范畴**，你可以尝试：
+>   1. 使用 web_search 搜索答案
+>   2. 或者安装一个新的 Skill 来提供该能力
+> - 回复用中文
+> - 不要输出思考过程或推理步骤，直接给出答案"""
+  
+  
+  # ── Main Chat Loop ──
+  
+> async def _inject_memory_context(
+>     system_content: str,
+>     user_id: str | None,
+>     messages: list[dict],
+> ) -> str:
+>     """Inject cross-session memory context into the system prompt if available."""
+!     if not user_id or not messages:
+!         return system_content
+  
+!     query = (messages[-1] or {}).get("content", "")
+!     if not query.strip():
+!         return system_content
+  
+!     try:
+!         from app.core.database import AsyncSessionLocal
+!         from app.core.qdrant import get_qdrant
+!         from app.services.qdrant_service import QdrantService
+!         from app.core.config import settings
+  
+!         qdrant_client = await get_qdrant()
+!         qdrant_svc = QdrantService(client=qdrant_client, collection=settings.qdrant_memory_collection)
+!         async with AsyncSessionLocal() as db:
+!             llm = get_llm_client()
+!             from app.services.summary_service import SummaryService
+!             summary_svc = SummaryService(db=db, llm=llm, qdrant=qdrant_svc)
+!             context = await summary_svc.get_injection_context(user_id, query)
+  
+!             from app.services.memory_fact import MemoryFactService
+!             fact_svc = MemoryFactService(db)
+!             structured = await fact_svc.get_structured_context(user_id)
+  
+!         result = system_content
+!         if context:
+!             logger.info("Narrative memory context injected for user %s", user_id)
+!             result += context
+!         if structured:
+!             logger.info("Structured memory context injected for user %s", user_id)
+!             result += structured
+  
+!         return result
+!     except Exception as e:
+!         logger.warning("Memory injection failed (non-blocking): %s", e)
+  
+!     return system_content
+  
+  
+> async def _background_summarize(
+>     messages: list[dict],
+>     user_id: str | None,
+>     session_id: str | None,
+> ) -> None:
+>     """Background task: generate and store conversation summary."""
+!     if not user_id or not session_id:
+!         return
+!     try:
+!         from app.core.database import AsyncSessionLocal
+!         from app.core.qdrant import get_qdrant
+!         from app.services.qdrant_service import QdrantService
+!         from app.core.config import settings
+  
+!         qdrant_client = await get_qdrant()
+!         qdrant_svc = QdrantService(client=qdrant_client, collection=settings.qdrant_memory_collection)
+!         async with AsyncSessionLocal() as db:
+!             llm = get_llm_client()
+!             from app.services.summary_service import SummaryService
+!             summary_svc = SummaryService(db=db, llm=llm, qdrant=qdrant_svc)
+!             summary = await summary_svc.generate(user_id, session_id, messages)
+!             if summary:
+!                 logger.info(
+!                     "Background summary saved for session %s (len=%d)",
+!                     session_id,
+!                     len(summary),
+!                 )
+!     except Exception as e:
+!         logger.warning("Background summary generation failed (non-blocking): %s", e)
+  
+  
+> async def _background_record_facts(
+>     user_id: str | None,
+>     session_id: str | None,
+>     tool_results: list[dict],
+> ) -> None:
+>     """Background task: convert tool results into structured memory facts."""
+!     if not user_id or not session_id or not tool_results:
+!         return
+!     try:
+!         from app.core.database import AsyncSessionLocal
+!         from app.services.memory_fact import MemoryFactService
+  
+!         async with AsyncSessionLocal() as db:
+!             svc = MemoryFactService(db)
+!             for tr in tool_results:
+!                 if "error" in tr:
+!                     continue
+!                 await svc.record_tool_result(
+!                     user_id=user_id,
+!                     session_id=session_id,
+!                     tool_name=tr["tool"],
+!                     args=tr.get("args", {}),
+!                     result=tr.get("result"),
+!                 )
+!     except Exception as e:
+!         logger.warning("Background structured fact recording failed (non-blocking): %s", e)
+  
+  
+> async def chat_with_tools(
+>     messages: list[dict],
+>     user_id: str | None = None,
+>     session_id: str | None = None,
+>     temperature: float = 0.7,
+>     max_tokens: int = 2048,
+>     system_prompt: str | None = None,
+> ) -> dict:
+>     """统一 Agent 对话入口：RecAct 风格的 tool-calling 循环。
+  
+>     If session_id is provided, cross-session memory will be injected into
+>     the system prompt and a summary will be generated after the response.
+>     """
+!     await _register_builtins()
+  
+!     llm = get_llm_client()
+!     tools = _get_tools()
+!     handlers = _get_handlers()
+  
+!     system_content = system_prompt if system_prompt is not None else SYSTEM_PROMPT
+!     system_content = await _inject_memory_context(system_content, user_id, messages)
+!     system_msg = {"role": "system", "content": system_content}
+!     msgs = [system_msg] + messages[-20:]  # 保留最近 20 条消息
+  
+      # LLM 推理（带工具）
+!     response = await llm.client.chat.completions.create(
+!         model=llm.model,
+!         messages=msgs,
+!         tools=tools,
+!         tool_choice="auto",
+!         temperature=temperature,
+!         max_tokens=max_tokens,
+!     )
+  
+!     choice = response.choices[0]
+!     reply = choice.message.content or ""
+!     tool_calls = choice.message.tool_calls or []
+  
+      # 依次执行工具调用
+!     tool_results = []
+!     for tc in tool_calls:
+!         fn = tc.function
+!         try:
+!             args = json.loads(fn.arguments)
+!             handler = handlers.get(fn.name)
+!             if handler:
+!                 result = await handler(**args)
+!                 tool_results.append({"tool": fn.name, "args": args, "result": result})
+!             else:
+!                 tool_results.append({"tool": fn.name, "error": f"Unknown tool: {fn.name}"})
+!         except Exception as e:
+!             logger.error("Tool %s failed: %s", fn.name, e)
+!             tool_results.append({"tool": fn.name, "error": str(e)})
+  
+      # 如果有工具调用，把结果给 LLM 生成最终回复
+!     if tool_results:
+!         tool_messages = list(msgs)
+!         tool_call_stubs = [
+!             {
+!                 "id": tc.id,
+!                 "type": "function",
+!                 "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+!             }
+!             for tc in tool_calls
+!         ]
+!         assistant_msg = {
+!             "role": "assistant",
+!             "content": reply or None,
+!             "tool_calls": tool_call_stubs,
+!         }
+!         tool_messages.append(assistant_msg)
+  
+!         for idx, tr in enumerate(tool_results):
+!             tool_call_id = tool_call_stubs[idx]["id"] if idx < len(tool_call_stubs) else "unknown"
+!             if "error" in tr:
+!                 content = json.dumps({"error": tr["error"]}, ensure_ascii=False)
+!             else:
+!                 content = json.dumps(tr["result"], ensure_ascii=False, default=str)
+!             tool_messages.append({
+!                 "role": "tool",
+!                 "tool_call_id": tool_call_id,
+!                 "content": content,
+!             })
+  
+!         final = await llm.client.chat.completions.create(
+!             model=llm.model,
+!             messages=tool_messages,
+!             temperature=temperature,
+!             max_tokens=max_tokens,
+!         )
+!         reply = final.choices[0].message.content or ""
+  
+!     if session_id and user_id:
+!         asyncio.create_task(_background_summarize(messages, user_id, session_id))
+!         asyncio.create_task(_background_record_facts(user_id, session_id, tool_results))
+  
+!     return {
+!         "reply": reply,
+!         "tool_calls": [
+!             {"name": t["tool"], "args": t.get("args", {}), "error": t.get("error")}
+!             for t in tool_results
+!         ],
+!         "model": llm.model,
+!     }

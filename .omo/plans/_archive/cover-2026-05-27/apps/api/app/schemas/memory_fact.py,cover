@@ -1,0 +1,39 @@
+> """结构化记忆 — Pydantic schemas for MemoryFact read/write."""
+  
+! from datetime import datetime
+  
+! from pydantic import BaseModel
+  
+  
+! class MemoryFactCreate(BaseModel):
+!     user_id: str
+!     session_id: str
+!     fact_type: str
+!     subject_type: str | None = None
+!     subject_id: str | None = None
+!     verb: str
+!     object_value: dict | None = None
+  
+  
+! class MemoryFactRead(BaseModel):
+!     id: str
+!     user_id: str
+!     session_id: str
+!     fact_type: str
+!     subject_type: str | None = None
+!     subject_id: str | None = None
+!     verb: str
+!     object_value: dict | None = None
+!     created_at: datetime
+!     updated_at: datetime
+  
+!     model_config = {"from_attributes": True}
+  
+  
+! class MemoryFactGroup(BaseModel):
+!     """A group of related facts about one subject, for prompt injection."""
+  
+!     subject_type: str
+!     subject_id: str | None = None
+!     label: str = ""  # human-readable name
+!     facts: list[str] = []  # human-readable sentences

@@ -32,6 +32,10 @@ coverage/
 htmlcov/
 .coverage
 
+# Editor temp / broken-renames
+*.py,cover
+*.cover
+
 # Logs
 *.log
 logs/
@@ -46,3 +50,7 @@ docker-data/
 .auth/
 playwright-report/
 test-results/
+
+# Session runtime state (not source)
+.omo/run-continuation/
+.omo/sessions/

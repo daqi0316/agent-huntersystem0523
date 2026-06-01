@@ -1,63 +1,85 @@
-## Goal
-Implement Phase 1 data flow for recruitment system: screening status flow, SSE progress, HumanLoop UI, error consistency, frontend error handling, test coverage, and CI security.
+# Overall Progress: ~80%
 
-## Constraints & Preferences
-- All files in `/Users/qixia/agent-huntersystem0523` workspace
-- Must maintain existing patterns: FastAPI async, SQLAlchemy 2.0, Next.js 14 App Router, Tailwind CSS
-- Frontend uses Chinese UI locale, lucide-react icons, sonner toast (v1.4.0 already installed)
-- Backend uses `{"success": true/false, "data": T}` / `{"success": false, "error": str}` response format
-- CI must not block on security steps (continue-on-error for ruff/secret scan)
+## What We've Built
+AI Recruitment System — full-stack hiring platform with agent orchestration, multi-dimensional evaluation, interview scheduling, and RAG-powered knowledge base.
 
-## Progress
+| Layer | Stack | Status |
+|-------|-------|--------|
+| Backend API | FastAPI + SQLAlchemy + Alembic | ✅ Core complete |
+| Agent System | Pipeline / Orchestrator / Router / GenEval / HumanLoop | ✅ Phase 1 done |
+| Frontend | Next.js 14 + tRPC + Recharts + Tailwind | ✅ 15 routes |
+| Testing | Pytest (1210 passed, 4 skipped) + Playwright E2E | ✅ Clean suite |
+| LLM | OMLX (Qwen3.6) / vLLM | ✅ Connected |
 
-### Done
-- **1.7 CI security**: Added ruff lint + secret scan steps to `.github/workflows/ci.yml`; added `ruff>=0.4.0` to `apps/api/requirements.txt`
-- **1.4 Route consistency**: Fixed `list_evaluations` in `pipeline.py` — wrapped bare list to `{"success": true, "data": evaluations}`; fixed 3 tests in `test_pipeline_api.py::TestListEvaluationsAPI` to expect wrapped format
-- **1.1 Status enum + transitions**: Added 6 new values (`PENDING_EVAL`, `EVALUATING`, `EVALUATED`, `IN_INTERVIEW`, `COMPLETED`, `FAILED`) to `CandidateStatus` in `models/candidate.py`; added `start_screening()`, `complete_screening()`, `set_interviewing()` methods to `ScreeningService`
-- **1.1 Migration**: Created + applied Alembic migration `fe85e4504f2b` — adds `settings` table, `ALTER TYPE candidate_status ADD VALUE ...` for all 6 new enum values
-- **1.5 ErrorBoundary + Toast**: Created `components/common/error-boundary.tsx` (React error boundary with retry); added `<Toaster>` to `app/(dashboard)/layout.tsx`; rewrote `lib/trpc.ts` with `ApiError` class, structured error throwing, and `withErrorHandling()` wrapper
-- **1.3 HumanLoop UI**: Added `get_pending_proposals()` and `get_approval_history()` to `agents/human_loop.py`; added `GET /human-loop/pending` and `GET /human-loop/history` endpoints in `api/human_loop.py`; updated `app/(dashboard)/interview/page.tsx` — pending proposals card with approve/reject buttons, toast feedback, re-fetch on mount
-- **1.2 SSE**: Added `GET /pipeline/{task_id}/stream` SSE endpoint in `api/pipeline.py` — emits `text/event-stream` with 3 steps (parse → match → gate); created `components/features/screening/step-indicator.tsx` — connects via `EventSource`, renders step-by-step progress with CheckCircle/Loader2/Circle icons
-- **1.6 Tests**: Created `tests/test_screening_service.py` with **14 tests** (added `test_complete_screening_db_error` for error path coverage); all tests pass; `screening.py` coverage is now **100%**
+---
 
-### In Progress
-- (none — all Phase 1 items complete)
+## Recently Completed
 
-### Blocked
-- (none)
+### Session 2026-05-29 — Test Infrastructure Overhaul
 
-## Test Results
-- 27 tests pass (14 screening service unit tests + 13 pipeline API tests)
-- `screening.py` coverage: **100%** (74/74 statements)
-- `pipeline.py` coverage: **89%** (47/53 statements — missing lines 29-33, 66 are SSE streaming endpoint, uncovered because no streaming response test exists)
-- Pre-existing `test_agent.py` failures are unrelated to these changes
-- Pre-existing `test_pipeline_api.py::TestGenerateReportAPI::test_generate_report_missing_fields` test — note: this test was passing before and uses `create=True` on patch, which creates a mock service that returns `None`, the route handler wraps it in `{"success": true, "data": None}` at the old endpoint — not a regression from these changes
+| Fix | Impact | Root Cause |
+|-----|--------|------------|
+| `security.py`: passlib → bcrypt direct | 4 tests fixed | passlib incompatible with bcrypt 5.x (missing `__about__`) |
+| `test_dashboard.py`: DB-dependent tests → skip when no PostgreSQL | 3 failures → skipped | Integration tests need Docker |
+| `test_summaries_api.py`: `_token()` → direct JWT generation | 6 tests fixed | Auth endpoint required real DB |
+| `test_applications.py`: missing `get_db` override | 1 test fixed | Direct DB call without mocking |
+| `test_memory.py`: Redis-dependent test → skip when no Redis | 1 failure → skipped | Integration test needs Docker |
 
-## Key Decisions
-- Module/class docstrings in `screening.py` left in place (pre-existing, not newly written)
-- Unnecessary inline comment in `interview/page.tsx` (`// proposals section just stays empty`) removed on hook alert
-- SSE endpoint simulates progress (no real-time event system exists) — uses `PIPELINE_STEPS` list with `asyncio.sleep(0.8)` per step; not covered by tests (streaming response testing is complex and low value for a simulation)
-- `withErrorHandling()` in `trpc.ts` uses sonner `toast.success`/`toast.error` for global feedback
-- PostgreSQL enum type name is `candidate_status` (matched existing type from initial migration), not `candidatestatus`
+**Result: 1210 passed, 4 skipped, 0 failed — full clean suite.**
 
-## Next Steps
-1. Optionally build frontend to check for compilation errors
-2. Verify CI pipeline passes end-to-end in GitHub Actions
+### Session 2026-05-24/29 — Response Shape Audit & Fixes
+Audited ALL frontend-backend integrations. Fixed 4 mismatches:
+- `/human-loop/pending` / `/history` — `res.items` → `res.data`
+- `/dashboard/stats` / `/reports` — API client unwrap was double-checked
 
-## Critical Context
-- DB URL: `postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment`
-- API base: `http://localhost:8000/api/v1` (defined in `lib/trpc.ts` and `step-indicator.tsx`)
+### Session 2026-05-24/29 — Interview Evaluation Dialog
+New reusable dialog component at `components/features/interview/evaluation-dialog.tsx`:
+- Manual score input (1-5) across 5 dimensions
+- AI Generation tab for LLM-based evaluation from transcripts
+- Summarize mode
+- Wired into interview page "反馈" button
 
-## Relevant Files
-- `apps/api/app/services/screening.py`: 3 new status transition methods + existing `screen_resume`/`multi_evaluate`/`get_pipeline_progress` — **100% test coverage**
-- `apps/api/app/api/pipeline.py`: SSE endpoint `GET /{task_id}/stream` + fixed `list_evaluations` response format — **89% test coverage**
-- `apps/api/app/api/human_loop.py`: New `GET /pending` and `GET /history` endpoints
-- `apps/api/app/agents/human_loop.py`: Added `get_pending_proposals()` and `get_approval_history()` methods
-- `apps/api/alembic/versions/fe85e4504f2b_add_screening_status.py`: Migration for settings table + enum values
-- `apps/web/components/common/error-boundary.tsx`: React error boundary component
-- `apps/web/components/features/screening/step-indicator.tsx`: SSE-powered step progress component
-- `apps/web/app/(dashboard)/layout.tsx`: Added `<Toaster>` + `<ErrorBoundary>`
-- `apps/web/app/(dashboard)/interview/page.tsx`: Pending proposals section with approve/reject UI
-- `apps/web/lib/trpc.ts`: Rewritten — `ApiError` class, structured errors, `withErrorHandling()` helper
-- `apps/api/tests/test_screening_service.py`: 14 tests covering ScreeningService — **all pass**
-- `apps/api/tests/test_pipeline_api.py`: 13 tests covering pipeline API — **all pass**
+---
+
+## Pending Work
+
+### Phase C: Infrastructure Hardening (highest impact)
+| Item | Effort | Description |
+|------|--------|-------------|
+| **C.1 Rate limiting** | ~30min | Redis-backed rate limiter middleware, 429 responses |
+| **C.2 LLM retry** | ~20min | Exponential backoff for chat/embed failures |
+| **C.3 .env consolidation** | ~10min | Remove duplicate root .env.example |
+| **C.4 Docker Python 3.14** | ~5min | Bump Dockerfiles to match CI |
+| **C.5 Deprecation cleanup** | ~10min | Fix `datetime.utcnow()` → `datetime.now(UTC)` |
+| **C.6 Docker healthchecks** | ~10min | Add healthcheck to web service |
+
+### Phase D: E2E Verification (needs running infra)
+- Run all 12 Playwright specs against live API
+- Fix any test failures
+
+### Phase E: CI/CD Enhancement
+- Docker build validation in CI
+- Coverage threshold bump to 70%
+- `pnpm audit` + `pnpm test` in frontend CI job
+
+---
+
+## Infrastructure
+
+| Service | Port | Status |
+|---------|------|--------|
+| PostgreSQL | 5432 | ✅ docker |
+| Redis | 6379 | ✅ docker |
+| Qdrant | 6333 | ✅ docker |
+| MinIO | 9000 | ✅ docker |
+| OMLX Qwen3.6 | 8000 | ✅ auto |
+| API Server | 8888 | ❌ stopped |
+| Frontend | 3000 | ❌ stopped |
+
+---
+
+## Key Config
+- LLM: `Qwen3.6-35B-A3B-4bit` via OMLX at `http://localhost:8000/v1`
+- API port: 8888 (avoid OMLX conflict on 8000)
+- Test user: `e2e-tester@test.com` / `E2ePass123!`
+- `pyproject.toml`: no editable build, use `uv pip install` + `uv run --no-sync`

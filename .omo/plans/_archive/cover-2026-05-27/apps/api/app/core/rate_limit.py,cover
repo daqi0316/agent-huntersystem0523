@@ -1,0 +1,137 @@
+> """Rate limiting middleware — in-memory token bucket with optional Redis backend.
+  
+> Uses decorator-based middleware to avoid Starlette #1334 (BaseHTTPMiddleware
+> ResourceWarning). Attach via::
+  
+>     app.middleware("http")(create_rate_limit_middleware(limit=100, window=60))
+> """
+  
+> import asyncio
+> import logging
+> import time
+> from collections import defaultdict
+  
+> from fastapi import HTTPException, Request
+> from fastapi.responses import JSONResponse
+  
+> logger = logging.getLogger(__name__)
+  
+  
+> class RateStoreProtocol:
+>     """Interface for rate counter backends."""
+  
+>     async def check(self, key: str, limit: int, window: float) -> tuple[bool, int]:
+>         raise NotImplementedError
+  
+>     async def remaining(self, key: str, limit: int, window: float) -> int:
+>         raise NotImplementedError
+  
+>     async def reset(self, key: str) -> None:
+>         raise NotImplementedError
+  
+  
+> class InMemoryRateStore(RateStoreProtocol):
+>     """ per-process in-memory rate counter.
+  
+>     Not shared across replicas — suitable for single-instance deployments
+>     or development. Replace with RedisStore for production multi-replica setups.
+>     """
+  
+>     def __init__(self):
+>         self._buckets: dict[str, list[float]] = defaultdict(list)
+  
+>     def _prune(self, key: str, window: float) -> None:
+>         now = time.monotonic()
+>         cutoff = now - window
+>         self._buckets[key] = [t for t in self._buckets[key] if t > cutoff]
+  
+>     async def check(self, key: str, limit: int, window: float) -> tuple[bool, int]:
+>         self._prune(key, window)
+>         current = len(self._buckets[key])
+>         if current >= limit:
+>             return False, 0
+>         self._buckets[key].append(time.monotonic())
+>         return True, limit - current - 1
+  
+>     async def remaining(self, key: str, limit: int, window: float) -> int:
+>         self._prune(key, window)
+>         return max(0, limit - len(self._buckets[key]))
+  
+>     async def reset(self, key: str) -> None:
+>         self._buckets.pop(key, None)
+  
+  
+> class RedisStore(RateStoreProtocol):
+>     """Redis-backed rate counter — atomic, shared across replicas.
+  
+>     Uses INCR + EXPIRE in a Lua script for atomicity.
+>     """
+  
+>     def __init__(self, redis_client):
+>         self._redis = redis_client
+  
+>     async def check(self, key: str, limit: int, window: float) -> tuple[bool, int]:
+>         pipe = self._redis.pipeline()
+>         await pipe.incr(key)
+>         await pipe.ttl(key)
+>         count, ttl = await pipe.execute()
+  
+>         if count == 1:
+>             await self._redis.expire(key, int(window))
+  
+>         if count > limit:
+>             return False, 0
+>         return True, max(0, limit - count)
+  
+>     async def remaining(self, key: str, limit: int, window: float) -> int:
+>         val = await self._redis.get(key)
+>         if val is None:
+>             return limit
+>         return max(0, limit - int(val))
+  
+>     async def reset(self, key: str) -> None:
+>         await self._redis.delete(key)
+  
+  
+> _store: RateStoreProtocol = InMemoryRateStore()
+  
+  
+> def create_rate_limit_middleware(
+>     limit: int = 100,
+>     window: int = 60,
+>     exclude_paths: tuple[str, ...] = ("/health", "/metrics", "/docs", "/redoc", "/openapi.json"),
+>     store: RateStoreProtocol | None = None,
+> ):
+>     """Factory: returns an ``@app.middleware("http")``-compatible async function.
+  
+>     Closure captures configuration once at setup time — no class instantiation,
+>     no ``BaseHTTPMiddleware`` → no ``ResourceWarning``.
+>     """
+>     effective_store = store if store is not None else InMemoryRateStore()
+  
+>     async def rate_limit_dispatch(request: Request, call_next):
+>         if request.url.path in exclude_paths or request.url.path.startswith("/docs") or request.url.path.startswith("/redoc"):
+>             return await call_next(request)
+  
+>         client_ip = request.client.host if request.client else "unknown"
+>         key = f"{client_ip}:{request.url.path}"
+  
+>         allowed, remaining = await _store.check(key, limit, window)
+>         if not allowed:
+>             logger.warning("Rate limit exceeded for %s (limit=%d/%ds)", key, limit, window)
+>             return JSONResponse(
+>                 status_code=429,
+>                 content={"success": False, "error": "Too many requests. Please try again later."},
+>                 headers={
+>                     "Retry-After": str(window),
+>                     "X-RateLimit-Limit": str(limit),
+>                     "X-RateLimit-Remaining": "0",
+>                 },
+>             )
+  
+>         response = await call_next(request)
+>         response.headers["X-RateLimit-Limit"] = str(limit)
+>         response.headers["X-RateLimit-Remaining"] = str(remaining)
+>         return response
+  
+>     return rate_limit_dispatch

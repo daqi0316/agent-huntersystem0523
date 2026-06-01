@@ -1,0 +1,23 @@
+> from datetime import datetime
+  
+> from pydantic import BaseModel
+  
+  
+> class SettingCreate(BaseModel):
+>     key: str
+>     value: str
+  
+  
+> class SettingUpdate(BaseModel):
+>     value: str
+  
+  
+> class SettingRead(BaseModel):
+>     id: str
+>     key: str
+>     value: str | None = None
+>     user_id: str | None = None
+>     created_at: datetime
+>     updated_at: datetime
+  
+>     model_config = {"from_attributes": True}
