@@ -79,6 +79,13 @@ jobs:
           pip install ruff
           ruff check apps/api/ --output-format=github
 
+      - name: Install bandit
+        run: pip install bandit
+
+      - name: Bandit security scan
+        run: bandit -r apps/api/app/ -f custom -q 2>&1 || true
+        continue-on-error: true
+
       - name: Secret scan
         run: |
           grep -rn 'sk-[A-Za-z0-9]\{20,\}' --include='*.py' --include='*.ts' . || echo "No secrets found"
@@ -124,14 +131,12 @@ jobs:
 
       - name: Run pytest
         run: |
-          python -m pytest tests/ -v --tb=short --no-header \
-            --ignore=tests/test_human_loop.py 2>&1 | tail -20
+          python -m pytest tests/ -v --tb=short --no-header 2>&1 | tail -20
 
       - name: Run pytest with coverage
         run: |
           python -m pytest tests/ --cov=app --cov-report=term-missing \
-            --cov-fail-under=50 --durations=5 \
-            --ignore=tests/test_human_loop.py 2>&1 | tail -40
+            --cov-fail-under=80 --durations=5 2>&1 | tail -40
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment
           REDIS_URL: redis://localhost:6379/0
@@ -190,6 +195,9 @@ jobs:
       - name: pnpm audit
         run: pnpm audit --audit-level=high || true
         working-directory: ${{ github.workspace }}
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
 
       - name: Build
         run: pnpm build

@@ -26,11 +26,6 @@ services:
       file: docker-compose.dev.yml
       service: minio
 
-  rabbitmq:
-    extends:
-      file: docker-compose.dev.yml
-      service: rabbitmq
-
   api:
     extends:
       file: docker-compose.dev.yml
@@ -95,4 +90,3 @@ volumes:
   qdrant_data:
   redis_data:
   minio_data:
-  rabbitmq_data:
