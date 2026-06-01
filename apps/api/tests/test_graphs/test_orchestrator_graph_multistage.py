@@ -55,19 +55,19 @@ def state_minimal():
 
 @pytest.fixture
 def mock_orchestrator_decompose(monkeypatch):
-    """Patch OrchestratorAgent.decompose to return a controlled sub-task list."""
+    """Patch orchestrator_graph.decompose_task to return a controlled sub-task list."""
     def _make(sub_tasks, levels=None):
         if levels is None:
-            # Build trivial single-level DAG
             levels = [list(range(len(sub_tasks)))]
-        mock_orch = MagicMock()
-        mock_orch.decompose = AsyncMock(return_value=sub_tasks)
-        mock_orch.build_dag = MagicMock(return_value=levels)
         monkeypatch.setattr(
-            "app.agents.orchestrator_agent.OrchestratorAgent",
-            MagicMock(return_value=mock_orch),
+            "app.graphs.orchestrator_graph.decompose_task",
+            AsyncMock(return_value=sub_tasks),
         )
-        return mock_orch
+        monkeypatch.setattr(
+            "app.graphs.orchestrator_graph.build_dag",
+            MagicMock(return_value=levels),
+        )
+        return None
     return _make
 
 
@@ -325,14 +325,13 @@ def test_decide_route_empty_intent_falls_back_to_end():
 
 @pytest.mark.asyncio
 async def test_multi_stage_decompose_with_dependencies():
-    with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockCls:
-        mock = MockCls.return_value
-        mock.decompose = AsyncMock(return_value=[
-            {"type": "screening", "description": "a", "depends_on": []},
-            {"type": "interview", "description": "b", "depends_on": [0]},
-        ])
-        mock.build_dag = MagicMock(return_value=[[0], [1]])
-
+    with patch("app.graphs.orchestrator_graph.decompose_task",
+               new=AsyncMock(return_value=[
+                   {"type": "screening", "description": "a", "depends_on": []},
+                   {"type": "interview", "description": "b", "depends_on": [0]},
+               ])), \
+         patch("app.graphs.orchestrator_graph.build_dag",
+               new=MagicMock(return_value=[[0], [1]])):
         out = await _multi_stage_decompose({
             "input_text": "screen and schedule interview", "task_id": "t1",
         })
@@ -347,14 +346,13 @@ async def test_multi_stage_decompose_with_dependencies():
 
 @pytest.mark.asyncio
 async def test_multi_stage_decompose_parallel_levels():
-    with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockCls:
-        mock = MockCls.return_value
-        mock.decompose = AsyncMock(return_value=[
-            {"type": "sourcing", "description": "find", "depends_on": []},
-            {"type": "screening", "description": "filter", "depends_on": []},
-        ])
-        mock.build_dag = MagicMock(return_value=[[0, 1]])
-
+    with patch("app.graphs.orchestrator_graph.decompose_task",
+               new=AsyncMock(return_value=[
+                   {"type": "sourcing", "description": "find", "depends_on": []},
+                   {"type": "screening", "description": "filter", "depends_on": []},
+               ])), \
+         patch("app.graphs.orchestrator_graph.build_dag",
+               new=MagicMock(return_value=[[0, 1]])):
         out = await _multi_stage_decompose({"input_text": "parallel tasks"})
     assert out["levels"] == [[0, 1]]
     assert len(out["sub_tasks"]) == 2
@@ -369,13 +367,11 @@ async def test_multi_stage_decompose_empty_text_returns_error():
 
 @pytest.mark.asyncio
 async def test_multi_stage_decompose_llm_failure_fallback():
-    with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockCls:
-        mock = MockCls.return_value
-        mock.decompose = AsyncMock(side_effect=Exception("LLM down"))
-        mock.build_dag = MagicMock(side_effect=Exception("no DAG"))
-
+    with patch("app.graphs.orchestrator_graph.decompose_task",
+               new=AsyncMock(side_effect=Exception("LLM down"))), \
+         patch("app.graphs.orchestrator_graph.build_dag",
+               new=MagicMock(side_effect=Exception("no DAG"))):
         out = await _multi_stage_decompose({"input_text": "do something"})
-    # Fallback produces a single sub-task
     assert len(out["sub_tasks"]) == 1
     assert out["sub_tasks"][0]["type"] == "screening"
     assert out["levels"] == [[0]]
@@ -384,11 +380,10 @@ async def test_multi_stage_decompose_llm_failure_fallback():
 @pytest.mark.asyncio
 async def test_multi_stage_decompose_empty_subtasks_fallback():
     """Empty sub_tasks list from LLM should fall back to a single screening task."""
-    with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockCls:
-        mock = MockCls.return_value
-        mock.decompose = AsyncMock(return_value=[])
-        mock.build_dag = MagicMock(return_value=[])
-
+    with patch("app.graphs.orchestrator_graph.decompose_task",
+               new=AsyncMock(return_value=[])), \
+         patch("app.graphs.orchestrator_graph.build_dag",
+               new=MagicMock(return_value=[])):
         out = await _multi_stage_decompose({"input_text": "ambiguous"})
     assert len(out["sub_tasks"]) == 1
     assert out["sub_tasks"][0]["type"] == "screening"
@@ -411,7 +406,7 @@ async def test_run_sub_task_screening_success():
     })
 
     with patch("app.agents.registry.AgentRegistry.resolve", return_value=mock_agent), \
-         patch("app.agents.orchestrator_agent.OrchestratorAgent._needs_human_review",
+         patch("app.graphs.orchestrator_graph._needs_human_review",
                return_value=False):
         ctx: dict = {}
         r = await _run_sub_task(
@@ -446,7 +441,7 @@ async def test_run_sub_task_awaiting_approval_pauses():
     mock_proposal = {"approval_id": "appr_test_123", "action_type": "interview"}
 
     with patch("app.agents.registry.AgentRegistry.resolve", return_value=mock_agent), \
-         patch("app.agents.orchestrator_agent.OrchestratorAgent._needs_human_review",
+         patch("app.graphs.orchestrator_graph._needs_human_review",
                return_value=True), \
          patch("app.agents.human_loop.HumanLoopAgent") as MockHL:
         hl = MockHL.return_value
@@ -642,12 +637,10 @@ async def test_multi_stage_completes_2_level_dag(graph):
     ]
     fake_levels = [[0], [1]]
 
-    with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockCls:
-        mock = MockCls.return_value
-        mock.decompose = AsyncMock(return_value=fake_sub_tasks)
-        mock.build_dag = MagicMock(return_value=fake_levels)
-
-        # Mock both agent calls
+    with patch("app.graphs.orchestrator_graph.decompose_task",
+               new=AsyncMock(return_value=fake_sub_tasks)), \
+         patch("app.graphs.orchestrator_graph.build_dag",
+               new=MagicMock(return_value=fake_levels)):
         async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
             ctx.setdefault(f"{sub_task['type']}.full", sub_task["description"])
             return {
@@ -659,7 +652,7 @@ async def test_multi_stage_completes_2_level_dag(graph):
 
         with patch("app.graphs.orchestrator_graph._run_sub_task",
                    side_effect=fake_run_sub_task), \
-             patch("app.agents.orchestrator_agent.OrchestratorAgent._needs_human_review",
+             patch("app.graphs.orchestrator_graph._needs_human_review",
                    return_value=False):
             out = await graph.ainvoke(
                 make_initial_orchestrator_state(
@@ -668,7 +661,7 @@ async def test_multi_stage_completes_2_level_dag(graph):
                 config={"configurable": {"thread_id": "t-2l"}},
             )
     assert out["status"] in ("running", "completed")
-    assert out["current_level"] == 2  # advanced past both levels
+    assert out["current_level"] == 2
     assert out["paused_at_level"] is None
 
 
@@ -680,11 +673,10 @@ async def test_multi_stage_pauses_when_subtask_needs_approval(graph):
     ]
     fake_levels = [[0]]
 
-    with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockCls:
-        mock = MockCls.return_value
-        mock.decompose = AsyncMock(return_value=fake_sub_tasks)
-        mock.build_dag = MagicMock(return_value=fake_levels)
-
+    with patch("app.graphs.orchestrator_graph.decompose_task",
+               new=AsyncMock(return_value=fake_sub_tasks)), \
+         patch("app.graphs.orchestrator_graph.build_dag",
+               new=MagicMock(return_value=fake_levels)):
         async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
             return {
                 "agent": "interview",
@@ -696,11 +688,13 @@ async def test_multi_stage_pauses_when_subtask_needs_approval(graph):
 
         with patch("app.graphs.orchestrator_graph._run_sub_task",
                    side_effect=fake_run_sub_task), \
-             patch("app.agents.orchestrator_agent.OrchestratorAgent._needs_human_review",
-                   return_value=True), \
-             patch("app.agents.human_loop.HumanLoopAgent") as MockHL:
-            MockHL.return_value.create_proposal = AsyncMock(
-                return_value={"approval_id": "appr_pause_1"},
+             patch("app.graphs.orchestrator_graph._needs_human_review",
+                   return_value=True):
+            out = await graph.ainvoke(
+                make_initial_orchestrator_state(
+                    task_id="t-pause", input_text="安排面试",
+                ),
+                config={"configurable": {"thread_id": "t-pause"}},
             )
             out = await graph.ainvoke(
                 make_initial_orchestrator_state(
@@ -726,11 +720,10 @@ async def test_multi_stage_resume_via_checkpointer(graph):
     ]
     fake_levels = [[0]]
 
-    with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockCls:
-        mock = MockCls.return_value
-        mock.decompose = AsyncMock(return_value=fake_sub_tasks)
-        mock.build_dag = MagicMock(return_value=fake_levels)
-
+    with patch("app.graphs.orchestrator_graph.decompose_task",
+               new=AsyncMock(return_value=fake_sub_tasks)), \
+         patch("app.graphs.orchestrator_graph.build_dag",
+               new=MagicMock(return_value=fake_levels)):
         async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
             return {
                 "agent": "interview", "status": "awaiting_approval",
@@ -740,7 +733,7 @@ async def test_multi_stage_resume_via_checkpointer(graph):
 
         with patch("app.graphs.orchestrator_graph._run_sub_task",
                    side_effect=fake_run_sub_task), \
-             patch("app.agents.orchestrator_agent.OrchestratorAgent._needs_human_review",
+             patch("app.graphs.orchestrator_graph._needs_human_review",
                    return_value=True), \
              patch("app.agents.human_loop.HumanLoopAgent") as MockHL:
             MockHL.return_value.create_proposal = AsyncMock(
@@ -833,30 +826,27 @@ async def test_execute_level_handles_length_mismatch():
 @pytest.mark.asyncio
 async def test_multi_stage_decompose_preserves_task_id():
     """State should keep task_id across decompose."""
-    with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockCls:
-        mock = MockCls.return_value
-        mock.decompose = AsyncMock(return_value=[
-            {"type": "screening", "description": "x", "depends_on": []},
-        ])
-        mock.build_dag = MagicMock(return_value=[[0]])
-
+    with patch("app.graphs.orchestrator_graph.decompose_task",
+               new=AsyncMock(return_value=[
+                   {"type": "screening", "description": "x", "depends_on": []},
+               ])), \
+         patch("app.graphs.orchestrator_graph.build_dag",
+               new=MagicMock(return_value=[[0]])):
         out = await _multi_stage_decompose({
             "input_text": "screen", "task_id": "my-task-123",
         })
-    # decompose doesn't return task_id (it's preserved by graph state merging)
     assert "task_id" not in out or out.get("task_id") is None
 
 
 @pytest.mark.asyncio
 async def test_multi_stage_graph_with_only_one_subtask(graph):
     """A multi-stage with a single sub-task should still complete cleanly."""
-    with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockCls:
-        mock = MockCls.return_value
-        mock.decompose = AsyncMock(return_value=[
-            {"type": "sourcing", "description": "find one", "depends_on": []},
-        ])
-        mock.build_dag = MagicMock(return_value=[[0]])
-
+    with patch("app.graphs.orchestrator_graph.decompose_task",
+               new=AsyncMock(return_value=[
+                   {"type": "sourcing", "description": "find one", "depends_on": []},
+               ])), \
+         patch("app.graphs.orchestrator_graph.build_dag",
+               new=MagicMock(return_value=[[0]])):
         async def fake_run_sub_task(sub_task, ctx, user_id, thread_id=None):
             return {
                 "agent": sub_task["type"], "status": "completed",
@@ -865,7 +855,7 @@ async def test_multi_stage_graph_with_only_one_subtask(graph):
 
         with patch("app.graphs.orchestrator_graph._run_sub_task",
                    side_effect=fake_run_sub_task), \
-             patch("app.agents.orchestrator_agent.OrchestratorAgent._needs_human_review",
+             patch("app.graphs.orchestrator_graph._needs_human_review",
                    return_value=False):
             out = await graph.ainvoke(
                 make_initial_orchestrator_state(

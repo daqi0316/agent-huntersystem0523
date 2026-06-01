@@ -1,7 +1,7 @@
 """统一招聘 Agent — 三层分发: Orchestrator → Router → 工具调用。
 
 接收自然语言消息:
-  Step 1: 多阶段任务检测 → OrchestratorAgent（复杂任务分解）
+  Step 1: 多阶段任务检测 → orchestrator_graph（复杂任务分解 + DAG）
   Step 2: 意图分发 → RouterAgent → Specialist Agent（单意图专业任务）
   Step 3: 回退 → LLM 工具调用循环（通用对话）
 
@@ -559,9 +559,9 @@ async def chat_with_tools(
     """统一 Agent 对话入口：三层分发 → Orchestrator → Router → LLM 工具循环。
 
     Step 0: Conversation memory — 确保 Session + 加载历史消息
-    Step 1: OrchestratorAgent — 统一处理所有用户消息
-      1a: 多阶段检测 → Orchestrator.run() (decompose + DAG)
-      1b: 单意图 → Orchestrator.route_single() (classify + Specialist Agent)
+    Step 1: orchestrator_graph — 统一处理所有用户消息
+      1a: 多阶段检测 → create_orchestrator_graph().ainvoke() (decompose + DAG)
+      1b: 单意图 → intent_recognition → execute_<agent>
       1c: awaiting_approval → 返回审批响应
     Step 2: LLM tool-calling 循环（降级：chat / 未识别意图）
     Step 3: Conversation persistence — 保存本轮对话到 DB

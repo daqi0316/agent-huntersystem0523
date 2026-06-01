@@ -3,15 +3,6 @@ from app.agents.single_agent import SingleAgent
 from app.agents.pipeline import PipelineAgent
 from app.agents.router_agent import RouterAgent
 from app.agents.aggregator import AggregatorAgent
-
-# ⚠️  DEPRECATED 2026-06-01, SUNSET 2026-06-08 — 4 imports below
-#     Replaced by app.graphs.orchestrator_graph. See .omo/plans/S6-findings.md
-from app.agents.orchestrator_agent import (
-    OrchestratorAgent,
-    get_orchestrator,
-    PipelineOrchestrator,
-    SequentialOrchestrator,
-)
 from app.agents.gen_eval_loop import GenEvalLoop
 from app.agents.human_loop import HumanLoopAgent
 from app.agents.screening_agent import ScreeningAgent
@@ -35,7 +26,6 @@ __all__ = [
     "PipelineAgent",
     "RouterAgent",
     "AggregatorAgent",
-    "OrchestratorAgent",
     "GenEvalLoop",
     "HumanLoopAgent",
     "ScreeningAgent",

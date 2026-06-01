@@ -92,7 +92,7 @@ class HumanLoopAgent(BaseAgent):
 
         PR-V.2: lets /resume resolve the LangGraph checkpointer key for a
         given approval so we can call graph.update_state + ainvoke(None).
-        TTL matches OrchestratorSession (24h) so old indices age out.
+        24h TTL keeps stale indices from accumulating.
         """
         from app.core.redis import get_redis
 

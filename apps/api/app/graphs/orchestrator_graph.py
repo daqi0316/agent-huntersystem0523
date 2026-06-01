@@ -12,6 +12,7 @@ PR-V.1 (Phase V) — multi-stage DAG support:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Annotated, TypedDict, Any
 
@@ -72,7 +73,7 @@ _INTENT_TO_NODE = {
 }
 
 
-# Sub-task type → 实际 agent 名称（与 OrchestratorAgent._TYPE_TO_AGENT 保持一致）
+# Sub-task type → 实际 agent 名称
 _TYPE_TO_AGENT = {
     "jd_generation": "sourcing",
     "candidate_search": "sourcing",
@@ -87,6 +88,152 @@ _TYPE_TO_AGENT = {
     "knowledge_query": "sourcing",
     "screen_resume": "screening",
 }
+
+
+# Sub-task type descriptions (used in LLM prompt for decomposition)
+_SUB_TASK_TYPES = {
+    "screening": "简历初筛/筛选/筛",
+    "interview": "面试安排/面试/面",
+    "jd_generation": "JD 生成/职位描述",
+    "knowledge_query": "知识库查询/查询",
+    "candidate_search": "候选人搜索/搜索候选人",
+    "report": "报告生成/报告/汇总",
+    "offering": "Offer 发放/发offer/offer/录用",
+    "onboarding": "入职流程/入职/onboard",
+    "analytics": "数据分析/分析/统计",
+    "screen_resume": "简历精筛/复筛/screen_resume",
+}
+
+
+# Keyword → sub-task type (fallback when LLM unavailable)
+_GUESS_TYPE_KEYWORDS: dict[str, list[str]] = {
+    "screening": ["筛选", "简历", "screen", "resume", "match", "初筛", "过滤"],
+    "interview": ["面试", "安排", "interview", "schedule"],
+    "jd_generation": ["jd", "职位描述", "generate jd", "job description"],
+    "knowledge_query": ["知识库", "查询", "knowledge", "policy", "规则"],
+    "candidate_search": ["搜索", "查找", "找候选人", "search", "find"],
+    "report": ["报告", "汇总", "report", "summary"],
+    "offering": ["offer", "录用", "薪资", "salary", "compensation"],
+    "onboarding": ["入职", "onboard", "orientation"],
+    "analytics": ["分析", "统计", "dashboard", "analytics", "指标"],
+    "screen_resume": ["复筛", "精筛", "deep screen", "简历复筛", "简历精筛"],
+}
+
+
+_orchestrator_system_prompt: str | None = None
+
+
+def _load_orchestrator_system_prompt() -> str:
+    global _orchestrator_system_prompt
+    if _orchestrator_system_prompt is None:
+        try:
+            from app.agents.prompts import load_prompt
+            _orchestrator_system_prompt = load_prompt("orchestrator") or ""
+        except Exception as e:
+            logger.warning("Failed to load orchestrator system prompt: %s", e)
+            _orchestrator_system_prompt = ""
+    return _orchestrator_system_prompt
+
+
+def _guess_type(text: str) -> str:
+    text_lower = text.lower()
+    for intent, keywords in _GUESS_TYPE_KEYWORDS.items():
+        for kw in keywords:
+            if kw.lower() in text_lower:
+                return intent
+    return "screening"
+
+
+async def _llm_json_chat(
+    user_prompt: str,
+    temperature: float = 0.2,
+    max_tokens: int = 1024,
+) -> dict | list | None:
+    from app.llm import get_llm_client
+
+    system_prompt = _load_orchestrator_system_prompt()
+    try:
+        llm = get_llm_client()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        reply = await llm.chat(messages, temperature=temperature, max_tokens=max_tokens)
+        if "```" in reply:
+            parts = reply.split("```")
+            for p in parts:
+                p = p.strip()
+                if p.startswith("{") or p.startswith("["):
+                    reply = p
+                    break
+        start = reply.find("[") if "[" in reply else reply.find("{")
+        end = reply.rfind("]") if "]" in reply else reply.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            reply = reply[start: end + 1]
+        return json.loads(reply)
+    except Exception as e:
+        logger.warning("Orchestrator LLM call failed: %s", e)
+        return None
+
+
+async def decompose_task(task: str, context: dict | None = None) -> list[dict]:
+    if _load_orchestrator_system_prompt():
+        context_str = f"\n上下文: {context}" if context else ""
+        type_descriptions = "\n".join(f"- {k}: {v}" for k, v in _SUB_TASK_TYPES.items())
+        user_prompt = (
+            f"请将以下复杂任务分解为多个原子子任务。\n\n"
+            f"复杂任务: 「{task}」{context_str}\n\n"
+            f"子任务类型可用:\n{type_descriptions}\n\n"
+            f"输出 JSON 数组，每个元素包含:\n"
+            f'  {{"type": "子任务类型", "description": "具体做什么", "depends_on": [依赖的子任务索引]}}\n\n'
+            f"示例:\n"
+            f'[{{"type": "candidate_search", "description": "搜索候选人", "depends_on": []}},\n'
+            f' {{"type": "screening", "description": "筛选简历", "depends_on": [0]}}]'
+        )
+        llm_out = await _llm_json_chat(user_prompt)
+        if isinstance(llm_out, list) and len(llm_out) > 0:
+            return llm_out
+
+    logger.warning("LLM decompose failed, falling back to keyword")
+    return [{"type": _guess_type(task), "description": task, "depends_on": []}]
+
+
+def build_dag(sub_tasks: list[dict]) -> list[list[int]]:
+    """Topological sort: layer sub-tasks by dependency (parallel levels)."""
+    n = len(sub_tasks)
+    in_degree = [0] * n
+    dependents = [[] for _ in range(n)]
+    for i, task in enumerate(sub_tasks):
+        for dep in task.get("depends_on", []):
+            if isinstance(dep, int) and dep < n and dep != i:
+                dependents[dep].append(i)
+                in_degree[i] += 1
+    levels = []
+    queue = [i for i in range(n) if in_degree[i] == 0]
+    while queue:
+        levels.append(list(queue))
+        next_queue = []
+        for node in queue:
+            for dep in dependents[node]:
+                in_degree[dep] -= 1
+                if in_degree[dep] == 0:
+                    next_queue.append(dep)
+        queue = next_queue
+    executed = sum(len(l) for l in levels)
+    if executed < n:
+        levels.append([i for i in range(n) if i not in {j for l in levels for j in l}])
+    return levels
+
+
+def _needs_human_review(result: dict, task_type: str) -> bool:
+    if task_type in ("interview", "offering"):
+        return True
+    status = result.get("status", "")
+    if status in ("awaiting_approval", "pending_review"):
+        return True
+    if result.get("result", {}).get("needs_human_review"):
+        return True
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -112,7 +259,6 @@ def _is_multi_stage_text(text: str) -> bool:
 
 
 def _normalize_sub_task_result(task_type: str, agent_result: dict) -> dict:
-    """把 agent.run() 的输出归一化到与 OrchestratorAgent.execute_sub_task() 一致的格式。"""
     return {
         "agent": agent_result.get("agent", task_type),
         "status": agent_result.get("status", "completed"),
@@ -123,7 +269,6 @@ def _normalize_sub_task_result(task_type: str, agent_result: dict) -> dict:
 
 
 def _build_sub_task_input(task_type: str, sub_task: dict, shared_context: dict) -> dict:
-    """从 shared_context 注入 upstream 数据（与 OrchestratorAgent._build_agent_input 语义一致）。"""
     prefix = f"{task_type}."
     upstream = {
         k: v for k, v in (shared_context or {}).items()
@@ -140,7 +285,6 @@ def _build_sub_task_input(task_type: str, sub_task: dict, shared_context: dict) 
 
 
 def _update_shared_context(shared_context: dict, task_type: str, result: dict) -> None:
-    """把 agent.output_keys 写回 shared_context（与 OrchestratorAgent._store_result 语义一致）。"""
     if not isinstance(shared_context, dict):
         return
     agent_result = result.get("result", {})
@@ -229,7 +373,7 @@ async def execute_analytics(state: OrchestratorState) -> dict:
 async def _multi_stage_decompose(state: OrchestratorState) -> dict:
     """多阶段任务分解 + DAG 拓扑排序。
 
-    调用 OrchestratorAgent.decompose() 获取 sub_tasks，
+    调用 decompose_task() 获取 sub_tasks，
     再调 build_dag() 获取层级索引。
     失败时降级为单 sub-task 的单层 DAG。
     """
@@ -238,13 +382,10 @@ async def _multi_stage_decompose(state: OrchestratorState) -> dict:
         return {"error": "no input_text for multi-stage", "status": "failed"}
 
     try:
-        from app.agents.orchestrator_agent import OrchestratorAgent
-
-        orch = OrchestratorAgent()
-        sub_tasks = await orch.decompose(text, context=None)
+        sub_tasks = await decompose_task(text, context=None)
         if not sub_tasks:
             sub_tasks = [{"type": "screening", "description": text, "depends_on": []}]
-        levels = orch.build_dag(sub_tasks)
+        levels = build_dag(sub_tasks)
         if not levels:
             # build_dag on empty/tiny sub_tasks can return []; rebuild trivially
             levels = [list(range(len(sub_tasks)))]
@@ -275,7 +416,7 @@ async def _run_sub_task(
     user_id: str,
     thread_id: str | None = None,
 ) -> dict:
-    """执行单个 sub-task，与 OrchestratorAgent.execute_sub_task 语义一致。
+    """执行单个 sub-task。
 
     1. 解析 agent_name（_TYPE_TO_AGENT 映射）
     2. AgentRegistry.resolve → agent.run()，构造 shared_context-aware input
@@ -289,7 +430,6 @@ async def _run_sub_task(
     agent_name = _TYPE_TO_AGENT.get(task_type, task_type)
 
     try:
-        from app.agents.orchestrator_agent import OrchestratorAgent
         from app.agents.registry import AgentRegistry
 
         agent = AgentRegistry.resolve(agent_name)
@@ -301,7 +441,7 @@ async def _run_sub_task(
             _update_shared_context(shared_context, task_type, agent_out)
 
             # 检查是否需要人工审批
-            if OrchestratorAgent._needs_human_review(agent_out, task_type):
+            if _needs_human_review(agent_out, task_type):
                 try:
                     from app.agents.human_loop import HumanLoopAgent
                     hl = HumanLoopAgent()
@@ -328,7 +468,7 @@ async def _run_sub_task(
     except Exception as e:
         logger.warning("Sub-task %s via AgentRegistry failed: %s", task_type, e)
 
-    # Fallback — 失败时仍返回结构化结果（与 legacy 行为一致）
+    # Fallback — 失败时仍返回结构化结果
     return {
         "agent": task_type,
         "status": "failed",

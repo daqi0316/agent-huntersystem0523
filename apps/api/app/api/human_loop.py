@@ -128,8 +128,7 @@ async def list_history(limit: int = 50):
 async def resume_after_approval(req: HumanLoopRequest):
     """审批通过后恢复 Orchestrator 编排执行。
 
-    PR-V.2: 优先用 LangGraph checkpointer 恢复（PR-V.1 写入的 paused 状态），
-    失败/无索引时降级到 legacy OrchestratorSession（PR-V.4 删除）。
+    通过 LangGraph checkpointer 恢复（PR-V.1 写入的 paused 状态）。
 
     Graph 流程:
     1. 从 Redis 索引 `appr:graph_thread:{approval_id}` 反查 thread_id
@@ -151,10 +150,10 @@ async def resume_after_approval(req: HumanLoopRequest):
         return error(f"approval status is '{status['status']}', expected 'approved'", status_code=400)
 
     thread_id = await _resolve_graph_thread_id(req.approval_id)
-    if thread_id:
-        return await _resume_via_graph(req.approval_id, thread_id)
+    if not thread_id:
+        return error("graph thread index not found for approval", status_code=404)
 
-    return await _resume_legacy(req.approval_id)
+    return await _resume_via_graph(req.approval_id, thread_id)
 
 
 async def _resolve_graph_thread_id(approval_id: str) -> str | None:
@@ -262,72 +261,6 @@ async def _resume_via_graph(approval_id: str, thread_id: str) -> dict:
         "failed": failed,
         "awaiting_approval": next_awaiting,
     })
-
-
-async def _resume_legacy(approval_id: str) -> dict:
-    """PR-V.4 之前的兼容路径：从 OrchestratorSession 恢复（无 graph 索引时）。"""
-    from app.agents.orchestrator_session import OrchestratorSession
-    from app.agents.orchestrator_agent import OrchestratorAgent
-
-    session = await OrchestratorSession.find_by_approval_id(approval_id)
-    if session is None:
-        return error("orchestrator session not found", status_code=404)
-
-    orch = OrchestratorAgent()
-    orch.shared_context = dict(session.shared_context)
-
-    for i, r in enumerate(session.results):
-        if r and r.get("status") == "awaiting_approval":
-            aid = (r.get("details") or {}).get("approval", {}).get("approval_id", "")
-            if aid == approval_id:
-                session.results[i] = {**r, "status": "approved", "summary": r.get("summary", "") + "（已审批）"}
-
-    remaining_levels = session.levels[session.paused_at_level:]
-    final_outputs = list(session.results)
-
-    for level in remaining_levels:
-        coros = [orch.execute_sub_task(session.sub_tasks[i]) for i in level]
-        level_results = await asyncio.gather(*coros, return_exceptions=True)
-        for i, raw in zip(level, level_results):
-            if isinstance(raw, Exception):
-                final_outputs[i] = {
-                    "agent": session.sub_tasks[i].get("type", "unknown"),
-                    "status": "failed",
-                    "summary": f"执行异常: {str(raw)[:100]}",
-                    "result": {},
-                    "details": {"error": str(raw)},
-                }
-            else:
-                final_outputs[i] = raw
-
-    succeeded = sum(1 for r in final_outputs if r and r.get("status") in ("completed", "approved"))
-    failed = sum(1 for r in final_outputs if r and r.get("status") == "failed")
-    next_awaiting = sum(1 for r in final_outputs if r and r.get("status") == "awaiting_approval")
-
-    if next_awaiting > 0:
-        status_text = "awaiting_approval"
-        summary = f"编排继续等待审批: {next_awaiting} 个子任务待确认"
-    elif failed == 0:
-        status_text = "completed"
-        summary = "编排全部完成"
-    else:
-        status_text = "partial"
-        summary = f"编排部分完成: {succeeded}/{len(final_outputs)}"
-
-    result = {
-        "agent": "orchestrator",
-        "status": status_text,
-        "summary": summary,
-        "outputs": final_outputs,
-        "total_sub_tasks": len(final_outputs),
-        "succeeded": succeeded,
-        "failed": failed,
-        "awaiting_approval": next_awaiting,
-    }
-
-    await session.delete()
-
-    return success(result)
 
 
 @router.post("/stop")

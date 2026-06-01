@@ -1,8 +1,8 @@
 """Tests for _adapt_graph_result_to_legacy() — Phase V scaffolding.
 
 Adapter maps new orchestrator_graph.ainvoke() output (OrchestratorState) to
-legacy OrchestratorAgent.route_single() return format so existing
-_build_approval_response() and _summarize_orch_result() keep working.
+the legacy agent.run() return format so existing _build_approval_response()
+and _summarize_orch_result() keep working.
 
 See .omo/plans/phase-v.md PR-V.3 for full migration context.
 """

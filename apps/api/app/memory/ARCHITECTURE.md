@@ -13,7 +13,7 @@
 | **SessionSummary** (会话摘要) | PostgreSQL `session_summaries` + Qdrant `session_summaries` | Vector similarity recall | LLM-generated conversation summaries, cross-session context |
 | **KnowledgeBase** (知识库) | Qdrant `knowledge_base` | RAG Q&A | Document ingestion, vector retrieval, LLM QA |
 
-All three feed into the **OrchestratorAgent** → **RouterAgent** → specialized agent chain.
+All three feed into the **orchestrator_graph** → **RouterAgent** → specialized agent chain.
 
 ---
 
@@ -74,8 +74,7 @@ Three collections managed by two services:
 
 | Key Prefix | TTL | Owner |
 |---|---|---|
-| `orch:session:*` | 24h | OrchestratorSession |
-| `orch:approval_session:*` | 24h | OrchestratorSession |
+| `appr:graph_thread:{approval_id}` | 24h | HumanLoopAgent (PR-V.2) |
 | KV namespace (agent-level) | 1h | SharedMemory |
 
 ---
@@ -157,31 +156,25 @@ Abstract base class. Key behaviors:
 
 Routes single-intent tasks to specialized agents. Used by Orchestrator for multi-step decomposition and by direct API calls.
 
-### 4.3 OrchestratorAgent — `app/agents/orchestrator_agent.py` (632 lines)
+### 4.3 orchestrator_graph — `app/graphs/orchestrator_graph.py`
 
-**Core mission**: Receive complex requests → decompose into DAG sub-tasks → parallel/serial execution → aggregate results.
+**Core mission**: Receive complex requests → LangGraph StateGraph decomposes into DAG sub-tasks → parallel/serial execution → aggregate results.
 
-**Multi-stage detection**: `_MULTI_STAGE_KEYWORDS` (Chinese + English conjunctions) + `_SUB_TASK_TYPES` keyword overlap.
+**Multi-stage detection**: `RouterAgent.is_multi_intent` (Chinese + English conjunctions).
 
-**9 sub-task types**:
-`screening`, `interview`, `jd_generation`, `knowledge_query`, `candidate_search`, `report`, `offering`, `onboarding`, `analytics`
+**Sub-task types**:
+`screening`, `interview`, `jd_generation`, `knowledge_query`, `candidate_search`, `report`, `offering`, `onboarding`, `analytics`, `screen_resume`
 
 **Shared context management**:
-- `_store_result()`: writes agent outputs to `shared_context` under `{task_type}.{key}` namespace
-- `_build_agent_input()`: pulls upstream agent outputs as input context
+- `_update_shared_context()`: writes agent outputs to `shared_context` under `{task_type}.{key}` namespace
+- `_build_sub_task_input()`: pulls upstream agent outputs as input context
 - Uses `output_keys` from each BaseAgent subclass
 
-**Human-in-the-loop**: `_needs_human_review()` returns `True` for `interview`/`offering` types or when agent signals.
+**Human-in-the-loop**: `_needs_human_review()` returns `True` for `interview`/`offering` types or when agent signals. State is paused via `paused_at_level` + per-sub-task `awaiting_approval`; resume via `/api/v1/human-loop/resume`.
 
-### 4.4 OrchestratorSession — `app/agents/orchestrator_session.py` (161 lines)
+**Persistence**: LangGraph checkpointer (PostgresSaver in prod, MemorySaver in dev) keyed by `thread_id`. Redis index `appr:graph_thread:{approval_id}` (24h TTL) maps approval → thread for resume lookup.
 
-Persistence for human-in-the-loop pause/resume:
-- Redis-backed (`orch:session:{id}`) with 24h TTL
-- Serializes: `task`, `context`, `sub_tasks`, `levels`, `results`, `shared_context`, `paused_at_level`, `approval_ids`, `status`
-- Approval index: `orch:approval_session:{approval_id}` → session_id
-- Status lifecycle: `paused` → `resumed` → `completed`
-
-### 4.5 SharedMemory — `app/agents/shared_memory.py` (245 lines)
+### 4.4 SharedMemory — `app/agents/shared_memory.py` (245 lines)
 
 KV store for cross-agent state:
 - Backend: Redis (async) with InMemory fallback
@@ -231,7 +224,7 @@ Each agent gets its system prompt from a file matching its name. BaseAgent auto-
 User Request
     │
     ▼
-OrchestratorAgent.plan()
+orchestrator_graph.ainvoke()
     │
     ├─► MemoryFactService.get_structured_context(user_id)   ◄── injects past facts
     │
@@ -248,7 +241,7 @@ OrchestratorAgent.plan()
     │       │
     │       └── Each → MemoryFactService.record_tool_result()  ◄── writes facts
     │
-    ├─► OrchestratorSession.save() (HIL pause point)        ◄── persistent state
+    ├─► [HIL pause] paused_at_level + awaiting_approval     ◄── checkpointer state
     │
     └─► SummaryService.generate(session_id, messages)       ◄── writes summary
 ```

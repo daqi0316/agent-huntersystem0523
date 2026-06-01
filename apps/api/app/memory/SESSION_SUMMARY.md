@@ -24,11 +24,10 @@
 - `services/knowledge.py` — KnowledgeService (206 lines) — RAG QA, hardcoded `knowledge_base` collection
 - `services/qdrant_service.py` — QdrantService (181 lines) — domain wrapper for AsyncQdrantClient
 
-**Agents (4):**
+**Agents (3):**
 - `agents/base.py` — BaseAgent (124 lines) — auto-propmt loading, auto-registry, unified output protocol
 - `agents/router_agent.py` — single-intent routing
-- `agents/orchestrator_agent.py` — OrchestratorAgent (632 lines) — DAG decomposition, shared_context, HIL
-- `agents/orchestrator_session.py` — OrchestratorSession (161 lines) — Redis-backed HIL persistence
+- `graphs/orchestrator_graph.py` — orchestrator_graph — LangGraph DAG decomposition, shared_context, HIL
 
 **Config:**
 - `core/config.py` — 3 Qdrant collection configs: `resumes`, `session_summaries`, plus hardcoded `knowledge_base`
@@ -42,23 +41,23 @@
 ### Phase 0.4 — Data Flow Mapped
 
 ```
-User → OrchestratorAgent
+User → orchestrator_graph (LangGraph)
   ├─ MemoryFactService.get_structured_context()  ◄─ past facts
   ├─ SummaryService.get_relevant()               ◄─ past summaries
   ├─ KnowledgeService.query()                    ◄─ RAG
   ├─ DAG tasks → RouterAgent → Specialized Agents
   │   └─ Each → MemoryFactService.record_tool_result()  ◄─ write fact
-  ├─ OrchestratorSession.save() (HIL pause)
+  ├─ [HIL pause] paused_at_level + awaiting_approval (checkpointer)
   └─ SummaryService.generate()                   ◄─ write summary
 ```
 
 ### Key Discovery: `screen_resume` Missing from Orchestrator SubTask Types
 
-During Phase 0, I confirmed the bug that triggered this session:
+During Phase 0, the bug that triggered this session was:
 - `screening` exists in `_SUB_TASK_TYPES` → maps to `screening` keyword
-- But `screen_resume` does NOT appear in orchestrator agent's sub-task handling
-- When OrchestratorAgent receives "screen resume" input, it falls through to the LLM guess or default `screening`
-- The fix: add `screen_resume` to orchestrator sub-task handling
+- But `screen_resume` did NOT appear in orchestrator sub-task handling
+- When orchestrator received "screen resume" input, it fell through to the LLM guess or default `screening`
+- The fix: add `screen_resume` to orchestrator sub-task handling (since merged into orchestrator_graph `_SUB_TASK_TYPES`)
 
 ### Test Landscape
 

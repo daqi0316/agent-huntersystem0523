@@ -183,27 +183,7 @@ class TestStopEmergency:
 
 
 class TestResumeAfterApproval:
-    """POST /api/v1/human-loop/resume"""
-
-    @staticmethod
-    def _make_mock_session():
-        """Build a minimal mock orchestrator session."""
-        session = MagicMock()
-        session.session_id = "os_test_session"
-        session.task = "筛选候选人"
-        session.context = {}
-        session.sub_tasks = [{"type": "screening", "description": "筛选张三", "depends_on": []}]
-        session.levels = [[0]]
-        session.results = [{
-            "agent": "screening", "status": "awaiting_approval",
-            "summary": "需人工审批",
-            "details": {"approval": {"approval_id": "appr_resume_test"}},
-        }]
-        session.shared_context = {}
-        session.paused_at_level = 0
-        session.approval_ids = ["appr_resume_test"]
-        session.delete = AsyncMock()
-        return session
+    """POST /api/v1/human-loop/resume — error paths (legacy session tests moved to TestResumeViaGraph)."""
 
     async def test_resume_missing_approval_id_returns_400(self, client, mock_agent):
         resp = await client.post(
@@ -228,47 +208,15 @@ class TestResumeAfterApproval:
         )
         assert resp.status_code == 400
 
-    async def test_resume_session_not_found_returns_404(self, client, mock_agent):
+    async def test_resume_no_thread_index_returns_404(self, client, mock_agent):
+        """PR-V.4: without a graph thread index, /resume returns 404 (no legacy fallback)."""
         mock_agent.get_approval_status = AsyncMock(return_value={"status": "approved", "found_in": "history"})
-        with patch("app.agents.orchestrator_session.OrchestratorSession.find_by_approval_id",
-                   AsyncMock(return_value=None)):
+        with patch("app.core.redis.get_redis", new=AsyncMock(return_value=None)):
             resp = await client.post(
                 "/api/v1/human-loop/resume",
                 json={"action_type": "schedule_interview", "approval_id": "appr_no_session"},
             )
             assert resp.status_code == 404
-
-    async def test_resume_success(self, client, mock_agent):
-        mock_agent.get_approval_status = AsyncMock(return_value={"status": "approved", "found_in": "history"})
-        mock_session = self._make_mock_session()
-        with (
-            patch("app.agents.orchestrator_session.OrchestratorSession.find_by_approval_id",
-                  AsyncMock(return_value=mock_session)),
-            patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockOrch,
-        ):
-            mock_orch = MagicMock()
-            mock_orch.shared_context = {}
-            mock_orch.execute_sub_task = AsyncMock(return_value={
-                "agent": "screening", "status": "completed",
-                "summary": "筛选完成",
-                "result": {"summary": "完成"},
-                "details": {},
-            })
-            MockOrch.return_value = mock_orch
-
-            resp = await client.post(
-                "/api/v1/human-loop/resume",
-                json={"action_type": "schedule_interview", "approval_id": "appr_resume_test"},
-            )
-
-            assert resp.status_code == 200
-            body = resp.json()
-            assert body["success"] is True
-            assert body["data"]["status"] == "completed"
-            assert body["data"]["summary"] == "编排全部完成"
-            assert body["data"]["succeeded"] == 1
-            assert body["data"]["failed"] == 0
-            mock_session.delete.assert_awaited_once()
 
 
 class TestHashPending:
@@ -293,81 +241,17 @@ class TestHashPending:
 
 
 class TestResumeEdgeCases:
+    """PR-V.4: /resume requires a graph thread index; returns 404 otherwise."""
 
-    async def test_resume_sub_task_exception(self, client, mock_agent):
+    async def test_resume_no_thread_index_returns_404(self, client, mock_agent):
+        """If no thread index exists, /resume returns 404."""
         mock_agent.get_approval_status = AsyncMock(return_value={"status": "approved", "found_in": "history"})
-        mock_session = MagicMock()
-        mock_session.session_id = "os_exc_test"
-        mock_session.task = "test"
-        mock_session.context = {}
-        mock_session.sub_tasks = [{"type": "screening", "description": "筛选", "depends_on": []}]
-        mock_session.levels = [[0]]
-        mock_session.results = [{
-            "agent": "screening", "status": "awaiting_approval",
-            "summary": "需审批",
-            "details": {"approval": {"approval_id": "appr_exc"}},
-        }]
-        mock_session.shared_context = {}
-        mock_session.paused_at_level = 0
-        mock_session.approval_ids = ["appr_exc"]
-        mock_session.delete = AsyncMock()
-
-        with patch("app.agents.orchestrator_session.OrchestratorSession.find_by_approval_id",
-                   AsyncMock(return_value=mock_session)):
-            with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockOrch:
-                mock_orch = MagicMock()
-                mock_orch.shared_context = {}
-                mock_orch.execute_sub_task = AsyncMock(side_effect=ValueError("crash!"))
-                MockOrch.return_value = mock_orch
-
-                resp = await client.post(
-                    "/api/v1/human-loop/resume",
-                    json={"action_type": "schedule_interview", "approval_id": "appr_exc"},
-                )
-                assert resp.status_code == 200
-                body = resp.json()
-                assert body["success"] is True
-                assert body["data"]["failed"] == 1
-
-    async def test_resume_partial_status(self, client, mock_agent):
-        mock_agent.get_approval_status = AsyncMock(return_value={"status": "approved", "found_in": "history"})
-        mock_session = MagicMock()
-        mock_session.session_id = "os_partial_test"
-        mock_session.task = "test"
-        mock_session.context = {}
-        mock_session.sub_tasks = [{"type": "a", "depends_on": []}, {"type": "b", "depends_on": []}]
-        mock_session.levels = [[0, 1]]
-        mock_session.results = [
-            {"agent": "a", "status": "awaiting_approval", "summary": "待审批", "details": {"approval": {"approval_id": "appr_partial"}}},
-            None,
-        ]
-        mock_session.shared_context = {}
-        mock_session.paused_at_level = 0
-        mock_session.approval_ids = ["appr_partial"]
-        mock_session.delete = AsyncMock()
-
-        with patch("app.agents.orchestrator_session.OrchestratorSession.find_by_approval_id",
-                   AsyncMock(return_value=mock_session)):
-            with patch("app.agents.orchestrator_agent.OrchestratorAgent") as MockOrch:
-                mock_orch = MagicMock()
-                mock_orch.shared_context = {}
-                results = [
-                    {"agent": "a", "status": "completed", "summary": "ok", "result": {}, "details": {}},
-                    {"agent": "b", "status": "failed", "summary": "failed", "result": {}, "details": {"error": "nope"}},
-                ]
-                mock_orch.execute_sub_task = AsyncMock(side_effect=results)
-                MockOrch.return_value = mock_orch
-
-                resp = await client.post(
-                    "/api/v1/human-loop/resume",
-                    json={"action_type": "schedule_interview", "approval_id": "appr_partial"},
-                )
-                assert resp.status_code == 200
-                body = resp.json()
-                assert body["success"] is True
-                assert body["data"]["status"] == "partial"
-                assert body["data"]["succeeded"] == 1
-                assert body["data"]["failed"] == 1
+        with patch("app.core.redis.get_redis", new=AsyncMock(return_value=None)):
+            resp = await client.post(
+                "/api/v1/human-loop/resume",
+                json={"action_type": "schedule_interview", "approval_id": "appr_exc"},
+            )
+            assert resp.status_code == 404
 
 
 class TestResumeViaGraph:
