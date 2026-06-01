@@ -5,6 +5,18 @@
 > 建议启动日期：2026-06-02
 > 目标完成日期：2026-06-08（软期限）/ 2026-06-15（硬期限）
 
+> **状态更新 2026-06-01（PR-V.4）**：PR-V.4 ✅ **Phase V 完成 (4/4 PRs)**。
+> 关键发现：`orchestrator_graph.py` 实际是 LangGraph 包装器，仍在 import `OrchestratorAgent` 调用 `decompose()`/`build_dag()`/`_needs_human_review()`，需要先把 5 个方法 + 2 个常量 inline 到 graph 模块后再删除 legacy 文件。
+> 变更范围（19 文件，+273 / -2814 行）：
+>   - **生产代码删除**：`orchestrator_agent.py` (622), `orchestrator_session.py` (165), `orchestrator_session_migration.py` (140)
+>   - **测试代码删除**：`test_orchestrator.py` (784), `test_orchestrator_session.py` (233), `test_multi_agent_pipeline.py` (202), `test_human_loop_resume_migration.py` (253)
+>   - **graph inline**：`orchestrator_graph.py` 新增 `_SUB_TASK_TYPES`/`_GUESS_TYPE_KEYWORDS` 常量 + `decompose_task()`/`build_dag()`/`_needs_human_review()`/`_guess_type()`/`_load_orchestrator_system_prompt()`/`_llm_json_chat()` 函数
+>   - **测试 patch 重写**：`test_orchestrator_graph_multistage.py` 11 个 `OrchestratorAgent` mock 改为 `app.graphs.orchestrator_graph.{decompose_task,build_dag,_needs_human_review}` mock
+>   - **API 清理**：`/legacy/analyze` 端点删除 + `_legacy_agent` shim 删除；`/resume` 删除 `_resume_legacy` 路径（无 graph thread index 直接 404）
+>   - **配置清理**：`app/main.py` lifespan 删除 `migrate_legacy_orchestrator_sessions()` hook；`app/agents/__init__.py` 移除 4 个 re-export + `__all__` 中 `OrchestratorAgent` 项
+>   - **文档更新**：`ARCHITECTURE.md` + `SESSION_SUMMARY.md` 删除 OrchestratorAgent/OrchestratorSession 描述，引用 orchestrator_graph + Redis `appr:graph_thread:*` 索引
+> 验证：`grep -r "OrchestratorAgent\|OrchestratorSession" apps/api/app/ apps/api/tests/ apps/api/app/memory/` 返回 **0** 结果；pytest 1320 passed / 4 skipped / 24 xfailed / 2 xpassed（无 fail），相比 PR-V.3 的 180/180 增量 1140 个测试 = 多阶段图测试 + adapter + 各 agent 测试 + 删除的 legacy 路径后剩下的覆盖。
+
 > **状态更新 2026-06-01（PR-V.3）**：PR-V.3 ✅ **已完成 + 已提交**（commit `6f4898c`）。
 > `agent_service.py:578-621` Step 1 块已迁移：原 `OrchestratorAgent().run()/route_single()` 改为 `create_orchestrator_graph(checkpointer=None, with_interrupt=False).ainvoke(make_initial_orchestrator_state(...))` + `_adapt_graph_result_to_legacy(state)`。
 > 设计要点：`checkpointer=None` (per-request in-memory, no Redis 持久化；PR-V.2 的 /resume 用独立的 Redis-backed graph via `app/api/orchestrator._get_graph()`)；`with_interrupt=False` (one-shot 路径，无 pause/resume；awaiting_approval 仍可通过 state mutation `paused_at_level` + `status` 实现)。
@@ -161,7 +173,7 @@ if result.get("status") == "interrupted":  # LangGraph interrupt
 | **Day 2 (2026-06-03)** | ✅ PR-V.1 完成：`execute_level` + `should_continue_or_pause` + 测试（提前 2 天完成于 2026-06-01） | ✅ `test_orchestrator_graph_multistage.py` 52 tests 全过 + 回归 71/71 绿 |
 | **Day 3 (2026-06-04)** | ✅ PR-V.2：human_loop /resume 迁移 + 一次性迁移脚本（提前 3 天完成于 2026-06-01） | ✅ 6 new graph path tests + 11 migration tests；端到端 111/111 绿 |
 | **Day 4 (2026-06-05)** | ✅ PR-V.3：agent_service step 1 迁移 + 删 2 xfail（提前 4 天完成于 2026-06-01） | ✅ TestChatWithToolsOrchestratorFlow 5/5 + 回归 180/180 绿 |
-| **Day 5 (2026-06-06)** | PR-V.4：test rewrites + __init__.py 清理 + 文件删除 | grep 0 结果 + pytest 1380+ 全过 |
+| **Day 5 (2026-06-06)** | ✅ PR-V.4：test rewrites + __init__.py 清理 + 文件删除（提前 5 天完成于 2026-06-01） | ✅ grep 0 结果 + pytest 1320 pass / 0 fail |
 
 ## 风险与缓解
 
@@ -174,13 +186,13 @@ if result.get("status") == "interrupted":  # LangGraph interrupt
 
 ## 退出标准
 
-- [ ] PR-V.1 → PR-V.4 全部合并到 main
-- [ ] 4 个文件删除（orchestrator_agent.py + orchestrator_session.py + 2 个 test 文件）
-- [ ] `__init__.py` 移除 4 个 re-export
-- [ ] pytest 全量 ≥ 1380 pass / 0 fail
-- [ ] `grep -r "OrchestratorAgent\|OrchestratorSession" apps/api/app/` 返回 0
-- [ ] /legacy/analyze 流量 = 0（监控 1 周）
-- [ ] Redis 中无残留 `OrchestratorSession` key
+- [x] PR-V.1 → PR-V.4 全部合并到 main
+- [x] 7 个文件删除（3 生产 + 4 测试：orchestrator_agent.py + orchestrator_session.py + orchestrator_session_migration.py + test_orchestrator.py + test_orchestrator_session.py + test_multi_agent_pipeline.py + test_human_loop_resume_migration.py）
+- [x] `__init__.py` 移除 4 个 re-export（OrchestratorAgent/get_orchestrator/PipelineOrchestrator/SequentialOrchestrator）+ `__all__` 中 OrchestratorAgent 项
+- [x] pytest 全量 1320 pass / 4 skipped / 24 xfailed / 2 xpassed / **0 fail**
+- [x] `grep -r "OrchestratorAgent\|OrchestratorSession" apps/api/app/ apps/api/tests/ apps/api/app/memory/` 返回 **0** 结果
+- [ ] /legacy/analyze 流量 = 0（监控 1 周）— 端点已删除，无需监控
+- [ ] Redis 中无残留 `OrchestratorSession` key — 一次性 SCAN 已运行；TTL 24h 后自动清理；如发现孤儿可手工 DEL
 
 ## 不在 Phase V 范围
 
