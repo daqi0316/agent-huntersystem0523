@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Sparkles, Loader2, CheckCircle2, AlertCircle, ThumbsUp, ThumbsDown,
-  Send, Calendar, BarChart3,
+  Send, Calendar, BarChart3, MessageSquare, Bot, User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,6 +64,56 @@ export default function ScreeningPage() {
   const [evalLoading, setEvalLoading] = useState(false);
   const [evalResult, setEvalResult] = useState<MultiEvaluateResult | null>(null);
   const [evalError, setEvalError] = useState<string | null>(null);
+
+  // --- Multi-turn Screening Chat ---
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<{ role: string; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatCandidateId, setChatCandidateId] = useState("");
+  const [chatJobId, setChatJobId] = useState("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  const handleStartChat = async () => {
+    if (!chatCandidateId || !chatJobId) return;
+    try {
+      const session = await api.post<{ id: string }>("/conversation/session", {
+        title: `初筛: ${chatCandidateId}`,
+      });
+      setChatSessionId(session.id);
+      setChatMessages([]);
+    } catch {
+      alert("创建对话失败");
+    }
+  };
+
+  const handleSendChat = async () => {
+    if (!chatInput.trim() || !chatSessionId || !chatCandidateId || !chatJobId) return;
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    setChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+    setChatLoading(true);
+    try {
+      const res = await api.post<{ reply: string }>(
+        `/conversation/session/${chatSessionId}/screen`,
+        {
+          session_id: chatSessionId,
+          message: userMsg,
+          candidate_id: chatCandidateId,
+          job_id: chatJobId,
+        },
+      );
+      setChatMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
+    } catch {
+      setChatMessages((prev) => [...prev, { role: "assistant", content: "抱歉，评估请求失败，请稍后重试。" }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   // --- Human-in-Loop ---
   const [hlLoading, setHlLoading] = useState(false);
@@ -174,6 +224,7 @@ export default function ScreeningPage() {
         <TabsList>
           <TabsTrigger value="pipeline">初筛流水线</TabsTrigger>
           <TabsTrigger value="evaluate">聚合评估</TabsTrigger>
+          <TabsTrigger value="chat">多轮对话式初筛</TabsTrigger>
         </TabsList>
 
         {/* --- Pipeline Tab --- */}
@@ -346,6 +397,94 @@ export default function ScreeningPage() {
                       </pre>
                     </div>
                   )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="chat" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-emerald-500" />
+                多轮对话式初筛
+              </CardTitle>
+              <CardDescription>通过自然语言多轮对话深入了解候选人，AI会根据对话历史和候选人信息持续评估</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!chatSessionId ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">候选人 ID</label>
+                    <Input value={chatCandidateId} onChange={(e) => setChatCandidateId(e.target.value)} placeholder="cand_001" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">职位 ID</label>
+                    <Input value={chatJobId} onChange={(e) => setChatJobId(e.target.value)} placeholder="job_001" />
+                  </div>
+                  <div className="col-span-2">
+                    <Button onClick={handleStartChat} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                      <MessageSquare className="mr-2 h-4 w-4" /> 开始对话式初筛
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">对话 ID: {chatSessionId.slice(0, 12)}...</p>
+                    <Button variant="ghost" size="sm" onClick={() => { setChatSessionId(null); setChatMessages([]); }}>
+                      结束对话
+                    </Button>
+                  </div>
+                  <div className="flex h-[400px] flex-col overflow-y-auto rounded-lg border p-4">
+                    {chatMessages.length === 0 && (
+                      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                        输入消息开始评估候选人
+                      </div>
+                    )}
+                    {chatMessages.map((msg, i) => (
+                      <div key={i} className={`mb-3 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                        <div className={`flex max-w-[80%] gap-2 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                            {msg.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4 text-emerald-500" />}
+                          </div>
+                          <div className={`rounded-lg px-3 py-2 text-sm ${
+                            msg.role === "user"
+                              ? "bg-emerald-500 text-white"
+                              : "bg-muted"
+                          }`}>
+                            {msg.content}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {chatLoading && (
+                      <div className="mb-3 flex justify-start">
+                        <div className="flex max-w-[80%] gap-2">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                            <Bot className="h-4 w-4 text-emerald-500" />
+                          </div>
+                          <div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+                            <Loader2 className="mr-2 inline h-3 w-3 animate-spin" /> 思考中...
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSendChat())}
+                      placeholder="询问关于候选人的问题..."
+                      disabled={chatLoading}
+                    />
+                    <Button onClick={handleSendChat} disabled={chatLoading || !chatInput.trim()} className="bg-emerald-600 hover:bg-emerald-700">
+                      {chatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>

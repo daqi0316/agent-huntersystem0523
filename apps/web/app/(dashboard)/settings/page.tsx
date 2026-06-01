@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Save, Key, Bot, Bell, Globe, Loader2, CheckCircle2, Eye, EyeOff, History, Pencil, Trash2, Check, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -299,8 +300,17 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {memoryLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="space-y-2 py-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-3 w-12" />
+                  </div>
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-8 w-20" />
+                </div>
+              ))}
             </div>
           ) : memories.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">暂无历史记忆</p>

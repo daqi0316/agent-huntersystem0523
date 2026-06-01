@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Search, Plus, Briefcase, MapPin, Clock, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/trpc";
@@ -216,8 +217,23 @@ export default function JobsPage() {
           onChange={(e) => setSearch(e.target.value)} />
       </div>
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="h-4 w-24 mt-1" />
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-20" />
+                <div className="flex gap-2 mt-2">
+                  <Skeleton className="h-5 w-16" />
+                  <Skeleton className="h-5 w-16" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       ) : error ? (
         <div className="flex items-center justify-center gap-2 py-12 text-sm text-red-600">

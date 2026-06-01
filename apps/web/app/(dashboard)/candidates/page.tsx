@@ -3,15 +3,17 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, ChevronLeft, ChevronRight, ExternalLink,
-  User, Loader2, AlertCircle, Upload, X, CheckCircle2,
-  ArrowLeft, FileText,
+  User, Loader2, Upload, X, CheckCircle2,
+  ArrowLeft, FileText, Calendar, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ErrorAlert } from "@/components/common/error-alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
 import { api } from "@/lib/trpc";
 
@@ -97,8 +99,52 @@ function formatFileSize(bytes: number): string {
    Detail Dialog
    ══════════════════════════════════════════════════════════════ */
 
+interface TimelineEvent {
+  type: string;
+  title: string;
+  description: string;
+  timestamp: string;
+  status: string;
+  metadata: Record<string, unknown>;
+}
+
+interface TimelineResponse {
+  success: boolean;
+  data: {
+    candidate_id: string;
+    candidate_name: string;
+    events: TimelineEvent[];
+    total: number;
+  };
+}
+
 function DetailDialog({ candidate, onClose }: { candidate: CandidateItem; onClose: () => void }) {
   const sc = STATUS_MAP[candidate.status] || { label: candidate.status, color: "bg-gray-100" };
+  const [tab, setTab] = useState<"info" | "timeline">("info");
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [tlLoading, setTlLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab === "timeline" && timeline.length === 0 && !tlLoading) {
+      setTlLoading(true);
+      api.get<TimelineResponse>(`/candidates/${candidate.id}/timeline`)
+        .then((res) => { if (res?.success) setTimeline(res.data.events || []); })
+        .catch(() => {})
+        .finally(() => setTlLoading(false));
+    }
+  }, [tab, candidate.id, timeline.length, tlLoading]);
+
+  const timelineIcon = (type: string) => {
+    switch (type) {
+      case "created": return <User className="h-4 w-4 text-blue-500" />;
+      case "application": return <FileText className="h-4 w-4 text-purple-500" />;
+      case "evaluation": return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+      case "interview": return <Calendar className="h-4 w-4 text-orange-500" />;
+      case "feedback": return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+      default: return <Clock className="h-4 w-4 text-gray-400" />;
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -106,26 +152,65 @@ function DetailDialog({ candidate, onClose }: { candidate: CandidateItem; onClos
           <h2 className="text-lg font-bold">{candidate.name}</h2>
           <Badge className={sc.color}>{sc.label}</Badge>
         </div>
-        <div className="space-y-3 text-sm">
-          <div className="grid grid-cols-2 gap-2">
-            <div><span className="text-muted-foreground">邮箱</span><p>{candidate.email}</p></div>
-            <div><span className="text-muted-foreground">电话</span><p>{candidate.phone || "-"}</p></div>
-          </div>
-          <div><span className="text-muted-foreground">当前职位</span><p>{candidate.current_title || "-"}</p></div>
-          <div><span className="text-muted-foreground">所在公司</span><p>{candidate.current_company || "-"}</p></div>
-          <div><span className="text-muted-foreground">经验</span><p>{candidate.experience_years ? `${candidate.experience_years} 年` : "-"}</p></div>
-          <div>
-            <span className="text-muted-foreground">技能</span>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {candidate.skills.length > 0 ? candidate.skills.map((s) => (
-                <Badge key={s} variant="outline" className="text-xs">{s}</Badge>
-              )) : <span className="text-muted-foreground">-</span>}
-            </div>
-          </div>
-          {candidate.summary && (
-            <div><span className="text-muted-foreground">简介</span><p className="mt-1">{candidate.summary}</p></div>
-          )}
+
+        <div className="mb-4 flex gap-2 border-b">
+          <button className={`px-3 py-2 text-sm font-medium ${tab === "info" ? "border-b-2 border-blue-500 text-blue-600" : "text-muted-foreground"}`} onClick={() => setTab("info")}>基本信息</button>
+          <button className={`px-3 py-2 text-sm font-medium ${tab === "timeline" ? "border-b-2 border-blue-500 text-blue-600" : "text-muted-foreground"}`} onClick={() => setTab("timeline")}>时间线</button>
         </div>
+
+        {tab === "info" && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <div><span className="text-muted-foreground">邮箱</span><p>{candidate.email}</p></div>
+              <div><span className="text-muted-foreground">电话</span><p>{candidate.phone || "-"}</p></div>
+            </div>
+            <div><span className="text-muted-foreground">当前职位</span><p>{candidate.current_title || "-"}</p></div>
+            <div><span className="text-muted-foreground">所在公司</span><p>{candidate.current_company || "-"}</p></div>
+            <div><span className="text-muted-foreground">经验</span><p>{candidate.experience_years ? `${candidate.experience_years} 年` : "-"}</p></div>
+            <div>
+              <span className="text-muted-foreground">技能</span>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {candidate.skills.length > 0 ? candidate.skills.map((s) => (
+                  <Badge key={s} variant="outline" className="text-xs">{s}</Badge>
+                )) : <span className="text-muted-foreground">-</span>}
+              </div>
+            </div>
+            {candidate.summary && (
+              <div><span className="text-muted-foreground">简介</span><p className="mt-1">{candidate.summary}</p></div>
+            )}
+          </div>
+        )}
+
+        {tab === "timeline" && (
+          <div className="max-h-80 space-y-0 overflow-y-auto">
+            {tlLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : timeline.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">暂无事件记录</p>
+            ) : (
+              <div className="relative pl-6">
+                <div className="absolute left-[11px] top-0 h-full w-0.5 bg-border" />
+                {timeline.map((ev, i) => (
+                  <div key={i} className="relative pb-5">
+                    <div className="absolute -left-[19px] flex h-6 w-6 items-center justify-center rounded-full border bg-white">
+                      {timelineIcon(ev.type)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">{ev.title}</p>
+                      <p className="text-xs text-muted-foreground">{ev.description}</p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                        {ev.timestamp ? new Date(ev.timestamp).toLocaleString("zh-CN") : ""}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="mt-4 flex justify-end">
           <Button variant="outline" onClick={onClose}>关闭</Button>
         </div>
@@ -240,13 +325,8 @@ function ResumeImportDialog({ onClose, onCreated }: { onClose: () => void; onCre
           <button onClick={onClose} className="rounded-full p-1 hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
 
-        {/* Error */}
         {error && (
-          <div className="mx-6 mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span className="flex-1">{error}</span>
-            <button onClick={() => setError(null)}><X className="h-4 w-4" /></button>
-          </div>
+          <ErrorAlert message={error} onDismiss={() => setError(null)} className="mx-6 mt-4" />
         )}
 
         <div className="p-6">
@@ -421,9 +501,22 @@ export default function CandidatesPage() {
       <Card>
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+            <div className="space-y-1 p-4">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 py-3">
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                  <div className="flex-1 space-y-1">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                  <Skeleton className="h-4 w-24 hidden md:block" />
+                  <Skeleton className="h-4 w-20 hidden lg:block" />
+                  <Skeleton className="h-5 w-16" />
+                </div>
+              ))}
+            </div>
           ) : error ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-red-600"><AlertCircle className="h-4 w-4" /> {error}</div>
+            <ErrorAlert message={error} className="mx-auto max-w-md" />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

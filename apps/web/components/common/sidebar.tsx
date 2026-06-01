@@ -16,6 +16,7 @@ import {
   FilePen,
   BarChart3,
   Library,
+  Server,
   Settings,
   ChevronLeft,
 } from "lucide-react";
@@ -31,6 +32,7 @@ const iconMap: Record<string, React.ElementType> = {
   FilePen,
   BarChart3,
   Library,
+  Server,
   Settings,
 };
 

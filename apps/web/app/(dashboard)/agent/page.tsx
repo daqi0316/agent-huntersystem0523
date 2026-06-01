@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Loader2, AlertCircle, Sparkles, Briefcase, Users, Calendar, FileText, BarChart3, Library, Trash2 } from "lucide-react";
+import { Send, Bot, User, Loader2, AlertCircle, Sparkles, Briefcase, Users, Calendar, FileText, BarChart3, Library, Trash2, Brain, X, Check, XCircle, RefreshCw } from "lucide-react";
 import { api } from "@/lib/trpc";
 
 // ── Types ──
@@ -12,20 +12,45 @@ interface ToolCallInfo {
   error?: string | null;
 }
 
+interface AgentActionInfo {
+  agent: string;
+  status: string;
+  summary: string;
+  approval_id?: string;
+}
+
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   tool_calls?: ToolCallInfo[];
+  agent_actions?: AgentActionInfo[];
   error?: boolean;
+  model?: string;
 }
 
 interface AgentChatResponse {
   success: boolean;
   reply: string;
   tool_calls: ToolCallInfo[];
+  agent_actions?: AgentActionInfo[];
+  model?: string;
 }
 
 const STORAGE_KEY = "agent-chat-history";
+const SESSION_KEY = "agent-session-id";
+
+function getSessionId(): string {
+  try {
+    let sid = localStorage.getItem(SESSION_KEY);
+    if (!sid) {
+      sid = `web_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+      localStorage.setItem(SESSION_KEY, sid);
+    }
+    return sid;
+  } catch {
+    return `web_${Math.random().toString(36).slice(2, 14)}`;
+  }
+}
 
 function saveMessages(messages: ChatMessage[]) {
   try {
@@ -142,12 +167,114 @@ function JsonPreview({ data }: { data: unknown }) {
   return null;
 }
 
+// ── Memory Panel ──
+
+interface MemoryFact {
+  id: string;
+  fact_type: string;
+  verb: string;
+  object_value: Record<string, unknown> | null;
+  created_at: string;
+}
+
+const FACT_TYPE_LABELS: Record<string, string> = {
+  candidate_action: "候选人操作",
+  decision: "决策",
+  preference: "偏好设置",
+  workflow_state: "流程状态",
+  agent_action: "系统操作",
+};
+
+function MemoryPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [facts, setFacts] = useState<MemoryFact[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    api.post<{ success: boolean; facts: MemoryFact[] }>("/memory/facts", { user_id: "default", limit: 50 })
+      .then(data => setFacts(data.facts || []))
+      .catch(() => setFacts([]))
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  const grouped = facts.reduce<Record<string, MemoryFact[]>>((acc, f) => {
+    const key = f.fact_type || "other";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(f);
+    return acc;
+  }, {});
+
+  const timeAgo = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "刚刚";
+    if (mins < 60) return `${mins}分钟前`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}小时前`;
+    return `${Math.floor(hrs / 24)}天前`;
+  };
+
+  return (
+    <div className={`fixed inset-y-0 right-0 z-50 w-80 bg-background border-l shadow-xl transform transition-transform ${open ? "translate-x-0" : "translate-x-full"}`}>
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-primary" />
+          <h2 className="text-sm font-semibold">结构化记忆</h2>
+        </div>
+        <button onClick={onClose} className="rounded-md p-1 hover:bg-accent transition-colors">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="overflow-y-auto h-[calc(100vh-4rem)] p-4 space-y-4">
+        {loading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {!loading && facts.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-8">暂无记忆</p>
+        )}
+        {!loading && Object.entries(grouped).map(([type, items]) => (
+          <div key={type}>
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              {FACT_TYPE_LABELS[type] || type}
+            </h3>
+            <div className="space-y-2">
+              {items.map(f => (
+                <div key={f.id} className="rounded-lg border p-3 text-xs space-y-1">
+                  <p className="font-medium text-foreground">{f.verb}</p>
+                  {f.object_value && Object.entries(f.object_value).slice(0, 3).map(([k, v]) => (
+                    <p key={k} className="text-muted-foreground">
+                      {k}: {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                    </p>
+                  ))}
+                  <p className="text-[10px] text-muted-foreground/60">{timeAgo(f.created_at)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Chat Page ──
+
+interface ApprovalState {
+  visible: boolean;
+  approval_id: string;
+  summary: string;
+  loading: boolean;
+}
 
 export default function AgentChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showMemory, setShowMemory] = useState(false);
+  const [approval, setApproval] = useState<ApprovalState>({ visible: false, approval_id: "", summary: "", loading: false });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyRef = useRef<ChatMessage[]>(messages);
@@ -159,6 +286,64 @@ export default function AgentChatPage() {
     setMessages([]);
     localStorage.removeItem(STORAGE_KEY);
   };
+
+  const handleApprovalAction = useCallback(async (approve: boolean) => {
+    const { approval_id } = approval;
+    if (!approval_id) return;
+    setApproval(prev => ({ ...prev, loading: true }));
+
+    try {
+      await api.post("/human-loop/approve", {
+        action_type: "schedule_interview",
+        approval_id,
+        approved: approve,
+      });
+
+      if (!approve) {
+        setApproval({ visible: false, approval_id: "", summary: "", loading: false });
+        return;
+      }
+
+      // resume orchestrator
+      const resumeResult = await api.post<{ success: boolean; data: { status: string; summary: string; outputs: any[] } }>("/human-loop/resume", {
+        approval_id,
+      });
+
+      if (resumeResult.success) {
+        const { data } = resumeResult;
+        setMessages(prev => [...prev, {
+          role: "assistant",
+          content: `✅ 审批通过，编排继续执行。\n\n${data.summary}`,
+          agent_actions: (data.outputs || []).map((o: any) => ({
+            agent: o.agent || "",
+            status: o.status || "",
+            summary: o.summary || "",
+          })),
+          model: `orchestrator/${data.status}`,
+        }]);
+      }
+    } catch (err: any) {
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: err.message || "审批处理失败",
+        error: true,
+      }]);
+    } finally {
+      setApproval({ visible: false, approval_id: "", summary: "", loading: false });
+    }
+  }, [approval]);
+
+  const handleApprovalAutoResume = useCallback((actions: AgentActionInfo[], userText: string) => {
+    const awaitingAction = actions.find(a => a.status === "awaiting_approval");
+    if (awaitingAction && awaitingAction.approval_id) {
+      setApproval({
+        visible: true,
+        approval_id: awaitingAction.approval_id,
+        summary: awaitingAction.summary || "待审批",
+        loading: false,
+      });
+    }
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -181,14 +366,21 @@ export default function AgentChatPage() {
       const data = await api.post<AgentChatResponse>("/agent/chat", {
         message: text.trim(),
         history: currentHistory.map(m => ({ role: m.role, content: m.content })),
+        session_id: getSessionId(),
       });
 
       const assistantMsg: ChatMessage = {
         role: "assistant",
         content: data.reply,
         tool_calls: data.tool_calls?.filter(tc => tc.name),
+        agent_actions: data.agent_actions,
+        model: data.model,
       };
       setMessages(prev => [...prev, assistantMsg]);
+
+      if (data.model === "orchestrator/awaiting_approval" && data.agent_actions) {
+        handleApprovalAutoResume(data.agent_actions, text);
+      }
     } catch (err: any) {
       setMessages(prev => [
         ...prev,
@@ -223,16 +415,26 @@ export default function AgentChatPage() {
             <p className="text-xs text-muted-foreground">输入自然语言，完成所有招聘操作</p>
           </div>
         </div>
-        {messages.length > 0 && (
+        <div className="flex items-center gap-1">
           <button
-            onClick={clearHistory}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
-            title="清空对话记录"
+            onClick={() => setShowMemory(true)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+            title="查看结构化记忆"
           >
-            <Trash2 className="h-3.5 w-3.5" />
-            清空
+            <Brain className="h-3.5 w-3.5" />
+            记忆
           </button>
-        )}
+          {messages.length > 0 && (
+            <button
+              onClick={clearHistory}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+              title="清空对话记录"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              清空
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -305,6 +507,27 @@ export default function AgentChatPage() {
                   ))}
                 </div>
               )}
+
+              {/* Agent action bubbles */}
+              {msg.agent_actions && msg.agent_actions.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 px-1 mt-1">
+                  <span className="text-[10px] text-muted-foreground mr-0.5 self-center">编排:</span>
+                  {msg.agent_actions.map((ac, j) => (
+                    <span
+                      key={j}
+                      className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium ${
+                        ac.status === "completed" ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300" :
+                        ac.status === "awaiting_approval" ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300" :
+                        ac.status === "failed" ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300" :
+                        "bg-secondary text-secondary-foreground"
+                      }`}
+                      title={ac.summary}
+                    >
+                      {ac.agent}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {msg.role === "user" && (
@@ -328,6 +551,45 @@ export default function AgentChatPage() {
 
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Approval Popup Banner */}
+      {approval.visible && (
+        <div className="border-t bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">待审批</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 truncate">{approval.summary}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => handleApprovalAction(false)}
+                disabled={approval.loading}
+                className="flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors disabled:opacity-50"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                拒绝
+              </button>
+              <button
+                onClick={() => handleApprovalAction(true)}
+                disabled={approval.loading}
+                className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 transition-colors disabled:opacity-50"
+              >
+                {approval.loading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Check className="h-3.5 w-3.5" />
+                )}
+                批准
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className="border-t p-4">
@@ -353,6 +615,8 @@ export default function AgentChatPage() {
           按 Enter 发送 · Shift+Enter 换行
         </p>
       </div>
+
+      <MemoryPanel open={showMemory} onClose={() => setShowMemory(false)} />
     </div>
   );
 }

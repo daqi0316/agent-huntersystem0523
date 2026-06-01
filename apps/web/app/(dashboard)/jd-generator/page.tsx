@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { ErrorAlert } from "@/components/common/error-alert";
 import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -142,11 +143,7 @@ export default function JDGeneratorPage() {
               </label>
             </div>
 
-            {error && (
-              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {error}
-              </div>
-            )}
+            {error && <ErrorAlert message={error} />}
 
             <Button
               onClick={handleSubmit}

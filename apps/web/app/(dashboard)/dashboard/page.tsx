@@ -2,10 +2,15 @@
 
 import { useState, useEffect } from "react";
 import {
-  TrendingUp, Users, Briefcase, Activity, ArrowUpRight, Loader2, AlertCircle,
+  TrendingUp, Users, Briefcase, Activity, ArrowUpRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { ErrorAlert } from "@/components/common/error-alert";
+import RecommendationSection from "@/components/features/recommendations/recommendation-section";
+import OperationFeed from "@/components/features/operations/operation-feed";
+import AIHealth from "@/components/features/monitoring/ai-health";
 import { api } from "@/lib/trpc";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -74,12 +79,12 @@ export default function DashboardPage() {
   useEffect(() => {
     (async () => {
       try {
-        const data = await api.get<{ success: boolean; kpis: KpiItem[]; trend: TrendPoint[]; recent_activities: ActivityItem[] }>("/dashboard/stats");
-        if (data.success) {
+        const res = await api.get<DashboardStats>("/dashboard/stats");
+        if (res) {
           setStats({
-            kpis: data.kpis || fallbackStats.kpis,
-            trend: data.trend || fallbackStats.trend,
-            recent_activities: data.recent_activities || fallbackStats.recent_activities,
+            kpis: res.kpis || fallbackStats.kpis,
+            trend: res.trend || fallbackStats.trend,
+            recent_activities: res.recent_activities || fallbackStats.recent_activities,
           });
         }
       } catch {
@@ -92,8 +97,31 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6 p-6">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-24" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-16" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader><Skeleton className="h-5 w-40" /></CardHeader>
+            <CardContent><Skeleton className="h-72 w-full" /></CardContent>
+          </Card>
+          <Card>
+            <CardHeader><Skeleton className="h-5 w-24" /></CardHeader>
+            <CardContent className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -105,12 +133,7 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold">数据看板</h1>
           <p className="text-muted-foreground">招聘数据总览与核心指标</p>
         </div>
-        {error && (
-          <Badge variant="warning" className="gap-1">
-            <AlertCircle className="h-3 w-3" />
-            {error}
-          </Badge>
-        )}
+        {error && <ErrorAlert message={error} variant="warning" />}
       </div>
 
       {/* KPI Cards */}
@@ -138,6 +161,9 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
+        {/* AI Health */}
+        <AIHealth />
+
         {/* Trend Chart */}
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -170,24 +196,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Recent Activity */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">最近动态</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {stats.recent_activities.map((a, i) => (
-                <div key={i} className="flex gap-3 text-sm">
-                  <span className="mt-0.5 shrink-0 text-xs text-muted-foreground">
-                    {a.time}
-                  </span>
-                  <p className="leading-snug">{a.text}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <OperationFeed />
       </div>
     </div>
   );

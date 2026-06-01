@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, AlertCircle, TrendingUp, Users, Briefcase, UserCheck } from "lucide-react";
+import {
+  TrendingUp, Briefcase, Users, Clock, UserCheck,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { ErrorAlert } from "@/components/common/error-alert";
 import { api } from "@/lib/trpc";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend,
   AreaChart, Area,
 } from "recharts";
 
@@ -74,21 +77,19 @@ export default function ReportsPage() {
         const [candRes, jobRes, reportRes] = await Promise.allSettled([
           api.get<ApiResponse>("/candidates"),
           api.get<ApiResponse>("/jobs"),
-          api.get<{ success: boolean; data: { funnel: { stage: string; count: number }[]; sources: { name: string; count: number }[]; trend: { date: string; count: number }[] } }>("/dashboard/reports"),
+          api.get<{ funnel: { stage: string; count: number }[]; sources: { name: string; count: number }[]; trend: { date: string; count: number }[] }>("/dashboard/reports"),
         ]);
-        const candTotal = candRes.status === "fulfilled" ? candRes.value.data?.total ?? candRes.value.total ?? 128 : 128;
-        const jobTotal = jobRes.status === "fulfilled" ? jobRes.value.data?.total ?? jobRes.value.total ?? 8 : 8;
+        const candTotal = candRes.status === "fulfilled" ? candRes.value.total ?? 128 : 128;
+        const jobTotal = jobRes.status === "fulfilled" ? jobRes.value.total ?? 8 : 8;
 
-        if (reportRes.status === "fulfilled" && reportRes.value.success) {
-          const r = reportRes.value.data;
-          if (r) {
-            funnelData.length = 0;
-            funnelData.push(...r.funnel.map((f) => ({ stage: f.stage, count: f.count })));
-            sourceData.length = 0;
-            sourceData.push(...r.sources.map((s) => ({ name: s.name, value: s.count, color: sourceColor(s.name) })));
-            monthlyTrend.length = 0;
-            monthlyTrend.push(...r.trend.map((t) => ({ month: t.date, hires: t.count })));
-          }
+        if (reportRes.status === "fulfilled" && reportRes.value) {
+          const r = reportRes.value;
+          funnelData.length = 0;
+          funnelData.push(...r.funnel.map((f) => ({ stage: f.stage, count: f.count })));
+          sourceData.length = 0;
+          sourceData.push(...r.sources.map((s) => ({ name: s.name, value: s.count, color: sourceColor(s.name) })));
+          monthlyTrend.length = 0;
+          monthlyTrend.push(...r.trend.map((t) => ({ month: t.date, hires: t.count })));
         }
 
         setKpis([
@@ -107,8 +108,27 @@ export default function ReportsPage() {
 
   if (loading) {
     return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-4 w-48" />
+        <div className="grid gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-4" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-16" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card><CardContent className="p-6"><Skeleton className="h-72 w-full" /></CardContent></Card>
+          <Card><CardContent className="p-6"><Skeleton className="h-72 w-full" /></CardContent></Card>
+        </div>
+        <Card><CardContent className="p-6"><Skeleton className="h-72 w-full" /></CardContent></Card>
       </div>
     );
   }
@@ -120,12 +140,7 @@ export default function ReportsPage() {
           <h1 className="text-3xl font-bold">数据报表</h1>
           <p className="text-muted-foreground">招聘数据统计与趋势分析</p>
         </div>
-        {error && (
-          <Badge variant="warning" className="gap-1">
-            <AlertCircle className="h-3 w-3" />
-            {error}
-          </Badge>
-        )}
+        {error && <ErrorAlert message={error} variant="warning" />}
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">

@@ -3,10 +3,12 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ErrorAlert } from "@/components/common/error-alert";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
 }
 
 interface ErrorBoundaryState {
@@ -29,6 +31,7 @@ export class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error("[ErrorBoundary]", error, errorInfo.componentStack);
+    this.props.onError?.(error, errorInfo);
   }
 
   handleRetry = (): void => {
@@ -43,9 +46,10 @@ export class ErrorBoundary extends Component<
         <div className="flex flex-col items-center justify-center rounded-lg border border-destructive/20 bg-destructive/5 p-8 text-center">
           <AlertTriangle className="mb-3 h-8 w-8 text-destructive" />
           <h3 className="mb-1 text-lg font-semibold">页面出现异常</h3>
-          <p className="mb-4 max-w-sm text-sm text-muted-foreground">
-            {this.state.error?.message || "发生了意外错误，请稍后重试"}
-          </p>
+          <ErrorAlert
+            message={this.state.error?.message || "发生了意外错误，请稍后重试"}
+            className="mb-4 max-w-sm"
+          />
           <Button
             variant="outline"
             size="sm"

@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, ChevronDown, ChevronUp, Loader2, AlertCircle, Calendar } from "lucide-react";
+import { Search, ChevronDown, ChevronUp, Loader2, Calendar, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ErrorAlert } from "@/components/common/error-alert";
 import { toast } from "sonner";
 import { api } from "@/lib/trpc";
 import {
@@ -159,40 +161,40 @@ export default function EvaluationPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [evaluations, setEvaluations] = useState<EvaluationItem[]>(mockEvaluations);
+  const [evaluations, setEvaluations] = useState<EvaluationItem[]>([]);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
 
+  const fetchEvaluations = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.get<EvalApiResponse>("/evaluations");
+      const items = res.items ?? [];
+      setEvaluations(
+        items.map((item) => ({
+          id: item.id,
+          candidateId: item.candidate_id,
+          jobId: item.job_id,
+          name: item.name,
+          title: item.job_title,
+          company: "",
+          skills: item.skills,
+          status: item.status,
+          summary: item.summary,
+          date: item.date,
+          scores: item.scores.map((s) => ({ dimension: s.name, score: s.score })),
+          overall: item.overall_score,
+        }))
+      );
+    } catch {
+      setError("无法连接后端服务");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.get<EvalApiResponse>("/evaluations");
-        const items = res.items ?? [];
-        if (items.length > 0) {
-          setEvaluations(
-            items.map((item) => ({
-              id: item.id,
-              candidateId: item.candidate_id,
-              jobId: item.job_id,
-              name: item.name,
-              title: item.job_title,
-              company: "",
-              skills: item.skills,
-              status: item.status,
-              summary: item.summary,
-              date: item.date,
-              scores: item.scores.map((s) => ({ dimension: s.name, score: s.score })),
-              overall: item.overall_score,
-            }))
-          );
-        } else {
-          setError("暂无评估数据，展示模拟数据");
-        }
-      } catch {
-        setError("后端暂未连接，展示模拟数据");
-      } finally {
-        setLoading(false);
-      }
-    })();
+    fetchEvaluations();
   }, []);
 
   const filtered = evaluations.filter(
@@ -230,8 +232,72 @@ export default function EvaluationPage() {
 
   if (loading) {
     return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">评估报告</h1>
+        </div>
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-5 w-32" />
+                  <Skeleton className="h-5 w-20" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Skeleton className="h-48 w-full" />
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-5 gap-2">
+                      {Array.from({ length: 5 }).map((_, j) => (
+                        <Skeleton key={j} className="h-12 w-full" />
+                      ))}
+                    </div>
+                    <Skeleton className="h-20 w-full" />
+                    <Skeleton className="h-9 w-32 ml-auto" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error && evaluations.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">评估报告</h1>
+        </div>
+        <p className="text-muted-foreground">查看 AI 生成的候选人评估报告</p>
+        <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed py-16">
+          <ErrorAlert message={error} />
+          <Button onClick={fetchEvaluations}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            重新加载
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (evaluations.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">评估报告</h1>
+        </div>
+        <p className="text-muted-foreground">查看 AI 生成的候选人评估报告</p>
+        <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed py-16">
+          <Search className="h-12 w-12 text-muted-foreground" />
+          <p className="text-lg font-medium">暂无评估数据</p>
+          <p className="text-sm text-muted-foreground">
+            完成候选人初筛后，AI 将自动生成评估报告
+          </p>
+        </div>
       </div>
     );
   }
@@ -240,12 +306,7 @@ export default function EvaluationPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">评估报告</h1>
-        {error && (
-          <Badge variant="warning" className="gap-1">
-            <AlertCircle className="h-3 w-3" />
-            {error}
-          </Badge>
-        )}
+        {error && <ErrorAlert message={error} variant="warning" />}
       </div>
       <p className="text-muted-foreground">查看 AI 生成的候选人评估报告</p>
 
@@ -342,7 +403,10 @@ export default function EvaluationPage() {
           </Card>
         ))}
         {filtered.length === 0 && (
-          <p className="py-12 text-center text-muted-foreground">未找到匹配的评估报告</p>
+          <div className="flex flex-col items-center justify-center gap-2 py-12">
+            <Search className="h-8 w-8 text-muted-foreground" />
+            <p className="text-muted-foreground">未找到匹配的评估报告</p>
+          </div>
         )}
       </div>
     </div>

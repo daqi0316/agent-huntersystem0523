@@ -17,27 +17,43 @@ const TEST_USER = {
  * If registration fails (e.g., duplicate user), fall back to login.
  */
 setup("authenticate as test user", async ({ page }) => {
-  // Try to register first
   let token: string | null = null;
+  let lastError: unknown = null;
 
-  const registerRes = await page.request.post(`${API_BASE}/auth/register`, {
-    data: TEST_USER,
-  });
+  // Try up to 3 times with short delay (handles boot-up race)
+  for (let attempt = 0; attempt < 3 && !token; attempt++) {
+    if (attempt > 0) await page.waitForTimeout(1000);
+    try {
+      // Try to register first
+      const registerRes = await page.request.post(`${API_BASE}/auth/register`, {
+        data: TEST_USER,
+        timeout: 5000,
+      });
+      if (registerRes.ok()) {
+        const data = await registerRes.json();
+        token = data.access_token || data.token;
+      }
+    } catch (e) {
+      lastError = e;
+    }
 
-  if (registerRes.ok()) {
-    const data = await registerRes.json();
-    token = data.access_token;
-  } else {
-    // User may already exist — try login
-    const loginRes = await page.request.post(`${API_BASE}/auth/login`, {
-      data: { email: TEST_USER.email, password: TEST_USER.password },
-    });
-    expect(loginRes.ok()).toBeTruthy();
-    const data = await loginRes.json();
-    token = data.access_token;
+    if (!token) {
+      try {
+        const loginRes = await page.request.post(`${API_BASE}/auth/login`, {
+          data: { email: TEST_USER.email, password: TEST_USER.password },
+          timeout: 5000,
+        });
+        if (loginRes.ok()) {
+          const data = await loginRes.json();
+          token = data.access_token || data.token;
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
   }
 
-  expect(token).toBeTruthy();
+  expect(token, `Failed to authenticate after 3 attempts: ${lastError}`).toBeTruthy();
 
   // Set the token in localStorage so the app treats the user as authenticated
   await page.goto("/");

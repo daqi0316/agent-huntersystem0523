@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, CheckCircle, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useEventSource } from "@/hooks/use-event-source";
 
 interface Step {
   name: string;
@@ -38,38 +39,31 @@ export function StepIndicator({
 }: StepIndicatorProps) {
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const endpoint = taskId ? `/pipeline/${taskId}/stream` : null;
+  const { connected, subscribe } = useEventSource(endpoint);
 
   useEffect(() => {
-    if (!taskId) return;
+    if (!connected) return;
 
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-    const es = new EventSource(`${baseUrl}/pipeline/${taskId}/stream`);
-    eventSourceRef.current = es;
+    const unsubProgress = subscribe("progress", (data) => {
+      setProgress(data as ProgressEvent);
+    });
 
-    es.onmessage = (event) => {
-      try {
-        const data: ProgressEvent = JSON.parse(event.data);
-        setProgress(data);
-        if (data.status === "completed") {
-          es.close();
-          onComplete?.();
-        }
-      } catch {
-        setError("解析进度数据失败");
-        es.close();
-      }
-    };
+    const unsubComplete = subscribe("complete", () => {
+      onComplete?.();
+    });
 
-    es.onerror = () => {
-      setError("进度连接中断");
-      es.close();
-    };
+    const unsubError = subscribe("error", (data) => {
+      setError((data as Record<string, unknown>).message as string || "流水线执行失败");
+    });
 
     return () => {
-      es.close();
+      unsubProgress();
+      unsubComplete();
+      unsubError();
     };
-  }, [taskId, onComplete]);
+  }, [connected, subscribe, onComplete]);
 
   if (error) {
     return (

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, UserCheck, Loader2, AlertCircle, Briefcase, GraduationCap, X } from "lucide-react";
+import { Search, UserCheck, Loader2, Briefcase, GraduationCap, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { ErrorAlert } from "@/components/common/error-alert";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/trpc";
@@ -104,8 +106,30 @@ export default function TalentProfilePage() {
 
   if (loading) {
     return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6 p-6">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-4 w-64" />
+        <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+          <Card>
+            <CardHeader><Skeleton className="h-10 w-full" /></CardHeader>
+            <CardContent className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <Skeleton className="h-10 w-10 rounded-full" />
+                  <div className="flex-1 space-y-1">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-3 w-32" />
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center justify-center h-64">
+              <Skeleton className="h-48 w-48 rounded-full" />
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -114,12 +138,7 @@ export default function TalentProfilePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">人才档案</h1>
-        {error && (
-          <Badge variant="warning" className="gap-1">
-            <AlertCircle className="h-3 w-3" />
-            {error}
-          </Badge>
-        )}
+        {error && <ErrorAlert message={error} variant="warning" />}
       </div>
       <p className="text-muted-foreground">查看候选人详细档案与多维评估</p>
 

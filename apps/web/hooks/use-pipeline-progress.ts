@@ -1,5 +1,10 @@
 "use client";
 
+// 已废弃: 改用 StepIndicator 组件 (SSE 方案) 替代轮询。
+// step-indicator.tsx 通过 EventSource + useEventSource hook
+// 订阅 /pipeline/{taskId}/stream SSE 端点获取实时进度。
+// 如需独立使用 SSE 进度，请直接引用 useEventSource hook。
+
 import { useState, useEffect, useCallback } from "react";
 
 interface PipelineProgress {

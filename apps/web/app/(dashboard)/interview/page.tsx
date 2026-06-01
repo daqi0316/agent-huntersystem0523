@@ -2,16 +2,20 @@
 
 import { useState, useEffect } from "react";
 import {
-  Calendar, Clock, Users, Plus, Loader2, X, AlertCircle,
+  Calendar, Clock, Users, Plus, Loader2, X,
   Check, Ban, FileText, History, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ErrorAlert } from "@/components/common/error-alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/common/data-table";
+import EvaluationDialog from "@/components/features/interview/evaluation-dialog";
 import { api } from "@/lib/trpc";
+import { useHumanLoopEvents } from "@/hooks/use-human-loop-events";
 
 function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear()
@@ -83,11 +87,13 @@ interface InterviewProposal {
 interface PendingProposal {
   approval_id: string;
   action_type: string;
-  proposal: InterviewProposal;
-  params: Record<string, string>;
+  proposal: Record<string, unknown>;
+  params: Record<string, unknown>;
   status: string;
   created_at: string;
   expires_at: string;
+  candidate_name?: string;
+  job_title?: string;
 }
 
 interface ApprovalHistoryItem {
@@ -102,6 +108,7 @@ interface ApprovalHistoryItem {
 
 export default function InterviewPage() {
   const [interviews, setInterviews] = useState<InterviewRow[]>([]);
+  const [rawInterviews, setRawInterviews] = useState<BackendInterview[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -109,6 +116,11 @@ export default function InterviewPage() {
   const [form, setForm] = useState({ candidate: "", job: "", time: "", interviewer: "", notes: "" });
   const [pendingProposals, setPendingProposals] = useState<PendingProposal[]>([]);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+
+  // Evaluation dialog
+  const [evalDialog, setEvalDialog] = useState<{ open: boolean; interviewId: string; candidateName: string }>({
+    open: false, interviewId: "", candidateName: "",
+  });
 
   // Reject feedback dialog
   const [rejectDialog, setRejectDialog] = useState<{ open: boolean; approval_id: string }>({ open: false, approval_id: "" });
@@ -122,10 +134,15 @@ export default function InterviewPage() {
   // Full proposal detail
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  useHumanLoopEvents(true, {
+    onPendingUpdated: (proposals) => setPendingProposals(proposals),
+    onError: (msg) => toast.error(msg),
+  });
+
   const fetchPending = async () => {
     try {
-      const res = await api.get<{ success: boolean; items: PendingProposal[] }>("/human-loop/pending");
-      setPendingProposals(res.items ?? []);
+      const res = await api.get<{ success: boolean; data: PendingProposal[] }>("/human-loop/pending");
+      setPendingProposals(res.data ?? []);
     } catch {
       // silent
     }
@@ -134,8 +151,8 @@ export default function InterviewPage() {
   const fetchHistory = async () => {
     setHistoryLoading(true);
     try {
-      const res = await api.get<{ success: boolean; items: ApprovalHistoryItem[] }>("/human-loop/history?limit=50");
-      setHistoryItems(res.items ?? []);
+      const res = await api.get<{ success: boolean; data: ApprovalHistoryItem[] }>("/human-loop/history?limit=50");
+      setHistoryItems(res.data ?? []);
     } catch {
       toast.error("加载审批历史失败");
     } finally {
@@ -160,19 +177,20 @@ export default function InterviewPage() {
       }
 
       const proposalItem = pendingProposals.find(p => p.approval_id === approval_id);
-      const { proposal, params: proposalParams } = proposalItem || {};
-      const candidateId = proposalParams?.candidate_id || "";
-      const jobId = proposalParams?.job_id || "";
+      const { proposal: rawProposal, params: proposalParams } = proposalItem || {};
+      const castProposal = rawProposal as unknown as InterviewProposal | undefined;
+      const candidateId = (proposalParams?.candidate_id as string) || "";
+      const jobId = (proposalParams?.job_id as string) || "";
 
-      if (proposal && candidateId && jobId) {
+      if (castProposal && candidateId && jobId) {
         try {
           const created = await api.post<BackendInterview>("/interviews/from-proposal", {
             candidate_id: candidateId,
             job_id: jobId,
-            scheduled_at: proposal.recommended_slot || new Date().toISOString(),
-            type: proposal.interview_type || "video",
-            duration_minutes: proposal.duration_minutes || 60,
-            notes: [proposal.interview_type || "面试", proposal.invitation_draft?.slice(0, 100)].filter(Boolean).join(" | "),
+            scheduled_at: castProposal.recommended_slot || new Date().toISOString(),
+            type: castProposal.interview_type || "video",
+            duration_minutes: castProposal.duration_minutes || 60,
+            notes: [castProposal.interview_type || "面试", castProposal.invitation_draft?.slice(0, 100)].filter(Boolean).join(" | "),
           });
           setInterviews(prev => [toDisplay(created), ...prev]);
         } catch {
@@ -272,8 +290,10 @@ export default function InterviewPage() {
     } catch { /* ignore */ }
   };
 
-  const handleFeedback = (candidate: string) => {
-    alert(`查看 ${candidate} 的面试反馈`);
+  const handleFeedback = (id: string) => {
+    const raw = rawInterviews.find((r) => r.id === id);
+    if (!raw) return;
+    setEvalDialog({ open: true, interviewId: id, candidateName: raw.candidate_id });
   };
 
   const columns = [
@@ -304,7 +324,7 @@ export default function InterviewPage() {
               </Button>
             )}
             {i.status === "completed" && (
-              <Button variant="outline" size="sm" onClick={() => handleFeedback(i.candidate)}>
+              <Button variant="outline" size="sm" onClick={() => handleFeedback(i.id)}>
                 反馈
               </Button>
             )}
@@ -321,8 +341,30 @@ export default function InterviewPage() {
 
   if (loading) {
     return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-4 w-64" />
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex gap-4">
+              <Skeleton className="h-10 w-64" />
+              <Skeleton className="h-10 w-32 ml-auto" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex gap-4 py-3">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-5 w-16 ml-auto" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -335,12 +377,7 @@ export default function InterviewPage() {
             <h1 className="text-3xl font-bold">面试管理</h1>
             <p className="text-muted-foreground">管理面试安排与进度追踪（Human-in-Loop 审批流程）</p>
           </div>
-          {error && (
-            <Badge variant="warning" className="gap-1">
-              <AlertCircle className="h-3 w-3" />
-              {error}
-            </Badge>
-          )}
+          {error && <ErrorAlert message={error} variant="warning" />}
         </div>
         <div className="flex gap-2">
           <Button
@@ -401,7 +438,7 @@ export default function InterviewPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {pendingProposals.map(p => {
-              const prop = p.proposal;
+              const prop = p.proposal as unknown as InterviewProposal;
               const isExpanded = expandedId === p.approval_id;
               return (
                 <div
@@ -526,8 +563,17 @@ export default function InterviewPage() {
           </CardHeader>
           <CardContent>
             {historyLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <div className="space-y-2 py-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 rounded-lg border p-3">
+                    <Skeleton className="h-4 w-4 rounded-full" />
+                    <div className="flex-1 space-y-1">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-48" />
+                    </div>
+                    <Skeleton className="h-5 w-16" />
+                  </div>
+                ))}
               </div>
             ) : historyItems.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">暂无审批记录</p>
@@ -631,6 +677,14 @@ export default function InterviewPage() {
           </div>
         </div>
       )}
+
+      {/* Evaluation Dialog */}
+      <EvaluationDialog
+        open={evalDialog.open}
+        onClose={() => setEvalDialog({ ...evalDialog, open: false })}
+        interviewId={evalDialog.interviewId}
+        candidateName={evalDialog.candidateName}
+      />
     </div>
   );
 }
