@@ -5,7 +5,19 @@
 > 建议启动日期：2026-06-02
 > 目标完成日期：2026-06-08（软期限）/ 2026-06-15（硬期限）
 
-> **状态更新 2026-06-01**：PR-V.1 ✅ **已完成 + 已提交**（commit `7bf5d57`）。
+> **状态更新 2026-06-01（PR-V.3）**：PR-V.3 ✅ **已完成 + 已提交**（commit `6f4898c`）。
+> `agent_service.py:578-621` Step 1 块已迁移：原 `OrchestratorAgent().run()/route_single()` 改为 `create_orchestrator_graph(checkpointer=None, with_interrupt=False).ainvoke(make_initial_orchestrator_state(...))` + `_adapt_graph_result_to_legacy(state)`。
+> 设计要点：`checkpointer=None` (per-request in-memory, no Redis 持久化；PR-V.2 的 /resume 用独立的 Redis-backed graph via `app/api/orchestrator._get_graph()`)；`with_interrupt=False` (one-shot 路径，无 pause/resume；awaiting_approval 仍可通过 state mutation `paused_at_level` + `status` 实现)。
+> 测试更新：`TestChatWithToolsOrchestratorFlow` 4 个测试重写（mock `app.graphs.orchestrator_graph.create_orchestrator_graph` + adapter 模拟图路径），1 个新测试验证 `with_interrupt=False` + `input_text` 透传；`test_orchestrator.py` 删除 2 个废弃 xfail 测试（覆盖已迁移到 `test_orchestrator_graph_multistage.py`）。
+> 全量回归 180/180 绿（test_graph_adapter 7 + TestChatWithToolsOrchestratorFlow 5 + test_orchestrator 64 + test_graphs/ 64 + test_human_loop_api 29 + test_human_loop_resume_migration 11）。
+> 提前 4 天完成（计划日期 2026-06-05）。仅剩 PR-V.4（删除 legacy 文件 + 清理 __init__.py re-exports）。
+
+> **状态更新 2026-06-01（PR-V.2）**：PR-V.2 ✅ **已完成 + 已提交**（commit `c2119e3`）。
+> `/resume` 端点已迁移：使用 `graph.update_state` + `graph.ainvoke(None, config)` 恢复 multi-stage 会话，保留 legacy `OrchestratorSession` fallback（PR-V.4 删除）。
+> 新增 Redis 索引 `appr:graph_thread:{approval_id} → thread_id` (24h TTL) 用于 approval_id → thread_id 查找；`migrate_legacy_orchestrator_sessions()` 启动时 SCAN `orch:session:*`，只读不删。
+> 17 新测试（6 graph path + 11 migration）；111/111 回归绿。提前 3 天完成（计划日期 2026-06-04）。
+
+> **状态更新 2026-06-01（PR-V.1）**：PR-V.1 ✅ **已完成 + 已提交**（commit `7bf5d57`）。
 > `orchestrator_graph.py` 现已支持 multi-stage DAG（7 新 state 字段、3 新节点、条件边、checkpointer awaiting_approval 暂停）。
 > 52/52 新测试通过；`test_graphs/` + `test_graph_adapter.py` 全量回归 71/71 绿。
 > 阻塞解除。可立即开始 PR-V.2（human_loop /resume 迁移）。
@@ -148,7 +160,7 @@ if result.get("status") == "interrupted":  # LangGraph interrupt
 | **Day 1 (2026-06-02)** | ✅ PR-V.1 启动：扩展 `OrchestratorState` + `multi_stage_decompose` 节点（提前 1 天完成于 2026-06-01） | ✅ 新 graph 类型检查通过 + 单元测试覆盖 |
 | **Day 2 (2026-06-03)** | ✅ PR-V.1 完成：`execute_level` + `should_continue_or_pause` + 测试（提前 2 天完成于 2026-06-01） | ✅ `test_orchestrator_graph_multistage.py` 52 tests 全过 + 回归 71/71 绿 |
 | **Day 3 (2026-06-04)** | ✅ PR-V.2：human_loop /resume 迁移 + 一次性迁移脚本（提前 3 天完成于 2026-06-01） | ✅ 6 new graph path tests + 11 migration tests；端到端 111/111 绿 |
-| **Day 4 (2026-06-05)** | PR-V.3：agent_service step 1 迁移 + 解 xfail 2 tests | test_agent_service 中 orchestrator flow 全过 |
+| **Day 4 (2026-06-05)** | ✅ PR-V.3：agent_service step 1 迁移 + 删 2 xfail（提前 4 天完成于 2026-06-01） | ✅ TestChatWithToolsOrchestratorFlow 5/5 + 回归 180/180 绿 |
 | **Day 5 (2026-06-06)** | PR-V.4：test rewrites + __init__.py 清理 + 文件删除 | grep 0 结果 + pytest 1380+ 全过 |
 
 ## 风险与缓解
