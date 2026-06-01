@@ -8,6 +8,22 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.dependencies import get_current_user_id
+from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def _override_current_user():
+    """Override get_current_user_id for all tests in this module.
+
+    /schedule and /approve endpoints require user_id via Depends(get_current_user_id).
+    The other endpoints (events/pending/history/resume/stop) are not auth-protected
+    and are unaffected by this override.
+    """
+    app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    yield
+    app.dependency_overrides.pop(get_current_user_id, None)
+
 
 @pytest.fixture
 def mock_agent():
@@ -16,7 +32,7 @@ def mock_agent():
         m.run = AsyncMock(return_value={"status": "awaiting_approval", "approval": {"id": "proposal_1"}})
         m.confirm = AsyncMock(return_value={"status": "approved", "approval_id": "appr_test"})
         m.get_pending_proposals = AsyncMock(return_value=[])
-        m.get_approval_history = MagicMock(return_value=[])
+        m.get_approval_history = AsyncMock(return_value=[])
         m.get_pending_count = AsyncMock(return_value=0)
         m._pending_purge_all = AsyncMock()
         yield m
@@ -38,6 +54,7 @@ class TestScheduleInterview:
         mock_agent.run.assert_awaited_once_with({
             "action_type": "schedule_interview",
             "params": {"candidate_name": "张三"},
+            "user_id": "user-1",
         })
 
     async def test_schedule_none_params(self, client, mock_agent):
@@ -68,7 +85,7 @@ class TestApproveAction:
         assert body["success"] is True
         assert body["status"] == "approved"
         mock_agent.confirm.assert_awaited_once_with(
-            approval_id="appr_xxx", approved=True, feedback="好的"
+            approval_id="appr_xxx", approved=True, feedback="好的", user_id="user-1"
         )
 
     async def test_approve_rejected(self, client, mock_agent):
@@ -136,7 +153,7 @@ class TestListHistory:
         assert body["data"] == []
 
     async def test_with_items(self, client, mock_agent):
-        mock_agent.get_approval_history = MagicMock(return_value=[{"approval_id": "h1"}])
+        mock_agent.get_approval_history = AsyncMock(return_value=[{"approval_id": "h1"}])
         resp = await client.get("/api/v1/human-loop/history?limit=10")
         body = resp.json()
         assert body["success"] is True

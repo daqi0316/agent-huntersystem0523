@@ -67,6 +67,7 @@ async def _register_builtins():
         "install_skill": _do_install,
         "list_skills": _do_list,
     })
+    _BUILTIN_HANDLERS.update(all_builtin_handlers())
 
 
 def _get_tools() -> list[dict]:
