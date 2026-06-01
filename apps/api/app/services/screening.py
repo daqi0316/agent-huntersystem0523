@@ -6,6 +6,7 @@ import logging
 
 from app.agents.pipeline import PipelineAgent
 from app.agents.aggregator import AggregatorAgent
+from app.agents.screening_agent import ScreeningAgent
 from app.models.candidate import CandidateStatus
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ class ScreeningService:
     def __init__(self):
         self._pipeline = None
         self._aggregator = None
+        self._screening_agent = None
 
     @property
     def pipeline(self) -> PipelineAgent:
@@ -29,6 +31,12 @@ class ScreeningService:
         if self._aggregator is None:
             self._aggregator = AggregatorAgent(name="candidate_evaluator")
         return self._aggregator
+
+    @property
+    def screening_agent(self) -> ScreeningAgent:
+        if self._screening_agent is None:
+            self._screening_agent = ScreeningAgent()
+        return self._screening_agent
 
     async def start_screening(self, db_session, candidate_id: str) -> bool:
         """标记候选人开始评估。"""
@@ -84,6 +92,21 @@ class ScreeningService:
         except Exception as e:
             logger.warning("set_interviewing failed for %s: %s", candidate_id, e)
             return False
+
+    async def screen(
+        self,
+        candidate_id: str,
+        job_id: str,
+        resume_text: str,
+        job_requirements: str,
+    ) -> dict:
+        """使用 ScreeningAgent 进行完整初筛。"""
+        return await self.screening_agent.screen(
+            candidate_id=candidate_id,
+            job_id=job_id,
+            resume_text=resume_text,
+            job_requirements=job_requirements,
+        )
 
     async def screen_resume(
         self,
@@ -158,7 +181,7 @@ class ScreeningService:
             }
 
     async def get_pipeline_progress(self, pipeline_id: str) -> dict:
-        """获取流水线进度（简化版 — 后续可对接 RabbitMQ 异步）。"""
+        """获取流水线进度。"""
         return {
             "pipeline_id": pipeline_id,
             "status": "completed",

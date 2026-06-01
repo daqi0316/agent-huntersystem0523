@@ -5,5 +5,15 @@ from app.models.interview import Interview
 from app.models.user import User, UserRole
 from app.models.setting import Setting
 from app.models.session_summary import SessionSummary
+from app.models.mcp_server import MCPServer
+from app.models.memory_fact import MemoryFact
+from app.models.interview_evaluation import InterviewEvaluation, InterviewRound, EvaluationVerdict
+from app.models.conversation import ConversationSession, ConversationMessage
+from app.models.recommendation import Recommendation, RecommendationType
 
-__all__ = ["Candidate", "JobPosition", "Application", "Interview", "User", "UserRole", "Setting", "SessionSummary"]
+__all__ = [
+    "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
+    "Setting", "SessionSummary", "MemoryFact", "MCPServer", "InterviewEvaluation",
+    "InterviewRound", "EvaluationVerdict", "ConversationSession", "ConversationMessage",
+    "Recommendation", "RecommendationType",
+]

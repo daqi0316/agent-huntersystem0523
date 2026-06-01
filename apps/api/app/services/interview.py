@@ -1,7 +1,8 @@
-"""面试安排服务 — DB 写入 + slot 冲突检测。"""
+"""面试安排服务 — DB 写入 + slot 冲突检测 + 评价管理。"""
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -9,6 +10,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.interview import Interview, InterviewStatus, InterviewType
+from app.models.interview_evaluation import InterviewEvaluation, InterviewRound, EvaluationVerdict
 
 
 class InterviewService:
@@ -183,8 +185,73 @@ class InterviewService:
         )
         return result.scalar_one_or_none()
 
+    async def get_evaluation(self, interview_id: str) -> InterviewEvaluation | None:
+        result = await self.db.execute(
+            select(InterviewEvaluation).where(InterviewEvaluation.interview_id == interview_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def save_evaluation(
+        self,
+        interview_id: str,
+        round: InterviewRound = InterviewRound.R1,
+        overall_score: float | None = None,
+        verdict: EvaluationVerdict = EvaluationVerdict.CONSIDER,
+        dimensions: dict | None = None,
+        key_observations: str | None = None,
+        red_flags: str | None = None,
+        feedback: str | None = None,
+    ) -> InterviewEvaluation:
+        interview = await self._get_by_id(interview_id)
+        if not interview:
+            raise ValueError(f"Interview {interview_id} not found")
+
+        evaluation = InterviewEvaluation(
+            id=str(uuid.uuid4()),
+            interview_id=interview_id,
+            round=round,
+            overall_score=overall_score,
+            verdict=verdict,
+            dimensions=json.dumps(dimensions, ensure_ascii=False) if dimensions else None,
+            key_observations=key_observations,
+            red_flags=red_flags,
+            feedback=feedback,
+        )
+        self.db.add(evaluation)
+        await self.db.commit()
+        await self.db.refresh(evaluation)
+        return evaluation
+
+    async def list_evaluations_by_candidate(
+        self, candidate_id: str
+    ) -> list[dict]:
+        from sqlalchemy import select
+        stmt = (
+            select(InterviewEvaluation)
+            .join(Interview, InterviewEvaluation.interview_id == Interview.id)
+            .where(Interview.candidate_id == candidate_id)
+            .order_by(InterviewEvaluation.created_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        evals = result.scalars().all()
+        return [self._eval_to_dict(e) for e in evals]
+
+    @staticmethod
+    def _eval_to_dict(e: InterviewEvaluation) -> dict:
+        return {
+            "id": e.id,
+            "interview_id": e.interview_id,
+            "round": e.round.value if e.round else "",
+            "overall_score": e.overall_score,
+            "verdict": e.verdict.value if e.verdict else "",
+            "dimensions": json.loads(e.dimensions) if e.dimensions else {},
+            "key_observations": e.key_observations or "",
+            "red_flags": e.red_flags or "",
+            "feedback": e.feedback or "",
+            "created_at": e.created_at.isoformat() if e.created_at else "",
+        }
+
     def _to_dict(self, interview: Interview) -> dict:
-        """Interview ORM → dict。"""
         return {
             "id": interview.id,
             "candidate_id": interview.candidate_id,

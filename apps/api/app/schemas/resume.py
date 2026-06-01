@@ -47,6 +47,7 @@ class ResumeConfirmCreate(BaseModel):
     create_candidate: bool = True
     run_screening: bool = False
     job_id: str | None = None
+    user_id: str | None = None
 
 
 class ResumeConfirmResponse(BaseModel):

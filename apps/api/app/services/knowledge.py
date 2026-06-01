@@ -104,10 +104,13 @@ class KnowledgeService:
                 PointStruct(id=p["id"], vector=p["vector"], payload=p["payload"])
                 for p in points
             ]
-            await qdrant.upsert(
-                collection_name=KNOWLEDGE_COLLECTION,
-                points=point_objects,
-            )
+            try:
+                await qdrant.upsert(
+                    collection_name=KNOWLEDGE_COLLECTION,
+                    points=point_objects,
+                )
+            except Exception as e:
+                logger.warning("Qdrant upsert failed: %s", e)
 
         return {
             "document_id": doc_id,
@@ -129,11 +132,15 @@ class KnowledgeService:
             logger.warning("LLM embed failed for search: %s", e)
             return []
 
-        response = await qdrant.query_points(
-            collection_name=KNOWLEDGE_COLLECTION,
-            query=query_vector,
-            limit=top_k,
-        )
+        try:
+            response = await qdrant.query_points(
+                collection_name=KNOWLEDGE_COLLECTION,
+                query=query_vector,
+                limit=top_k,
+            )
+        except Exception as e:
+            logger.warning("Qdrant query_points failed: %s", e)
+            return []
 
         return [
             {
@@ -153,12 +160,6 @@ class KnowledgeService:
         if not sources or "error" in sources[0]:
             answer = "知识库检索失败，请检查 Qdrant 是否正常运行。"
             return {"answer": answer, "sources": sources}
-
-        if not sources:
-            return {
-                "answer": "文档中未找到相关信息。",
-                "sources": [],
-            }
 
         context_parts = []
         for s in sources:

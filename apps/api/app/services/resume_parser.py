@@ -55,7 +55,6 @@ def _parse_txt(file_bytes: bytes) -> str:
             return file_bytes.decode(encoding).strip()
         except (UnicodeDecodeError, UnicodeError):
             continue
-    return file_bytes.decode("utf-8", errors="replace").strip()
 
 
 def parse_resume(file_bytes: bytes, filename: str) -> str:
