@@ -1,10 +1,10 @@
 """职位 CRUD API。"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.response import success
+from app.core.response import success, error
 from app.schemas.job import JobCreate, JobRead, JobUpdate
 from app.schemas.common import ListResponse
 from app.services.job import JobService
@@ -32,7 +32,7 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
     service = JobService(db)
     job = await service.get_by_id(job_id)
     if not job:
-        raise HTTPException(404, detail="职位不存在")
+        return error("职位不存在", status_code=404)
     return success(job)
 
 
@@ -49,7 +49,7 @@ async def update_job(job_id: str, data: JobUpdate, db: AsyncSession = Depends(ge
     service = JobService(db)
     job = await service.update(job_id, data)
     if not job:
-        raise HTTPException(404, detail="职位不存在")
+        return error("职位不存在", status_code=404)
     return success(job)
 
 
@@ -59,5 +59,5 @@ async def delete_job(job_id: str, db: AsyncSession = Depends(get_db)):
     service = JobService(db)
     ok = await service.delete(job_id)
     if not ok:
-        raise HTTPException(404, detail="职位不存在")
+        return error("职位不存在", status_code=404)
     return success({"message": "职位已删除"})

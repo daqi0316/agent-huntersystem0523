@@ -1,12 +1,12 @@
 """设置 API。"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.setting import Setting
-from app.core.response import success
+from app.core.response import success, error
 from app.schemas.setting import SettingCreate, SettingRead, SettingUpdate
 
 router = APIRouter()
@@ -34,7 +34,7 @@ async def get_setting(key: str, db: AsyncSession = Depends(get_db)):
     )
     setting = result.scalar_one_or_none()
     if not setting:
-        raise HTTPException(404, detail="设置不存在")
+        return error("设置不存在", status_code=404)
     return success(setting)
 
 
@@ -69,7 +69,7 @@ async def delete_setting(key: str, db: AsyncSession = Depends(get_db)):
     )
     setting = result.scalar_one_or_none()
     if not setting:
-        raise HTTPException(404, detail="设置不存在")
+        return error("设置不存在", status_code=404)
 
     await db.delete(setting)
     await db.commit()

@@ -1,6 +1,6 @@
 """评估列表 API — 从 candidates + applications 聚合评估数据。"""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -8,7 +8,7 @@ from sqlalchemy.orm import joinedload
 from app.core.database import get_db
 from app.models.application import Application
 from app.models.candidate import Candidate
-from app.core.response import success
+from app.core.response import success, error
 from app.schemas.common import ListResponse
 
 router = APIRouter()
@@ -108,7 +108,7 @@ async def get_candidate_evaluation(
     )
     app = result.scalar_one_or_none()
     if not app:
-        raise HTTPException(404, detail="未找到该候选人的评估记录")
+        return error("未找到该候选人的评估记录", status_code=404)
 
     candidate = app.candidate
     return success({

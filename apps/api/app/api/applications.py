@@ -1,10 +1,10 @@
 """申请 CRUD API。"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.response import success
+from app.core.response import success, error
 from app.schemas.application import ApplicationCreate, ApplicationRead, ApplicationUpdate
 from app.schemas.common import ListResponse
 from app.services.application import ApplicationService
@@ -35,7 +35,7 @@ async def get_application(application_id: str, db: AsyncSession = Depends(get_db
     service = ApplicationService(db)
     application = await service.get_by_id(application_id)
     if not application:
-        raise HTTPException(404, detail="申请不存在")
+        return error("申请不存在", status_code=404)
     return success(application)
 
 
@@ -54,7 +54,7 @@ async def update_application(
     service = ApplicationService(db)
     application = await service.update(application_id, data)
     if not application:
-        raise HTTPException(404, detail="申请不存在")
+        return error("申请不存在", status_code=404)
     return success(application)
 
 
@@ -64,5 +64,5 @@ async def delete_application(application_id: str, db: AsyncSession = Depends(get
     service = ApplicationService(db)
     ok = await service.delete(application_id)
     if not ok:
-        raise HTTPException(404, detail="申请不存在")
+        return error("申请不存在", status_code=404)
     return success({"message": "申请已删除"})

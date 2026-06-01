@@ -32,18 +32,26 @@ class MemoryReadRequest(BaseModel):
     key: str = Field(..., min_length=1, max_length=128, description="记忆键")
 
 
-class MemoryEntryResponse(BaseModel):
-    success: bool = True
+class MemoryEntryData(BaseModel):
     key: str = ""
     value: dict = {}
     created_at: str = ""
     expires_at: str | None = None
 
 
-class MemoryKeysResponse(BaseModel):
+class MemoryEntryResponse(BaseModel):
     success: bool = True
+    data: MemoryEntryData
+
+
+class MemoryKeysData(BaseModel):
     session_id: str = ""
     keys: list[str] = []
+
+
+class MemoryKeysResponse(BaseModel):
+    success: bool = True
+    data: MemoryKeysData = MemoryKeysData()
 
 
 class MemoryDeleteRequest(BaseModel):
@@ -139,17 +147,17 @@ async def memory_read(req: MemoryReadRequest):
     if data is None:
         return MemoryEntryResponse(
             success=True,
-            key=req.key,
-            value={},
-            created_at="",
+            data=MemoryEntryData(key=req.key, value={}, created_at=""),
         )
 
     return MemoryEntryResponse(
         success=True,
-        key=data.get("key", req.key),
-        value=data.get("value", {}),
-        created_at=data.get("created_at", ""),
-        expires_at=data.get("expires_at"),
+        data=MemoryEntryData(
+            key=data.get("key", req.key),
+            value=data.get("value", {}),
+            created_at=data.get("created_at", ""),
+            expires_at=data.get("expires_at"),
+        ),
     )
 
 
@@ -162,10 +170,12 @@ async def memory_write(req: MemoryWriteRequest):
             data = await _write_to_redis(req.session_id, req.key, req.value, req.ttl)
             return MemoryEntryResponse(
                 success=True,
-                key=data["key"],
-                value=data["value"],
-                created_at=data["created_at"],
-                expires_at=data.get("expires_at"),
+                data=MemoryEntryData(
+                    key=data["key"],
+                    value=data["value"],
+                    created_at=data["created_at"],
+                    expires_at=data.get("expires_at"),
+                ),
             )
     except ConnectionError:
         pass
@@ -174,9 +184,11 @@ async def memory_write(req: MemoryWriteRequest):
     data = _fb_read(req.session_id, req.key)
     return MemoryEntryResponse(
         success=True,
-        key=data["key"],
-        value=data["value"],
-        created_at=data["created_at"],
+        data=MemoryEntryData(
+            key=data["key"],
+            value=data["value"],
+            created_at=data["created_at"],
+        ),
     )
 
 
@@ -188,9 +200,7 @@ async def memory_delete(req: MemoryDeleteRequest):
         ok = _fb_delete(req.session_id, req.key)
     return MemoryEntryResponse(
         success=ok,
-        key=req.key,
-        value={},
-        created_at="",
+        data=MemoryEntryData(key=req.key, value={}, created_at=""),
     )
 
 
@@ -202,6 +212,48 @@ async def memory_keys(req: MemoryKeysRequest):
         keys = _fb_list_keys(req.session_id)
     return MemoryKeysResponse(
         success=True,
-        session_id=req.session_id,
-        keys=keys,
+        data=MemoryKeysData(session_id=req.session_id, keys=keys),
     )
+
+
+class FactsRequest(BaseModel):
+    user_id: str
+    limit: int = 30
+
+
+class FactItem(BaseModel):
+    id: str
+    fact_type: str
+    verb: str
+    object_value: dict | None = None
+    created_at: str
+
+
+class FactsResponse(BaseModel):
+    success: bool = True
+    facts: list[FactItem] = []
+
+
+@router.post("/facts", response_model=FactsResponse)
+async def memory_facts(req: FactsRequest):
+    """查询用户的 PG 结构化记忆事实。"""
+    try:
+        from app.core.database import AsyncSessionLocal
+        from app.services.memory_fact import MemoryFactService
+
+        async with AsyncSessionLocal() as db:
+            svc = MemoryFactService(db)
+            facts = await svc._recent_facts(req.user_id, req.limit)
+            items = [
+                FactItem(
+                    id=f.id,
+                    fact_type=f.fact_type,
+                    verb=f.verb,
+                    object_value=f.object_value,
+                    created_at=f.created_at.isoformat() if f.created_at else "",
+                )
+                for f in facts
+            ]
+            return FactsResponse(success=True, facts=items)
+    except Exception as e:
+        return FactsResponse(success=False, facts=[])

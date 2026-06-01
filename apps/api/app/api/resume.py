@@ -2,10 +2,12 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_user_id
+from app.core.response import error
 from app.llm.omlx_client import OMLXClient
 from app.schemas.candidate import CandidateCreate
 from app.schemas.resume import (
@@ -30,26 +32,26 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 async def upload_resume(file: UploadFile = File(...)):
     """Step 1: 上传简历文件，解析为纯文本。"""
     if not file.filename:
-        raise HTTPException(400, detail="文件名不能为空")
+        return error("文件名不能为空", status_code=400)
 
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     supported = {"pdf", "docx", "doc", "txt"}
     if ext not in supported:
-        raise HTTPException(
-            400,
-            detail=f"不支持的文件格式 '.{ext}'，支持: {', '.join(sorted(supported))}",
+        return error(
+            f"不支持的文件格式 '.{ext}'，支持: {', '.join(sorted(supported))}",
+            status_code=400,
         )
 
     file_bytes = await file.read()
     if len(file_bytes) == 0:
-        raise HTTPException(400, detail="文件为空")
+        return error("文件为空", status_code=400)
     if len(file_bytes) > MAX_FILE_SIZE:
-        raise HTTPException(400, detail=f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB")
+        return error(f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB", status_code=400)
 
     try:
         plain_text = parse_resume(file_bytes, file.filename)
     except ResumeParseError as e:
-        raise HTTPException(422, detail=str(e))
+        return error(str(e), status_code=422)
 
     return ResumeUploadResponse(
         filename=file.filename,
@@ -63,16 +65,16 @@ async def upload_resume(file: UploadFile = File(...)):
 async def extract_resume(file: UploadFile = File(...)):
     """Step 2: 上传 + 解析 + LLM 结构化抽取，一步到位。"""
     if not file.filename:
-        raise HTTPException(400, detail="文件名不能为空")
+        return error("文件名不能为空", status_code=400)
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
-        raise HTTPException(400, detail=f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB")
+        return error(f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB", status_code=400)
 
     try:
         plain_text = parse_resume(file_bytes, file.filename)
     except ResumeParseError as e:
-        raise HTTPException(422, detail=str(e))
+        return error(str(e), status_code=422)
 
     try:
         candidate = await extract_from_text(plain_text)
@@ -93,13 +95,14 @@ async def extract_resume(file: UploadFile = File(...)):
 @router.post("/confirm-resume", response_model=ResumeConfirmResponse)
 async def confirm_resume(
     body: ResumeConfirmCreate,
+    user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Step 3: 确认抽取结果，创建候选人（可选运行 AI 初筛）。"""
     parsed = body.parsed
 
     if not parsed.email:
-        raise HTTPException(422, detail="邮箱不能为空，请手动补充")
+        return error("邮箱不能为空，请手动补充", status_code=422)
 
     # 创建候选人
     create_data = CandidateCreate(
@@ -119,8 +122,15 @@ async def confirm_resume(
         candidate = await service.create(create_data)
     except Exception as e:
         if "unique" in str(e).lower() or "duplicate" in str(e).lower():
-            raise HTTPException(409, detail=f"该邮箱已存在候选人: {parsed.email}")
-        raise HTTPException(500, detail=f"创建候选人失败: {e}")
+            return error(f"该邮箱已存在候选人: {parsed.email}", status_code=409)
+        return error(f"创建候选人失败: {e}", status_code=500)
+
+    try:
+        from app.services.recommendation_service import RecommendationService
+        rec_service = RecommendationService(db)
+        await rec_service.generate_recommendations(user_id)
+    except Exception as e:
+        logger.warning("Auto-recommendation trigger failed: %s", e)
 
     screening_result = None
     if body.run_screening and body.job_id:

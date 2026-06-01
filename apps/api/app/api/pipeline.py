@@ -20,6 +20,7 @@ from app.services.candidate import CandidateService
 from app.services.report import ReportService
 from app.services.screening import ScreeningService
 from app.core.response import success, error
+from app.core.sse import sse_event, sse_error, sse_timeout, sse_headers
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,6 +35,10 @@ PIPELINE_STEPS = [
 # ── 内存进度储存（生产环境请替换为 Redis） ──────────────────────────────
 
 _pipeline_store: dict[str, dict] = {}
+
+# SSE streaming constants (module-level for testability)
+_POLL_INTERVAL = 0.3
+_STREAM_TIMEOUT = 120
 
 
 def _update_pipeline_progress(task_id: str, status: str, current_step: str,
@@ -52,30 +57,39 @@ def _update_pipeline_progress(task_id: str, status: str, current_step: str,
 
 
 async def _progress_generator(task_id: str):
-    """SSE 事件生成器：逐步推送流水线进度，优先读取内存储存。"""
-    POLL_INTERVAL = 0.3
-    TIMEOUT = 120  # 最长等待 120s
+    """SSE 事件生成器：逐步推送流水线进度，优先读取内存储存。
+
+    标准 SSE 事件类型:
+        progress  — 进度更新 (running/parsing等状态)
+        complete  — 流水线完成
+        error     — 执行失败
+        timeout   — 连接超时
+    """
     elapsed = 0.0
 
-    while elapsed < TIMEOUT:
+    while elapsed < _STREAM_TIMEOUT:
         entry = _pipeline_store.get(task_id)
 
         if entry is None:
-            # 任务尚未开始 — 等待
-            await asyncio.sleep(POLL_INTERVAL)
-            elapsed += POLL_INTERVAL
+            await asyncio.sleep(_POLL_INTERVAL)
+            elapsed += _POLL_INTERVAL
             continue
 
-        yield f"data: {json.dumps(entry)}\n\n"
+        status = entry["status"]
+        if status == "completed":
+            yield sse_event("complete", entry)
+        elif status == "failed":
+            yield sse_event("error", entry)
+        else:
+            yield sse_event("progress", entry)
 
-        if entry["status"] == "completed" or entry["status"] == "failed":
+        if status in ("completed", "failed"):
             return
 
-        await asyncio.sleep(POLL_INTERVAL)
-        elapsed += POLL_INTERVAL
+        await asyncio.sleep(_POLL_INTERVAL)
+        elapsed += _POLL_INTERVAL
 
-    # 超时
-    yield f"data: {json.dumps({'pipeline_id': task_id, 'status': 'failed', 'progress': 0.0, 'current_step': 'timeout'})}\n\n"
+    yield sse_timeout()
 
 
 # ── 路由 ──────────────────────────────────────────────────────────────────
@@ -99,9 +113,9 @@ async def screen_resume(
     try:
         candidate = await candidate_service.start_screening(req.candidate_id)
     except ValueError as e:
-        raise HTTPException(400, detail=str(e))
+        return error(str(e), status_code=400)
     if not candidate:
-        raise HTTPException(404, detail="候选人不存在")
+        return error("候选人不存在", status_code=404)
 
     report = None
     gate_passed = False
@@ -223,11 +237,7 @@ async def pipeline_stream(task_id: str):
     return StreamingResponse(
         _progress_generator(task_id),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=sse_headers(),
     )
 
 

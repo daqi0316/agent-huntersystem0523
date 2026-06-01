@@ -26,11 +26,18 @@ class AgentToolCallInfo(BaseModel):
     error: str | None = None
 
 
+class AgentActionInfo(BaseModel):
+    agent: str = ""
+    status: str = ""
+    summary: str = ""
+
+
 class AgentChatResponse(BaseModel):
     success: bool = True
     reply: str = ""
     model: str = ""
     tool_calls: list[AgentToolCallInfo] = []
+    agent_actions: list[AgentActionInfo] = Field(default_factory=list, description="Orchestrator 编排的子任务执行记录")
 
 
 @router.post("/chat", response_model=AgentChatResponse)
@@ -52,6 +59,9 @@ async def agent_chat(
         model=result.get("model", ""),
         tool_calls=[
             AgentToolCallInfo(**tc) for tc in result["tool_calls"]
+        ] if result.get("tool_calls") else [],
+        agent_actions=[
+            AgentActionInfo(**ac) for ac in result.get("agent_actions", [])
         ],
     )
 

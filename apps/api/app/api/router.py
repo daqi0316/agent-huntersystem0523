@@ -8,6 +8,7 @@ from app.api.parallel import router as parallel_router
 from app.api.orchestrator import router as orchestrator_router
 from app.api.loop import router as loop_router
 from app.api.human_loop import router as human_loop_router
+from app.api.mcp_servers import router as mcp_servers_router
 from app.api.tools import router as tools_router
 from app.api.retrieval import router as retrieval_router
 from app.api.knowledge import router as knowledge_router
@@ -22,6 +23,12 @@ from app.api.evaluations import router as evaluations_router
 from app.api.dashboard_reports import router as dashboard_reports_router
 from app.api.resume import router as resume_router
 from app.api.summaries import router as summaries_router
+from app.api.screening import router as screening_router
+from app.api.conversation import router as conversation_router
+from app.api.recommendations import router as recommendations_router
+from app.api.operations import router as operations_router
+from app.api.audit import router as audit_router
+from app.api.tasks import router as tasks_router
 
 api_router = APIRouter()
 
@@ -49,6 +56,9 @@ api_router.include_router(loop_router, prefix="/loop", tags=["Loop"])
 
 # 图7: Human-in-Loop
 api_router.include_router(human_loop_router, prefix="/human-loop", tags=["Human Loop"])
+
+# MCP Server management
+api_router.include_router(mcp_servers_router, prefix="/mcp", tags=["MCP"])
 
 # MCP Tools
 api_router.include_router(tools_router, prefix="/tools", tags=["Tools"])
@@ -88,3 +98,15 @@ api_router.include_router(summaries_router, prefix="/summaries", tags=["Summarie
 
 # Dashboard Reports (extended)
 api_router.include_router(dashboard_reports_router, prefix="/dashboard", tags=["Dashboard"])
+
+api_router.include_router(screening_router, prefix="/screen", tags=["Screening"])
+
+# Conversation & Memory (multi-turn)
+api_router.include_router(conversation_router, prefix="/conversation", tags=["Conversation"])
+
+# Proactive Recommendations
+api_router.include_router(recommendations_router, prefix="/recommendations", tags=["Recommendations"])
+
+api_router.include_router(operations_router, prefix="/operations", tags=["Operations"])
+api_router.include_router(audit_router, prefix="/audit", tags=["Audit"])
+api_router.include_router(tasks_router, prefix="/tasks", tags=["Tasks"])

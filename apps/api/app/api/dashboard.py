@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user_id
+from app.core.response import success
+from app.models.operation_stats import OperationStatsHourly
 
 router = APIRouter()
 
@@ -33,8 +35,7 @@ async def dashboard_stats(
     # 近 30 天趋势
     trend = await _candidate_trend(db, days=30)
 
-    return {
-        "success": True,
+    return success({
         "kpis": [
             {"label": "候选人总数", "value": total_candidates or 0, "key": "candidates"},
             {"label": "招聘职位", "value": total_jobs or 0, "key": "jobs"},
@@ -43,7 +44,7 @@ async def dashboard_stats(
         ],
         "trend": trend,
         "recent_activities": recent_activities,
-    }
+    })
 
 
 async def _count(db: AsyncSession, table: str) -> int:
@@ -149,3 +150,109 @@ async def _candidate_trend(db: AsyncSession, days: int = 30) -> list[dict]:
         pass
 
     return points if points else [{"date": now.strftime("%m-%d"), "count": 0}]
+
+
+@router.get("/operations/summary")
+async def operation_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """AI 操作成功率摘要 — 过去 24h 各 Agent 指标。"""
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=24)
+
+    from sqlalchemy import select as sa_select
+
+    stmt = (
+        sa_select(OperationStatsHourly)
+        .where(OperationStatsHourly.bucket_hour >= since)
+        .order_by(OperationStatsHourly.bucket_hour.desc())
+    )
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+
+    by_agent: dict[str, dict] = {}
+    for r in rows:
+        key = r.agent_name
+        if key not in by_agent:
+            by_agent[key] = {
+                "agent_name": key,
+                "total_ops": 0, "success_count": 0, "fail_count": 0,
+                "system_error_count": 0, "durations": [],
+            }
+        s = by_agent[key]
+        s["total_ops"] += r.total_ops
+        s["success_count"] += r.success_count
+        s["fail_count"] += r.fail_count
+        s["system_error_count"] += r.system_error_count
+        if r.avg_duration_ms:
+            s["durations"].append(r.avg_duration_ms)
+
+    agents = []
+    for s in by_agent.values():
+        success_rate = round(s["success_count"] / s["total_ops"] * 100, 1) if s["total_ops"] > 0 else 0
+        avg_dur = round(sum(s["durations"]) / len(s["durations"]), 1) if s["durations"] else 0
+        agents.append({
+            "agent_name": s["agent_name"],
+            "total_ops": s["total_ops"],
+            "success_count": s["success_count"],
+            "fail_count": s["fail_count"],
+            "system_error_count": s["system_error_count"],
+            "success_rate": success_rate,
+            "avg_duration_ms": avg_dur,
+        })
+
+    total_ops = sum(a["total_ops"] for a in agents)
+    total_success = sum(a["success_count"] for a in agents)
+    overall_rate = round(total_success / total_ops * 100, 1) if total_ops > 0 else 0
+    system_errors = sum(a["system_error_count"] for a in agents)
+
+    return success({
+        "overall": {
+            "total_ops": total_ops,
+            "success_rate": overall_rate,
+            "system_errors": system_errors,
+            "period_hours": 24,
+        },
+        "agents": agents,
+    })
+
+
+@router.get("/operations/trend")
+async def operation_trend(
+    hours: int = 24,
+    db: AsyncSession = Depends(get_db),
+):
+    """AI 操作趋势 — 逐小时成功/失败/耗时折线数据。"""
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=hours)
+
+    from sqlalchemy import select as sa_select
+
+    stmt = (
+        sa_select(OperationStatsHourly)
+        .where(OperationStatsHourly.bucket_hour >= since)
+        .order_by(OperationStatsHourly.bucket_hour.asc())
+    )
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+
+    all_agents = list(set(r.agent_name for r in rows))
+    buckets: dict[str, dict] = {}
+    for r in rows:
+        ts = r.bucket_hour.strftime("%H:00")
+        if ts not in buckets:
+            buckets[ts] = {"hour": ts}
+        buckets[ts][f"{r.agent_name}_total"] = buckets[ts].get(f"{r.agent_name}_total", 0) + r.total_ops
+        buckets[ts][f"{r.agent_name}_success"] = buckets[ts].get(f"{r.agent_name}_success", 0) + r.success_count
+        buckets[ts][f"{r.agent_name}_fail"] = buckets[ts].get(f"{r.agent_name}_fail", 0) + r.fail_count
+        if r.avg_duration_ms:
+            prev = buckets[ts].get(f"{r.agent_name}_avg_dur", 0)
+            count = buckets[ts].get(f"{r.agent_name}_dur_count", 0)
+            buckets[ts][f"{r.agent_name}_avg_dur"] = (prev * count + r.avg_duration_ms) / (count + 1)
+            buckets[ts][f"{r.agent_name}_dur_count"] = count + 1
+
+    timeline = sorted(buckets.values(), key=lambda b: b["hour"])
+    return success({
+        "agents": all_agents,
+        "timeline": timeline,
+    })
