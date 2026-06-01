@@ -39,6 +39,8 @@ _INTENT_TO_NODE = {
     "onboarding": "execute_onboarding",
     "analytics": "execute_analytics",
     "report": "execute_analytics",
+    "knowledge_query": "end",
+    "orchestrator": "end",
     "chat": "end",
     "settings": "end",
 }
@@ -51,8 +53,13 @@ def _get_agent(agent_type: str):
 
 async def _intent_recognition(state: OrchestratorState) -> dict:
     text = state.get("input_text", "")
-    router = RouterAgent()
-    intent, _ = router._rule_classify(text)
+    try:
+        from app.agents.bootstrap import get_router
+        router = get_router()
+        intent = await router.classify({"text": text})
+    except Exception as e:
+        logger.warning("Router classify failed (%s), falling back to 'chat'", e)
+        intent = "chat"
     return {"intent": intent, "status": "running"}
 
 
