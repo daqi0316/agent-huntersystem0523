@@ -19,6 +19,7 @@ router = APIRouter()
 
 # --- 意图类型 ---
 INTENT_TYPES = [
+    "resume_parser",  # Added in Phase T.3
     "screening",
     "interview",
     "jd_generation",
@@ -48,6 +49,7 @@ class ClassifyResponse(BaseModel):
 
 # 每条规则: (关键词列表, 意图)
 _RULES: list[tuple[list[str], str]] = [
+    (["解析简历", "解析", "简历解析", "parse resume", "提取简历", "简历提取", "parse_resume", "resume parser"], "resume_parser"),
     (["筛选", "初筛", "简历筛选", "筛简历", "match resume", "screen"], "screening"),
     (["面试", "安排面试", "预约面试", "schedule interview", "interview"], "interview"),
     (["jd", "职位描述", "生成 jd", "写 jd", "招聘要求", "岗位描述", "generate jd"], "jd_generation"),
