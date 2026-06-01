@@ -57,6 +57,8 @@ class Settings(BaseSettings):
 
     langgraph_pg_dsn: str | None = None
 
+    use_orchestrator_graph: bool = False
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     def check_production_readiness(self) -> list[str]:

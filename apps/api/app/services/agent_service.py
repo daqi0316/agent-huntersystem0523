@@ -22,6 +22,37 @@ from app.tools import all_handlers as all_builtin_handlers, all_tools as all_bui
 
 logger = logging.getLogger(__name__)
 
+
+def _adapt_graph_result_to_legacy(graph_state: dict) -> dict:
+    """Adapt new orchestrator_graph.ainvoke() output to legacy route_single() format.
+
+    Phase V scaffolding (see .omo/plans/phase-v.md PR-V.3).
+    When settings.use_orchestrator_graph=True, the single-intent path uses the
+    new LangGraph state machine which returns OrchestratorState. This adapter
+    maps that shape back to the legacy {agent, status, summary, result} format
+    so _build_approval_response() and _summarize_orch_result() keep working.
+    """
+    intent = graph_state.get("intent", "") or "unknown"
+    status = graph_state.get("status", "completed")
+    error = graph_state.get("error")
+    agent_result = graph_state.get("agent_result") or {}
+
+    if error:
+        return {
+            "agent": intent,
+            "status": "failed",
+            "summary": f"Graph execution failed: {error}",
+            "result": {},
+        }
+
+    legacy_status = status if status in ("completed", "no_handler", "awaiting_approval") else "completed"
+    return {
+        "agent": intent,
+        "status": legacy_status,
+        "summary": agent_result.get("summary", "") if isinstance(agent_result, dict) else "",
+        "result": agent_result,
+    }
+
 _BUILTIN_INSTALL_TOOLS = [
     {
         "type": "function",
