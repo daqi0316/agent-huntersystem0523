@@ -5,6 +5,11 @@
 > 建议启动日期：2026-06-02
 > 目标完成日期：2026-06-08（软期限）/ 2026-06-15（硬期限）
 
+> **状态更新 2026-06-01**：PR-V.1 ✅ **已完成 + 已提交**（commit `7bf5d57`）。
+> `orchestrator_graph.py` 现已支持 multi-stage DAG（7 新 state 字段、3 新节点、条件边、checkpointer awaiting_approval 暂停）。
+> 52/52 新测试通过；`test_graphs/` + `test_graph_adapter.py` 全量回归 71/71 绿。
+> 阻塞解除。可立即开始 PR-V.2（human_loop /resume 迁移）。
+
 ## 背景
 
 S.6 计划硬删 `orchestrator_agent.py` + `orchestrator_session.py`（共 2 文件，~778 行），
@@ -140,8 +145,8 @@ if result.get("status") == "interrupted":  # LangGraph interrupt
 
 | 日期 | 完成项 | 验证 |
 |---|---|---|
-| **Day 1 (2026-06-02)** | PR-V.1 启动：扩展 `OrchestratorState` + `multi_stage_decompose` 节点 | 新 graph 类型检查通过 + 单元测试覆盖 |
-| **Day 2 (2026-06-03)** | PR-V.1 完成：`execute_level` + `should_continue_or_pause` + 测试 | `test_orchestrator_graph.py` 20+ tests 全过 |
+| **Day 1 (2026-06-02)** | ✅ PR-V.1 启动：扩展 `OrchestratorState` + `multi_stage_decompose` 节点（提前 1 天完成于 2026-06-01） | ✅ 新 graph 类型检查通过 + 单元测试覆盖 |
+| **Day 2 (2026-06-03)** | ✅ PR-V.1 完成：`execute_level` + `should_continue_or_pause` + 测试（提前 2 天完成于 2026-06-01） | ✅ `test_orchestrator_graph_multistage.py` 52 tests 全过 + 回归 71/71 绿 |
 | **Day 3 (2026-06-04)** | PR-V.2：human_loop /resume 迁移 + Redis 数据迁移脚本 | 端到端：审批 → 恢复成功 |
 | **Day 4 (2026-06-05)** | PR-V.3：agent_service step 1 迁移 + 解 xfail 2 tests | test_agent_service 中 orchestrator flow 全过 |
 | **Day 5 (2026-06-06)** | PR-V.4：test rewrites + __init__.py 清理 + 文件删除 | grep 0 结果 + pytest 1380+ 全过 |

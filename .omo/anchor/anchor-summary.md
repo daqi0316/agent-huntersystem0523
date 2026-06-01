@@ -1,48 +1,70 @@
 # Anchored Summary
 
 ## SHORT VERSION
-Revived Docker infrastructure, fixed `SharedMemory.clear()` Redis bug, and added 68 new unit tests (60 in 4 new files + 8 extending human_loop_api). All 96 tests across improved files pass. Coverage already at 92% — the old plan's 71.58% figure was stale.
+**Phase V PR-V.1 shipped**: extended `apps/api/app/graphs/orchestrator_graph.py` with multi-stage DAG support (7 new state fields, 3 new nodes, conditional edge, awaiting_approval pause via checkpointer). 52 new tests in `test_orchestrator_graph_multistage.py` — all 52 pass. Full regression: 71/71 across `test_graphs/` + `test_graph_adapter.py`. Committed as `7bf5d57`.
 
 ## WHAT WE ARE BUILDING
 AI Recruitment System — FastAPI + Next.js 14 monorepo with 6 Agent patterns (Pipeline, Router, Orchestrator with DAG, Aggregator, GenEvalLoop, HumanLoop), dual LLM support, PostgreSQL/Redis/Qdrant storage, and RAG-powered candidate screening.
 
+Phase V is the sunset-migration plan: retire legacy `orchestrator.py` + `OrchestratorSession` in favor of the new LangGraph-based `orchestrator_graph.py` (file added in commit `a8b0212`). PR-V.1 = multi-stage DAG support, the most complex 2-day item.
+
 ## CURRENT STATE
-Infrastructure fully operational (Postgres, Redis, Qdrant on Docker). 68 new tests added this session — all 96 tests across 6 improved files pass clean. Pre-existing `test_shared_memory_clear` failure fixed (SharedMemory.clear() wasn't clearing Redis). Coverage at 92%. Remaining cosmetic warnings reduced from 14 to 3.
+PR-V.1 complete and committed. The new `orchestrator_graph` now handles:
+- Multi-stage input detection (via `RouterAgent.is_multi_intent` keywords)
+- Decomposition (`OrchestratorAgent.decompose` + `build_dag`)
+- Parallel level execution (`asyncio.gather`)
+- Awaiting_approval pause (state-based via `paused_at_level` + `status`)
+- Checkpointer state preservation (all 7 multi-stage fields survive across `ainvoke` calls)
+- Conditional routing (`should_continue_or_pause` → next level or END)
+
+PR-V.2 (next): `human_loop /resume` endpoint migration — uses `graph.update_state` + `graph.ainvoke(None, config)` to consume the checkpointed state from PR-V.1.
 
 ## KEY METRICS
-- Total tests passing: ~1271+ (was 1203 baseline, +68 new, 1 previously failing now fixed)
-- New tests this session: 68 (60 in 4 new files + 8 in extended file)
-- Coverage: 92%
-- Known remaining issues: None
-- Warnings: 3 (cosmetic async-mark on sync tests in test_mcp_servers_api.py)
+- PR-V.1 tests: 52/52 pass
+- Regression: 71/71 pass (`test_graphs/` + `test_graph_adapter.py`)
+- New state fields: 7 (`multi_stage`, `sub_tasks`, `current_level`, `levels`, `paused_at_level`, `results`, `shared_context`)
+- New nodes: 3 (`multi_stage_decompose`, `execute_level`, `should_continue_or_pause`)
+- New helpers: 5 (`_TYPE_TO_AGENT`, `_is_multi_stage_text`, `_normalize_sub_task_result`, `_build_sub_task_input`, `_update_shared_context`)
+- Graph size: 11 nodes total (was 8 before PR-V.1)
+- Commit: `7bf5d57` (1 ahead of `a8b0212`)
 
 ## RECENT CHANGES
-- **Infrastructure revival**: Brought Docker services up, ran Alembic migrations
-- **SharedMemory.clear() bug fix**: `clear()` was not clearing Redis — now calls `redis_agent.flushdb()` properly
-- **test_prompts.py**: New file — 7 tests for load_prompt caching, file-not-found, read errors, reload, available prompts listing
-- **test_base_agent.py**: New file — 15 tests for BaseAgent init, name derivation, system_prompt lazy loading/caching/setter, format_result, run interface
-- **test_orchestrator_session.py**: New file — 22 tests for session init, to_dict/from_dict, Redis persistence (save/delete/load), find_by_approval_id
-- **test_mcp_servers_api.py**: New file — 16 tests for server-to-read parsing, full CRUD endpoints, connection test endpoints
-- **test_human_loop_api.py extended**: Fixed AsyncMock usage (was MagicMock for async methods), corrected `items`→`data` key, added 8 tests for resume-after-approval flow, hash_pending, and resume edge cases. Removed SSE streaming tests (hang due to asyncio.sleep polling).
-- **Fixed test patch targets**: Orchestrator session tests now patch `app.core.redis.get_redis` (was `app.agents.orchestrator_session.get_redis` — broken due to lazy imports)
-- **Fixed MCP server tests**: Changed protocol `"stdio"` → `"sse"` (schema validation), fixed mock_db fixture to use `app.dependency_overrides`, fixed response mock data to match MCPToolDef schema
-- **Cleaned up warnings**: Removed `pytestmark = pytest.mark.asyncio` from test_orchestrator_session.py (sync tests were incorrectly marked), changed `db.add` from AsyncMock to MagicMock in MCP server tests
+- **PR-V.1 multi-stage DAG** (`7bf5d57`):
+  - Extended `OrchestratorState` with 7 multi-stage fields
+  - Added 3 new node functions + 5 helpers
+  - Added `make_initial_orchestrator_state()` factory
+  - Rewired `create_orchestrator_graph()` to add `multi_stage_decompose → execute_level (loop) → END` path
+  - `_intent_recognition` now checks `RouterAgent.is_multi_intent` first
+  - `_decide_route` routes to `multi_stage_decompose` when `multi_stage=True`
+  - State-based pause (not native `interrupt_before`) — keeps single-intent's interrupt untouched
+  - `if not levels: levels = [list(range(len(sub_tasks)))]` defensive rebuild handles empty-subtask edge case from `build_dag`
+- **New test file `test_orchestrator_graph_multistage.py`**: 52 tests covering state helpers, multi-stage detection, decompose (with mocked `OrchestratorAgent`), level execution (parallel `asyncio.gather`), conditional routing, awaiting_approval pause, end-to-end graph flows, and checkpointer state preservation
 
 ## NEXT STEPS (Actionable)
-1. Fix the remaining 3 `pytestmark = pytest.mark.asyncio` warnings in test_mcp_servers_api.py (cosmetic — sync tests in async-marked file)
-2. Run full test suite (excluding infra-dependent tests) to check for regressions beyond the 6 improved files
-3. Investigate why full `pytest tests/` suite times out (likely a test connecting to infrastructure that hangs)
-4. Optionally extend coverage beyond 92% by targeting any remaining low-coverage modules
+1. **PR-V.2** — Migrate `human_loop /resume` endpoint to use `graph.update_state` + `graph.ainvoke(None, config)` (2-3 days per phase-v.md)
+2. **PR-V.3** — Verify `_adapt_graph_result_to_legacy` adapter handles multi-stage results (test_graph_adapter.py already covers it; should be green)
+3. **PR-V.4** — Delete legacy `orchestrator.py` + `OrchestratorSession` + 846-line `test_orchestrator.py` after all API callers migrated
+4. Update `.omo/plans/phase-v.md` to mark PR-V.1 as ✅ done (1 day ahead of soft target 2026-06-08)
+5. Optional: clean up remaining 3 `pytestmark` warnings in `test_mcp_servers_api.py` (cosmetic, pre-existing)
 
 ## CRITICAL CONTEXT
-- The old completion plan's 71.58% coverage target was already exceeded — coverage is at 92%
-- Infrastructure must be running for full test suite (Postgres, Redis, Qdrant)
-- Remaining low-coverage files are minimal
-- This session focused on test coverage + bug fixing after the PRD v2 research phase
+- `OrchestratorState` (in `orchestrator_graph.py`) is NOT `TaskState` (in `app/core/state.py`) — different TypedDicts, different fields, different factories
+- `make_initial_orchestrator_state()` is the correct factory for `OrchestratorState`; do NOT use `make_initial_task_state()` for the new graph
+- Multi-stage pause is state-based (`paused_at_level` + `status="awaiting_approval"`), NOT via LangGraph `interrupt_before` — this was a deliberate choice to keep single-intent's native interrupt untouched
+- `with_interrupt=False` is the test fixture mode (no native interrupt for multi-stage flow); `with_interrupt=True` adds `interrupt_before` for single-intent nodes
+- Test pattern: `graph = create_orchestrator_graph(checkpointer=MemorySaver(), with_interrupt=False)`
+- `RouterAgent.is_multi_intent(text)` keywords: `["然后", "并且", "同时", "之后", "接着", "先", "再", "首先", "最后", "并", "and", "then", "also", "after", "meanwhile", "next"]`
+- `OrchestratorAgent._needs_human_review(result, task_type)` is a static method — must be patched in tests
+- PR-V.1 PR-V.2 contract: PR-V.1's checkpointer must preserve `paused_at_level`, `status`, `sub_tasks`, `levels`, `results` so PR-V.2 can re-invoke with `graph.ainvoke(None, config)` after `update_state`
+- Branch: `main`, 28 commits ahead of `origin/main`, 1 untracked file `AI招聘Agent内置命令规划.md` (not part of PR-V.1)
+- Python: `apps/api/.venv/bin/python` (3.14.3) — no system `python` in PATH
+- Background explore/librarian agents FAIL with "Insufficient balance" — rely on direct tool reads
 
 ## COMMAND HISTORY (this session)
-- `docker compose up -d` — started Postgres, Redis, Qdrant, MinIO
-- `alembic upgrade head` — ran database migrations
-- `pytest tests/ -v --tb=short` — baseline run (1203 pass, 1 fail)
-- Created 4 new test files + extended 1 existing file
-- Multiple `pytest` runs for iterative fix-verify cycles
+- `pytest apps/api/tests/test_graphs/test_orchestrator_graph_multistage.py --tb=short` — 52/52 pass
+- `pytest apps/api/tests/test_graphs/ apps/api/tests/test_graph_adapter.py --tb=short` — 71/71 pass
+- `git add apps/api/app/graphs/orchestrator_graph.py apps/api/tests/test_graphs/test_orchestrator_graph_multistage.py`
+- `git commit -m "feat(graph): PR-V.1 multi-stage DAG support for orchestrator_graph"` → `7bf5d57`
+- `git log --oneline -3` — confirmed commit
+- LSP `basedpyright` not installed — fallback to `pytest` + `ast.parse` for verification
+- Background agents `bg_e11b7c52` + `bg_70d3f28a` both FAILED with billing error — direct tool reads substituted
