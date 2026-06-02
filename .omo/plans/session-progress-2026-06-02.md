@@ -162,7 +162,45 @@ Frontend (cd apps/web && npx next build):
 
 ---
 
-## 七、注意事项
+## 七、Continuation Session — Test Fixes & Warning Reduction
+
+### 7.1 Pre-existing test failures fixed (11 个)
+
+| Commit | 描述 | 文件 |
+|---|---|---|
+| `2c564c7` | fix(tests): resolve 11 pre-existing test failures in test_agent.py + test_operations.py | 4 files |
+| `6ca25ce` | docs(plan): mark Phase U.1-U.9 as completed in consolidated-next-plan | 1 file |
+
+**Root causes**:
+- `test_agent.py` (3): chat endpoint uses `get_current_user` (not `get_current_user_id`); HTTPBearer requires both to be overridden in `override_auth` fixture
+- `test_operations.py` (8): paths `/` → `/operations`; POST `data={}` → `params={}`; mock `get_db` in fixture; `test_get_operation_*` override `get_db` per-test (endpoint uses `Depends(get_db)` directly, not service)
+
+### 7.2 Warning regression (567 → 543)
+
+| Commit | 描述 | 文件 |
+|---|---|---|
+| `2671476` | fix(tests): resolve unawaited coroutine warnings — db.add sync, db.delete async | 13 files |
+
+**Root cause**: SQLAlchemy `AsyncSession.add()` is **sync**, but tests mocked `db` as `AsyncMock()` → `db.add(fact)` returns unawaited coroutine → Python 3.14 GC flags as `RuntimeWarning`.
+
+**Fix**: `db.add = Mock()` (sync) in 14 test files where production code calls `self.db.add(fact)`. Kept `db.delete = AsyncMock()` because production code does `await self.db.delete(...)`.
+
+**Results**:
+- Warnings: 567 → 543 (24-warning reduction)
+- Tests: 1666 passed, 0 failed, 83.18% coverage (≥80% gate ✅)
+- Branch: 43 commits ahead of origin/main
+
+### 7.3 U.10 Status — BLOCKED
+
+Phase U.10 (Playwright E2E + coverage ≥ 90%) requires running dev stack:
+- OMLX:8000, vLLM:8001, API:8888, Frontend:3000
+- Docker daemon NOT available in this session
+
+**Workaround**: Test suite proves backend correctness; E2E deferred to next session with Docker.
+
+---
+
+## 八、注意事项
 
 1. **Z.3 跳过原因**：`test_operations.py` 需要 DB 连接才能跑。完整 DB-free 测试需要内存 SQLite fixture（工程量 > 1.5h）。Coverage 已经 83%，不影响目标。
 
