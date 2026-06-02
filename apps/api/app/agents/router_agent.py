@@ -32,7 +32,6 @@ INTENT_TYPES = [
     "analytics",
 ]
 
-# 关键词规则: (关键词列表, 意图) — 降级用
 _RULES: list[tuple[list[str], str]] = [
     (["解析简历", "解析", "简历解析", "parse resume", "提取简历", "简历提取", "parse_resume"], "resume_parser"),
     (["筛选", "初筛", "简历筛选", "筛简历", "match resume", "screen"], "screening"),
@@ -42,7 +41,7 @@ _RULES: list[tuple[list[str], str]] = [
     (["候选人", "找候选人", "搜索候选人", "candidate", "人才搜索", "找人"], "candidate_search"),
     (["报表", "报告", "数据统计", "统计", "report", "数据看板", "dashboard"], "report"),
     (["设置", "配置", "密码", "个人信息", "settings", "偏好"], "settings"),
-    (["聊天", "对话", "你好", "hello", "hi", "help", "帮助", "现在几点", "几点", "时间", "日期", "天气", "日程"], "chat"),
+    (["聊天", "对话", "你好", "hello", "hi", "help", "帮助", "现在几点", "几点", "时间", "日期", "天气", "日程", "明天", "后天", "预报", "未来", "明天天气", "后天天气"], "chat"),
     (["offer", "录用", "发 offer", "薪酬", "谈薪", "薪资", "offering"], "offering"),
     (["入职", "onboarding", "迎新", "入职流程", "转正", "培训", "上岗"], "onboarding"),
     (["数据", "统计", "kpi", "漏斗", "渠道", "analytics", "仪表盘"], "analytics"),
@@ -66,7 +65,6 @@ class RouterAgent(BaseAgent):
         return self._llm
 
     def is_multi_intent(self, text: str) -> bool:
-        """检测是否包含多意图（需要 Orchestrator 编排）。"""
         text_lower = text.lower()
         for kw in _MULTI_INTENT_KEYWORDS:
             if kw in text_lower:
@@ -82,7 +80,6 @@ class RouterAgent(BaseAgent):
         return False
 
     def register_route(self, intent: str, agent: BaseAgent) -> None:
-        """注册路由，同时写入本地缓存和 AgentRegistry。"""
         self.routes[intent] = agent
         try:
             from app.agents.registry import AgentRegistry
@@ -91,7 +88,6 @@ class RouterAgent(BaseAgent):
             pass
 
     def get_available_intents(self) -> list[str]:
-        """返回当前所有已注册的意图（含 AgentRegistry 中的）。"""
         local = set(self.routes.keys())
         try:
             from app.agents.registry import AgentRegistry
@@ -102,10 +98,7 @@ class RouterAgent(BaseAgent):
             pass
         return list(local | set(INTENT_TYPES))
 
-    # ── LLM 辅助 ──
-
     async def _llm_json_chat(self, user_prompt: str, temperature: float = 0.1, max_tokens: int = 50) -> dict | None:
-        """调用 LLM（system_prompt from prompts/router.md）并解析 JSON。"""
         try:
             messages = [
                 {"role": "system", "content": self.system_prompt},
@@ -129,11 +122,9 @@ class RouterAgent(BaseAgent):
             return None
 
     def _rule_classify(self, text: str) -> tuple[str, float]:
-        """关键词规则匹配。返回 (intent, confidence)。"""
         text_lower = text.lower()
         best_intent = "chat"
         best_score = 0.0
-
         for keywords, intent in _RULES:
             score = 0.0
             for kw in keywords:
@@ -142,12 +133,10 @@ class RouterAgent(BaseAgent):
             if score > best_score:
                 best_score = score
                 best_intent = intent
-
         confidence = min(best_score, 0.95)
         return best_intent, confidence
 
     async def _llm_classify(self, text: str) -> tuple[str, float]:
-        """LLM 增强意图分类（使用 self.system_prompt）。失败时降级到规则匹配。"""
         if self.system_prompt:
             try:
                 user_prompt = (
@@ -162,19 +151,15 @@ class RouterAgent(BaseAgent):
                         return intent, 0.97
             except Exception:
                 pass
-
-        # 降级到规则匹配
         return self._rule_classify(text)
 
     async def classify(self, input_data: dict) -> str:
-        """分类用户输入，返回意图类型。如果检测到多意图返回 orchestrator。"""
         text = input_data.get("text", "")
         use_llm = input_data.get("use_llm", True)
 
         if not text:
             return "chat"
 
-        # 多意图检测 → 交给 Orchestrator
         if self.is_multi_intent(text):
             return "orchestrator"
 
@@ -183,7 +168,6 @@ class RouterAgent(BaseAgent):
         else:
             intent, _ = self._rule_classify(text)
 
-        # 防御：规则认为应该 chat，但 LLM 给了其他意图 → 信任规则
         rule_intent, rule_score = self._rule_classify(text)
         if rule_intent == "chat" and rule_score > 0.3 and intent != "chat":
             logger.info("Router: rule override LLM (%s -> chat) for input: %s", intent, text[:50])

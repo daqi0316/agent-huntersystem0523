@@ -16,7 +16,7 @@ _TOOL_SEARCH = {
     "type": "function",
     "function": {
         "name": "web_search",
-        "description": "搜索互联网上的最新信息。当用户询问新闻、实时数据、知识类问题时使用。",
+        "description": "搜索互联网上的最新信息。当用户询问新闻、实时数据、未来天气预报、知识类问题时使用。",
         "parameters": {
             "type": "object",
             "properties": {
