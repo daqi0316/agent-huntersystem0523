@@ -20,24 +20,21 @@ class TestVLLMClientChat:
 
 
 class TestWebSearchMissingTitle:
-    @patch("app.skills.web_search.skill.httpx.AsyncClient")
+    @patch("tavily.TavilyClient")
     async def test_skip_missing_title_element(self, mock_client_cls):
         from app.skills.web_search.skill import _web_search
 
-        mock_client = AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
-        mock_resp = Mock()
-        mock_resp.text = """<html><body>
-<div class="result">
-  <div class="result__snippet">no title here</div>
-</div>
-<div class="result">
-  <div class="result__title"><a href="https://ex.com/2">Title 2</a></div>
-  <div class="result__snippet">Snippet 2</div>
-</div>
-</body></html>"""
-        mock_client.get.return_value = mock_resp
+        mock_client = Mock()
+        mock_client_cls.return_value = mock_client
+        # Simulate Tavily result where first source has no title
+        mock_client.search.return_value = {
+            "answer": "",
+            "results": [
+                {"title": "", "content": "Content without title"},  # should be skipped
+                {"title": "Title 2", "content": "Content 2"},
+            ],
+        }
 
         results = await _web_search("test")
         assert len(results) == 1
-        assert results[0]["title"] == "Title 2"
+        assert "Title 2" in results[0]["answer"]

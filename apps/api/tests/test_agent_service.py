@@ -66,7 +66,10 @@ class TestToolDefinitions:
         assert len(_BUILTIN_TOOLS) >= 10  # 11 builtins (9 hiring, install_skill, list_skills)
 
     def test_builtin_tool_names(self):
-        names = {t["function"]["name"] for t in _BUILTIN_TOOLS if "function" in t}
+        # install_skill + list_skills live in _BUILTIN_INSTALL_TOOLS (agent_service.py:63),
+        # combined into the full list only via _get_tools() (agent_service.py:137).
+        all_tools = _get_tools()
+        names = {t["function"]["name"] for t in all_tools if "function" in t}
         for required in ["search_candidates", "get_candidate", "screen_resume",
                          "list_jobs", "generate_jd", "schedule_interview",
                          "get_dashboard_stats", "search_knowledge", "get_evaluations",

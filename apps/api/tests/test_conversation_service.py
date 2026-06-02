@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import uuid4
 
 import pytest
@@ -194,6 +194,7 @@ class TestConversationServiceAddMessage:
     @pytest.mark.asyncio
     async def test_add_message(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = ConversationService(db)
         result = await svc.add_message("s1", "u1", "user", "hello")
         assert result.session_id == "s1"
@@ -215,6 +216,7 @@ class TestConversationServiceAddMessages:
     @pytest.mark.asyncio
     async def test_add_messages(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = ConversationService(db)
         messages = [
             {"session_id": "s1", "user_id": "u1", "role": "user", "content": "hi"},
