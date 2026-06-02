@@ -24,18 +24,20 @@ async def _handle_cancel_interview(interview_id: str = "", reason: str = "") -> 
 
 
 async def _handle_schedule_interview(candidate_id="", job_id="", scheduled_time="", notes=""):
-    from app.schemas.candidate import InterviewCreate
+    slot = {
+        "type": "video",
+        "scheduled_at": scheduled_time or datetime.now(timezone.utc).isoformat(),
+        "notes": notes,
+    }
     async with AsyncSessionLocal() as db:
+        from app.services.interview import InterviewService
         svc = InterviewService(db)
-        data = InterviewCreate(
-            candidate_id=candidate_id,
-            job_id=job_id,
-            scheduled_at=scheduled_time or datetime.now(timezone.utc).isoformat(),
-            type="video",
-            notes=notes,
-        )
-        interview = await svc.create(data)
-        return {"id": interview.id, "status": "scheduled"}
+        result = await svc.schedule(candidate_id, job_id, slot)
+        if result is None:
+            return {"id": None, "status": "failed", "error": {"code": "NOT_FOUND", "message": "候选人不存在"}}
+        if result.get("error"):
+            return result
+        return {"id": result["id"], "status": "scheduled"}
 
 
 async def _handle_record_feedback(interview_id="", score=0, evaluation=""):
