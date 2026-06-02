@@ -42,10 +42,10 @@ _RULES: list[tuple[list[str], str]] = [
     (["候选人", "找候选人", "搜索候选人", "candidate", "人才搜索", "找人"], "candidate_search"),
     (["报表", "报告", "数据统计", "统计", "report", "数据看板", "dashboard"], "report"),
     (["设置", "配置", "密码", "个人信息", "settings", "偏好"], "settings"),
-    (["聊天", "对话", "你好", "hello", "hi", "help", "帮助"], "chat"),
+    (["聊天", "对话", "你好", "hello", "hi", "help", "帮助", "现在几点", "几点", "时间", "日期", "天气", "日程"], "chat"),
     (["offer", "录用", "发 offer", "薪酬", "谈薪", "薪资", "offering"], "offering"),
     (["入职", "onboarding", "迎新", "入职流程", "转正", "培训", "上岗"], "onboarding"),
-    (["数据", "统计", "分析", "kpi", "漏斗", "渠道", "analytics", "仪表盘"], "analytics"),
+    (["数据", "统计", "kpi", "漏斗", "渠道", "analytics", "仪表盘"], "analytics"),
 ]
 
 _MULTI_INTENT_KEYWORDS = ["然后", "并且", "同时", "之后", "接着", "先", "再", "首先", "最后", "and", "then", "also"]
@@ -182,6 +182,12 @@ class RouterAgent(BaseAgent):
             intent, _ = await self._llm_classify(text)
         else:
             intent, _ = self._rule_classify(text)
+
+        # 防御：规则认为应该 chat，但 LLM 给了其他意图 → 信任规则
+        rule_intent, rule_score = self._rule_classify(text)
+        if rule_intent == "chat" and rule_score > 0.3 and intent != "chat":
+            logger.info("Router: rule override LLM (%s -> chat) for input: %s", intent, text[:50])
+            intent = "chat"
 
         return intent
 

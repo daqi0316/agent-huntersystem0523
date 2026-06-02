@@ -148,11 +148,11 @@ def _get_handlers() -> dict[str, callable]:
         for tool in state.tools_cache:
             name = tool.get("name")
             if name and name not in handlers:
-                server_id = sid
-                tool_name = name
-                async def _mcp_handler(**kwargs):
-                    return await mcp_manager.call_tool(server_id, tool_name, kwargs)
-                handlers[name] = _mcp_handler
+                def make_handler(sid_val, tn_val):
+                    async def _mcp_handler(**kwargs):
+                        return await mcp_manager.call_tool(sid_val, tn_val, kwargs)
+                    return _mcp_handler
+                handlers[name] = make_handler(sid, name)
     if SKILLS_ENABLED:
         handlers.update(_get_skill_tool_handlers())
     return handlers

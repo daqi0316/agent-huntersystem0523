@@ -17,7 +17,7 @@ async def _handle_get_dashboard_stats():
     async with AsyncSessionLocal() as db:
         total_candidates = (await db.execute(text("SELECT COUNT(*) FROM candidates"))).scalar() or 0
         total_jobs = (await db.execute(text("SELECT COUNT(*) FROM job_positions"))).scalar() or 0
-        active_interviews = (await db.execute(text("SELECT COUNT(*) FROM interviews WHERE status = 'scheduled'"))).scalar() or 0
+        active_interviews = (await db.execute(text("SELECT COUNT(*) FROM interviews WHERE status = 'SCHEDULED'"))).scalar() or 0
         return {
             "total_candidates": total_candidates,
             "total_jobs": total_jobs,
