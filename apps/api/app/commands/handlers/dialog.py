@@ -44,7 +44,6 @@ def _data(handler: str, **kw: Any) -> dict[str, Any]:
 async def handle_new(args: list[str], flags: dict, context: CommandContext) -> CommandResult:
     """创建新会话 — ConversationService.create_session + 设为当前."""
     title = " ".join(args) if args else "新对话"
-
     if not context.db:
         return CommandResult.error(
             CommandErrorCode.NOT_IMPLEMENTED,
@@ -65,7 +64,7 @@ async def handle_new(args: list[str], flags: dict, context: CommandContext) -> C
                 logger.warning("Redis session tracking failed: %s", e)
 
         return CommandResult.success(
-            f"已创建新会话 {session.id[:8]}...",
+            f"✅ 新会话已创建：{session.title or '新对话'}",
             data=_data("new", session_id=session.id, title=session.title),
         )
     except Exception as e:

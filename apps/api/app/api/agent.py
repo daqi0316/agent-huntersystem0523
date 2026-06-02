@@ -3,7 +3,8 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.core.dependencies import get_current_user, get_current_user_id
+from app.core.dependencies import get_current_user, get_current_user_id, get_db
+from app.core.database import AsyncSession
 from app.commands import CommandContext, role_to_permissions
 from app.schemas.jd_generator import JDGenerateRequest, JDGenerateResponse
 from app.schemas.knowledge import KnowledgeQueryRequest, KnowledgeQueryResponse
@@ -47,6 +48,7 @@ class AgentChatResponse(BaseModel):
 async def agent_chat(
     req: AgentChatRequest,
     current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     messages = list(req.history) + [{"role": "user", "content": req.message}]
     command_ctx = CommandContext(
@@ -54,6 +56,7 @@ async def agent_chat(
         user_id=current_user["user_id"],
         permissions=role_to_permissions(current_user.get("role")),
         user_role=current_user.get("role"),
+        db=db,
     )
     result = await chat_with_tools(
         messages,

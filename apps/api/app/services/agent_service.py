@@ -620,6 +620,7 @@ async def chat_with_tools(
             user_id=user_id or "",
             permissions=command_context.permissions if command_context else [],
             user_role=command_context.user_role if command_context else None,
+            db=command_context.db if command_context else None,
         )
         result = await executor.execute(last_user_msg.strip(), ctx)
         if result.action == "passthrough":
