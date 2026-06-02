@@ -152,10 +152,13 @@ def assemble(bundle: PromptBundle) -> str:
     - 9 段按固定顺序拼接（SOUL → MEMORY → USER → PROJECT → AGENT → SAFETY → ENV → EPHEMERAL）
     - 跳过空字符串段
     - 分隔符：`\\n\\n---\\n\\n`（让 LLM 看到清晰段落）
+    - EPHEMERAL_ENABLED=true 时，bundle.ephemeral 由 thread-local 覆盖层决定
 
     Returns:
         完整 system prompt 字符串（全空时返回 ""）
     """
+    from app.agents.prompts.ephemeral import get_ephemeral_text, is_ephemeral_enabled
+
     parts = [
         bundle.soul,
         bundle.memory,
@@ -164,6 +167,15 @@ def assemble(bundle: PromptBundle) -> str:
         bundle.agent,
         bundle.safety,
         bundle.env,
-        bundle.ephemeral,
     ]
+
+    if is_ephemeral_enabled():
+        thread_text = get_ephemeral_text()
+        if thread_text:
+            parts.append(thread_text)
+        elif bundle.ephemeral:
+            parts.append(bundle.ephemeral)
+    elif bundle.ephemeral:
+        parts.append(bundle.ephemeral)
+
     return "\n\n---\n\n".join(p for p in parts if p)
