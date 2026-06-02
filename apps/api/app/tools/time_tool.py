@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as tz
 
 
-async def _handle_get_current_time(tz_name: str = "Asia/Shanghai") -> str:
+async def _handle_get_current_time(timezone: str = "Asia/Shanghai") -> str:
     tz_map = {
         "Asia/Shanghai": 8,
         "Asia/Tokyo": 9,
@@ -16,9 +17,9 @@ async def _handle_get_current_time(tz_name: str = "Asia/Shanghai") -> str:
         "Europe/Paris": 1,
         "UTC": 0,
     }
-    offset = tz_map.get(tz_name, 8)
-    now = datetime.now(timezone.utc) + timedelta(hours=offset)
-    return f"当前时间 ({tz_name}): {now.strftime('%Y-%m-%d %H:%M:%S')}"
+    offset = tz_map.get(timezone, 8)
+    now = datetime.now(tz.utc) + timedelta(hours=offset)
+    return f"当前时间 ({timezone}): {now.strftime('%Y-%m-%d %H:%M:%S')}"
 
 
 tools = [
