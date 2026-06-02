@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -48,9 +48,9 @@ from app.models.application import Application, ApplicationStatus
 
 @pytest.fixture
 def mock_db() -> AsyncMock:
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, Mock
     db = AsyncMock()
-    db.add = AsyncMock()
+    db.add = Mock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
     db.rollback = AsyncMock()

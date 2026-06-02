@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -1502,7 +1502,7 @@ class TestBackgroundRecordPreferences:
             return_value="prefers_skill = Python\nprefers_location = Shanghai"
         )
         mock_db = MagicMock()
-        mock_db.add = AsyncMock()
+        mock_db.add = Mock()
         mock_db.commit = AsyncMock()
         mock_ctx = MagicMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)

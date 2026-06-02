@@ -31,7 +31,7 @@ async def mock_db_session():
     """通用 AsyncMock, 用于 audit / executor 测试."""
     from unittest.mock import AsyncMock, MagicMock
     db = AsyncMock()
-    db.add = AsyncMock()
+    db.add = Mock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
     db.rollback = AsyncMock()

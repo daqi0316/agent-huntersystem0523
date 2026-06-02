@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -42,6 +42,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_unknown_tool_returns_empty(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result("u1", "s1", "unknown_tool", {}, {})
         assert result == []
@@ -49,6 +50,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_unknown_tool_returns_empty(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result("u1", "s1", "nonexistent_tool", {}, {})
         assert result == []
@@ -57,6 +59,7 @@ class TestRecordToolResult:
     async def test_fact_builder_exception_returns_empty(self) -> None:
         """When the fact-builder fn itself raises, the whole thing returns []."""
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         # Pass a type that makes _fact_screen_resume choke on missing keys
         bad_result = "not_a_dict"
@@ -71,6 +74,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_record_search_candidates(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result(
             "u1", "s1",
@@ -86,6 +90,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_record_get_candidate(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result(
             "u1", "s1",
@@ -100,6 +105,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_record_screen_resume(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result(
             "u1", "s1",
@@ -115,6 +121,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_record_schedule_interview(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result(
             "u1", "s1",
@@ -129,6 +136,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_record_list_jobs(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result(
             "u1", "s1",
@@ -143,6 +151,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_record_viewed_dashboard(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result(
             "u1", "s1",
@@ -156,6 +165,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_record_search_knowledge(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result(
             "u1", "s1",
@@ -169,6 +179,7 @@ class TestRecordToolResult:
     @pytest.mark.asyncio
     async def test_record_get_evaluations(self) -> None:
         db = AsyncMock()
+        db.add = Mock()
         svc = MemoryFactService(db)
         result = await svc.record_tool_result(
             "u1", "s1",

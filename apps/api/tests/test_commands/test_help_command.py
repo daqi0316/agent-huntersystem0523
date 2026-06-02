@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -266,7 +266,7 @@ class TestStubCommands:
 
         mock_db = AsyncMock(spec=AsyncSession)
         ctx.db = mock_db
-        mock_db.add = AsyncMock()
+        mock_db.add = Mock()
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -12,7 +12,7 @@ from app.commands.audit import CommandAuditService, fire_and_forget
 @pytest.fixture
 def mock_db() -> AsyncMock:
     db = AsyncMock()
-    db.add = AsyncMock()
+    db.add = Mock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
     db.rollback = AsyncMock()

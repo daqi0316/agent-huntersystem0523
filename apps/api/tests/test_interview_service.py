@@ -1,6 +1,6 @@
 """Interview service tests: scheduling, conflict detection, status transitions."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -18,7 +18,7 @@ class TestInterviewServiceUnit:
 
         mock_db = MagicMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.add = AsyncMock()
+        mock_db.add = Mock()
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
 
@@ -248,7 +248,7 @@ class TestInterviewServiceUnit:
 
         mock_db = MagicMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.add = AsyncMock()
+        mock_db.add = Mock()
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
 
@@ -270,7 +270,7 @@ class TestInterviewServiceUnit:
 
         mock_db = MagicMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.add = AsyncMock()
+        mock_db.add = Mock()
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
 

@@ -262,11 +262,11 @@ class TestHandleCancel:
 
     @pytest.mark.asyncio
     async def test_cancel_with_mock_db(self, ctx: CommandContext) -> None:
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock, MagicMock, Mock
         from sqlalchemy.ext.asyncio import AsyncSession
 
         mock_db = AsyncMock(spec=AsyncSession)
-        mock_db.add = AsyncMock()
+        mock_db.add = Mock()
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
         ctx.db = mock_db
