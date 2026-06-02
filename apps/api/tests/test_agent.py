@@ -22,10 +22,12 @@ def client(app):
 
 @pytest.fixture
 def override_auth(app):
-    from app.core.dependencies import get_current_user_id
+    """Override auth deps for /chat (uses get_current_user) and /generate-jd, /knowledge-query (use get_current_user_id)."""
+    from app.core.dependencies import get_current_user_id, get_current_user
     app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": "user-1", "role": "user"}
     yield
-    app.dependency_overrides.pop(get_current_user_id, None)
+    app.dependency_overrides.clear()
 
 
 # ──────────────────────────────────────────────

@@ -60,12 +60,14 @@ class TestOperationsAPIRoutes:
 
     @pytest.fixture
     def svc_client(self):
-        """Create a test client with OperationService patched and no real DB."""
+        """Create a test client with mocked auth + DB deps. No real Postgres needed."""
         from fastapi import FastAPI
+        from app.core.database import get_db
 
         test_app = FastAPI()
         test_app.include_router(router, prefix="/operations")
         test_app.dependency_overrides[get_current_user_id] = lambda: "test-user-1"
+        test_app.dependency_overrides[get_db] = lambda: AsyncMock()
 
         with TestClient(test_app) as client:
             yield client
@@ -83,8 +85,8 @@ class TestOperationsAPIRoutes:
 
         with patch("app.api.operations.OperationService", return_value=mock_svc):
             resp = svc_client.post(
-                "/",
-                data={
+                "/operations",
+                params={
                     "action": "create_candidate",
                     "agent_name": "hr",
                     "status": "completed",
@@ -110,8 +112,8 @@ class TestOperationsAPIRoutes:
 
         with patch("app.api.operations.OperationService", return_value=mock_svc):
             resp = svc_client.post(
-                "/",
-                data={
+                "/operations",
+                params={
                     "action": "schedule_interview",
                     "status": "pending",
                 },
@@ -132,8 +134,8 @@ class TestOperationsAPIRoutes:
 
         with patch("app.api.operations.OperationService", return_value=mock_svc):
             resp = svc_client.post(
-                "/",
-                data={
+                "/operations",
+                params={
                     "action": "screening",
                     "status": "failed",
                     "error_category": "rate_limit_exceeded",
@@ -147,7 +149,7 @@ class TestOperationsAPIRoutes:
         mock_svc.list = AsyncMock(return_value=([], 0))
 
         with patch("app.api.operations.OperationService", return_value=mock_svc):
-            resp = svc_client.get("/")
+            resp = svc_client.get("/operations")
             assert resp.status_code == 200
             data = resp.json()
             assert data["success"] is True
@@ -171,7 +173,7 @@ class TestOperationsAPIRoutes:
         mock_svc.list = AsyncMock(return_value=([mock_op], 1))
 
         with patch("app.api.operations.OperationService", return_value=mock_svc):
-            resp = svc_client.get("/?agent_name=router_agent&status=completed")
+            resp = svc_client.get("/operations?agent_name=router_agent&status=completed")
             assert resp.status_code == 200
             data = resp.json()
             assert data["success"] is True
@@ -184,12 +186,14 @@ class TestOperationsAPIRoutes:
         mock_svc.list = AsyncMock(return_value=([], 50))
 
         with patch("app.api.operations.OperationService", return_value=mock_svc):
-            resp = svc_client.get("/?limit=20&offset=40")
+            resp = svc_client.get("/operations?limit=20&offset=40")
             assert resp.status_code == 200
             data = resp.json()
             assert data["data"]["total"] == 50
 
     def test_get_operation_found(self, svc_client):
+        from app.core.database import get_db
+
         mock_op = MagicMock()
         mock_op.id = "op-found"
         mock_op.agent_name = "router_agent"
@@ -202,29 +206,31 @@ class TestOperationsAPIRoutes:
         mock_op.created_at.isoformat.return_value = "2026-06-02T10:00:00"
         mock_op.updated_at.isoformat.return_value = "2026-06-02T10:00:01"
 
-        mock_result = AsyncMock()
+        mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_op
 
-        mock_svc = AsyncMock()
-        mock_svc.db.execute = AsyncMock(return_value=mock_result)
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        svc_client.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.operations.OperationService", return_value=mock_svc):
-            resp = svc_client.get("/op-found")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["success"] is True
-            assert data["data"]["id"] == "op-found"
-            assert data["data"]["duration_ms"] == 50
+        resp = svc_client.get("/operations/op-found")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["id"] == "op-found"
+        assert data["data"]["duration_ms"] == 50
 
     def test_get_operation_not_found(self, svc_client):
-        mock_result = AsyncMock()
+        from app.core.database import get_db
+
+        mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
 
-        mock_svc = AsyncMock()
-        mock_svc.db.execute = AsyncMock(return_value=mock_result)
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        svc_client.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.operations.OperationService", return_value=mock_svc):
-            resp = svc_client.get("/op-nonexistent")
-            assert resp.status_code == 404
-            data = resp.json()
-            assert data["success"] is False
+        resp = svc_client.get("/operations/op-nonexistent")
+        assert resp.status_code == 404
+        data = resp.json()
+        assert data["success"] is False
