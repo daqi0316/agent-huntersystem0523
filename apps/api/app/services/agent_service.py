@@ -90,7 +90,7 @@ _BUILTIN_INSTALL_TOOLS = [
     },
 ]
 
-_BUILTIN_TOOLS = all_builtin_tools() + _BUILTIN_INSTALL_TOOLS
+_BUILTIN_TOOLS = all_builtin_tools()
 _BUILTIN_TOOLS_END = len(all_builtin_tools())
 _BUILTIN_HANDLERS: dict[str, callable] = {}
 
@@ -134,7 +134,7 @@ async def _register_builtins():
 
 
 def _get_tools() -> list[dict]:
-    tools = _BUILTIN_TOOLS + all_skill_tools() + mcp_manager.get_all_tools()
+    tools = _BUILTIN_TOOLS + _BUILTIN_INSTALL_TOOLS + all_skill_tools() + mcp_manager.get_all_tools()
     if SKILLS_ENABLED:
         tools = tools + _get_skill_tool_schemas()
     return tools
@@ -142,7 +142,6 @@ def _get_tools() -> list[dict]:
 
 def _get_handlers() -> dict[str, callable]:
     handlers = dict(_BUILTIN_HANDLERS)
-    handlers.update(all_builtin_handlers())
     handlers.update(all_skill_handlers())
     for sid, state in mcp_manager._servers.items():
         for tool in state.tools_cache:

@@ -125,7 +125,7 @@ def _reload():
     importlib.reload(importlib.import_module("app.skills"))
 
 
-def installed_list() -> list[dict]:
+async def installed_list() -> list[dict]:
     from app.skills import discover_skills
     return [
         {"name": n, "description": s.description,
