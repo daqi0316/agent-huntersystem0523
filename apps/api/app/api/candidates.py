@@ -134,12 +134,12 @@ async def candidate_timeline(candidate_id: str, db: AsyncSession = Depends(get_d
         })
 
     from app.models.interview_evaluation import InterviewEvaluation
-    ev_result = await db.execute(
-        select(InterviewEvaluation).where(InterviewEvaluation.interview_id.in_(
-            [iv.id for iv in interviews]
-        )) if interviews else select(InterviewEvaluation).where(False)
-    )
     try:
+        ev_result = await db.execute(
+            select(InterviewEvaluation).where(InterviewEvaluation.interview_id.in_(
+                [iv.id for iv in interviews]
+            )) if interviews else select(InterviewEvaluation).where(False)
+        )
         evaluations = list(ev_result.scalars().all())
     except Exception:
         evaluations = []

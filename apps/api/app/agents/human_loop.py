@@ -278,10 +278,8 @@ class HumanLoopAgent(BaseAgent):
     async def _pending_purge_all(self) -> None:
         logger.warning("Emergency stop: cancelling all pending approvals")
         async with AsyncSessionLocal() as db:
-            from sqlalchemy import update as sa_update, and_
-            stmt = (
-                sa_update(type("tmp", (), {"__tablename__": "approvals"})())
-                .where(type("tmp", (), {"status": "pending"})())
-            )
+            from sqlalchemy import update as sa_update
+            from app.models.approval import Approval
+            stmt = sa_update(Approval).where(Approval.status == ApprovalStatus.PENDING)
             await db.execute(stmt)
             await db.commit()

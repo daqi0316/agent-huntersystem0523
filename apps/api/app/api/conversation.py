@@ -12,7 +12,7 @@
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -125,7 +125,6 @@ async def get_session(
     svc = ConversationService(db)
     session = await svc.get_session(session_id)
     if not session or session.user_id != user_id:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="会话不存在")
     count = await svc.get_session_message_count(session.id)
     return SessionResponse(
@@ -146,7 +145,6 @@ async def delete_session(
     svc = ConversationService(db)
     session = await svc.get_session(session_id)
     if not session or session.user_id != user_id:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="会话不存在")
     await svc.delete_session(session_id)
     return DeleteResponse()
@@ -163,7 +161,6 @@ async def update_session(
     svc = ConversationService(db)
     session = await svc.get_session(session_id)
     if not session or session.user_id != user_id:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="会话不存在")
 
     if req.title is not None:
@@ -192,7 +189,6 @@ async def get_messages(
     svc = ConversationService(db)
     session = await svc.get_session(session_id)
     if not session or session.user_id != user_id:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="会话不存在")
     msgs = await svc.get_history(session_id, limit=limit, before_id=before_id)
     return MessageListResponse(
@@ -258,7 +254,6 @@ async def screen_chat(
     svc = ConversationService(db)
     session = await svc.get_session(session_id)
     if not session or session.user_id != user_id:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="会话不存在")
 
     from app.models.candidate import Candidate

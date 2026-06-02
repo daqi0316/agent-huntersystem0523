@@ -57,7 +57,7 @@ def cleanup_temp_file(path: str) -> None:
             os.remove(path)
             logger.debug("Cleaned up temp file: %s", path)
     except OSError as e:
-        logger.warning("Failed to cleanup temp file %s: %e", path, e)
+        logger.warning("Failed to cleanup temp file %s: %s", path, e)
 
 
 def file_exists(path: str) -> bool:
