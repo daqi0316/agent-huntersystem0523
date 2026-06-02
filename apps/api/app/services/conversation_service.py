@@ -105,7 +105,15 @@ class ConversationService:
         tool_calls: list[dict] | None = None,
         tool_result: dict | None = None,
     ) -> ConversationMessage:
-        """追加一条对话消息。"""
+        """追加一条对话消息，自动创建 session 如果不存在。"""
+        session = await self.get_session(session_id)
+        if not session:
+            session = ConversationSession(
+                id=session_id,
+                user_id=user_id,
+                title=f'会话 {session_id[:8]}',
+            )
+            self.db.add(session)
         msg = ConversationMessage(
             id=str(uuid.uuid4()),
             session_id=session_id,

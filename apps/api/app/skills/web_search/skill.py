@@ -1,16 +1,11 @@
-"""互联网搜索 Skill — 通过 DuckDuckGo 免费搜索接口获取实时信息。"""
+"""互联网搜索 Skill — 通过 Tavily API 联网搜索实时信息。"""
 
 import logging
-from urllib.parse import quote_plus
-
-import httpx
-from bs4 import BeautifulSoup
+import os
 
 from app.skills.base import Skill
 
 logger = logging.getLogger(__name__)
-
-_DDG_URL = "https://html.duckduckgo.com/html/?q={query}"
 
 _TOOL_SEARCH = {
     "type": "function",
@@ -22,11 +17,11 @@ _TOOL_SEARCH = {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "搜索关键词，尽量具体（如「2026 年诺贝尔奖」「今日比特币价格」）",
+                    "description": "搜索关键词，尽量具体（如「2026 年诺贝尔奖」「今日比特币价格」）。",
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": "返回结果数量上限（默认 5）",
+                    "description": "返回结果数量上限（默认 5）。",
                     "default": 5,
                 },
             },
@@ -37,44 +32,47 @@ _TOOL_SEARCH = {
 
 
 async def _web_search(query: str, max_results: int = 5) -> list[dict]:
-    """通过 DuckDuckGo HTML 搜索获取结果。"""
-    url = _DDG_URL.format(query=quote_plus(query))
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-    }
+    """通过 Tavily API 搜索互联网实时信息。"""
+    from tavily import TavilyClient
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(url, headers=headers, follow_redirects=True)
-        resp.raise_for_status()
+    api_key = os.getenv("TAVILY_API_KEY", "")
+    if not api_key:
+        return [{"error": "TAVILY_API_KEY 未配置，请联系管理员。"}]
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    results = []
+    try:
+        client = TavilyClient(api_key=api_key)
+        result = client.search(
+            query,
+            max_results=max_results,
+            include_answer=True,
+            include_raw_content=False,
+        )
 
-    for item in soup.select(".result"):
-        if len(results) >= max_results:
-            break
+        answer = result.get("answer", "")
+        sources = result.get("results", [])
 
-        title_el = item.select_one(".result__title a")
-        snippet_el = item.select_one(".result__snippet")
+        output_parts = []
+        if answer:
+            output_parts.append(f"【直接答案】{answer}")
 
-        if not title_el:
-            continue
+        for i, source in enumerate(sources[:max_results]):
+            title = source.get("title", "")
+            content = source.get("content", "")
+            if title and content:
+                output_parts.append(f"{i + 1}. {title}: {content[:200]}...")
 
-        results.append({
-            "title": title_el.get_text(strip=True),
-            "url": title_el.get("href", ""),
-            "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
-        })
+        if not output_parts:
+            return [{"info": "未找到相关结果，请尝试其他关键词。"}]
 
-    return results if results else [{"info": "未找到相关结果，请尝试修改关键词。"}]
+        return [{"answer": "\n".join(output_parts), "sources": sources}]
+
+    except Exception as e:
+        logger.error("Tavily web_search failed: %s", e)
+        return [{"error": f"搜索出错：{e}"}]
 
 
 class WebSearchSkill(Skill):
-    """互联网搜索技能。"""
+    """互联网搜索技能 — 基于 Tavily API。"""
 
     @property
     def name(self) -> str:
