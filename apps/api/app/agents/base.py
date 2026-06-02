@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import abc
 import logging
+import os
 import time
 from typing import Any
 
 from app.agents.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
+
+ENABLE_LAYERED_PROMPT = os.getenv("ENABLE_LAYERED_PROMPT", "false").lower() == "true"
 
 
 class BaseAgent(abc.ABC):
@@ -165,11 +168,34 @@ class BaseAgent(abc.ABC):
         return self._derive_name()
 
     def _load_system_prompt(self) -> str:
-        """从 prompts/ 目录加载对应的 System Prompt。"""
+        """从 prompts/ 目录加载对应的 System Prompt。
+
+        v1 支持两种模式（env flag 控制）:
+        - ENABLE_LAYERED_PROMPT=false（默认）: 仅加载该 Agent 自己的 .md（向后兼容）
+        - ENABLE_LAYERED_PROMPT=true: 使用 6 层组装（SOUL + MEMORY + USER + AGENT + SAFETY + ENV）
+        """
         prompt_name = self._derive_name()
-        content = load_prompt(prompt_name)
-        if content:
-            logger.debug("Loaded system prompt for '%s' (%d chars)", self.name, len(content))
-        else:
-            logger.debug("No system prompt file for '%s', using empty", self.name)
+
+        if not ENABLE_LAYERED_PROMPT:
+            content = load_prompt(prompt_name)
+            if content:
+                logger.debug("Loaded legacy system prompt for '%s' (%d chars)", self.name, len(content))
+            else:
+                logger.debug("No system prompt file for '%s', using empty", self.name)
+            return content
+
+        from app.agents.prompts.prompt_builder import build_layered_prompt, assemble
+
+        user_id = getattr(self, "_user_id", "default") or "default"
+        context = {"time": time.strftime("%Y-%m-%d %H:%M:%S")}
+        bundle = build_layered_prompt(
+            user_id=user_id,
+            active_agent=prompt_name,
+            context=context,
+        )
+        content = assemble(bundle)
+        logger.debug(
+            "Loaded layered system prompt for '%s' (user=%s, %d chars)",
+            self.name, user_id, len(content),
+        )
         return content
