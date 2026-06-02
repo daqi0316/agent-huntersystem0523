@@ -12,6 +12,7 @@ from app.core.prompts import SYSTEM_PROMPT
 import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -93,7 +94,32 @@ _BUILTIN_TOOLS = all_builtin_tools() + _BUILTIN_INSTALL_TOOLS
 _BUILTIN_TOOLS_END = len(all_builtin_tools())
 _BUILTIN_HANDLERS: dict[str, callable] = {}
 
-_BUILTIN_HANDLERS: dict[str, callable] = {}
+SKILLS_ENABLED = os.getenv("SKILLS_ENABLED", "false").lower() == "true"
+
+_tool_registry = None
+
+def _get_tool_registry():
+    global _tool_registry
+    if _tool_registry is None:
+        from app.agents.prompts import tool_registry
+        _tool_registry = tool_registry
+        if SKILLS_ENABLED:
+            _tool_registry.enable_skills()
+        else:
+            _tool_registry.disable_skills()
+    return _tool_registry
+
+def _get_skill_tool_schemas() -> list[dict]:
+    return _get_tool_registry().get_tools_schema("openai")
+
+def _get_skill_tool_handlers() -> dict[str, callable]:
+    reg = _get_tool_registry()
+    if not reg.is_skills_enabled():
+        return {}
+    return {"load_skill": _skill_tool_handler}
+
+async def _skill_tool_handler(name: str) -> str:
+    return await _get_tool_registry().call_tool("load_skill", {"name": name})
 
 
 async def _register_builtins():
@@ -108,7 +134,10 @@ async def _register_builtins():
 
 
 def _get_tools() -> list[dict]:
-    return _BUILTIN_TOOLS + all_skill_tools() + mcp_manager.get_all_tools()
+    tools = _BUILTIN_TOOLS + all_skill_tools() + mcp_manager.get_all_tools()
+    if SKILLS_ENABLED:
+        tools = tools + _get_skill_tool_schemas()
+    return tools
 
 
 def _get_handlers() -> dict[str, callable]:
@@ -124,6 +153,8 @@ def _get_handlers() -> dict[str, callable]:
                 async def _mcp_handler(**kwargs):
                     return await mcp_manager.call_tool(server_id, tool_name, kwargs)
                 handlers[name] = _mcp_handler
+    if SKILLS_ENABLED:
+        handlers.update(_get_skill_tool_handlers())
     return handlers
 
 
