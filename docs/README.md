@@ -28,6 +28,7 @@
 |---|---|
 | [AI_招聘系统_MCP_工具系统设计文档_v2.md](../AI_招聘系统_MCP_工具系统设计文档_v2.md) | MCP 工具系统设计（**实施以 Phase T 为准**）|
 | [LangGraph任务快照.md](../LangGraph任务快照.md) | LangGraph 任务快照与编排示例（**实施以 Phase S 为准**）|
+| [architecture-diagrams.md](architecture-diagrams.md) | **14 张 Mermaid 图** — 系统架构、6 层分层、Orchestrator 单意图/多阶段 DAG、ResumeParser 7 步、3 张时序图、15 表 ER、前后端地图、Background loops、设计模式 |
 
 ## 四、实施路线
 
