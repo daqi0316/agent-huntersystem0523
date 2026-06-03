@@ -96,7 +96,7 @@ class OperationService:
             "operation_id": op.id,
             "agent_name": op.agent_name,
             "action": op.action,
-            "status": op.status.value,
+            "status": op.status.value if hasattr(op.status, 'value') else op.status,
             "timestamp": op.created_at.isoformat() if op.created_at else "",
         })
         return op
@@ -130,6 +130,7 @@ class OperationService:
         if new_status in (OperationStatus.COMPLETED, OperationStatus.FAILED):
             op.duration_ms = (datetime.now(timezone.utc) - op.created_at).total_seconds() * 1000
         op.updated_at = datetime.now(timezone.utc)
+        status_val = new_status.value
         await self.db.commit()
         await self.db.refresh(op)
 
@@ -137,7 +138,7 @@ class OperationService:
             "operation_id": op.id,
             "agent_name": op.agent_name,
             "action": op.action,
-            "status": op.status.value,
+            "status": status_val,
             "error_category": op.error_category or "",
             "output_summary": op.output_summary or "",
             "error_message": op.error_message or "",

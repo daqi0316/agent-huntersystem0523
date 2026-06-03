@@ -56,7 +56,7 @@ async def _handle_log_operation(
             "data": {
                 "operation_id": op.id,
                 "action": op.action,
-                "status": op.status.value,
+                "status": op.status.value if hasattr(op.status, 'value') else op.status,
                 "created_at": op.created_at.isoformat() if op.created_at else "",
             },
         }

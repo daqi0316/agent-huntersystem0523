@@ -29,7 +29,7 @@ class OperationLog(Base):
     __tablename__ = "operation_logs"
 
     id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()),
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4()),
     )
     user_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
@@ -37,7 +37,7 @@ class OperationLog(Base):
     agent_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[OperationStatus] = mapped_column(
-        SAEnum(OperationStatus, name="operation_status"), nullable=False, default=OperationStatus.PENDING, index=True,
+        String(17), nullable=False, default=OperationStatus.PENDING, index=True,
     )
     error_category: Mapped[str | None] = mapped_column(
         String(16), nullable=True, index=True,
