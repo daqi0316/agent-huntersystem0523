@@ -24,12 +24,12 @@ class OMLXClient(LLMClient):
 
     async def chat(self, messages: list[dict], **kwargs) -> str:
         raise_on_error = kwargs.pop("raise_on_error", False)
+        extra_body = kwargs.pop("extra_body", None)
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                **kwargs,
-            )
+            create_kwargs = dict(model=self.model, messages=messages, **kwargs)
+            if extra_body:
+                create_kwargs["extra_body"] = extra_body
+            response = await self.client.chat.completions.create(**create_kwargs)
             return response.choices[0].message.content or ""
         except Exception as e:
             logger.warning("LLM chat failed: %s", e)

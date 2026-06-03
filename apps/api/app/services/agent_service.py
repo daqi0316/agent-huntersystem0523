@@ -782,6 +782,7 @@ async def chat_with_tools(
                 tool_choice="auto",
                 temperature=temperature,
                 max_tokens=max_tokens,
+                extra_body={"thinking": {"type": "disabled"}},
             )
             break
         except Exception as e:
@@ -863,6 +864,7 @@ async def chat_with_tools(
             messages=msgs2,
             temperature=temperature,
             max_tokens=max_tokens,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         reply = final.choices[0].message.content or ""
 
