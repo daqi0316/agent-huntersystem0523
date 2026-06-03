@@ -20,6 +20,7 @@ from app.llm import get_llm_client
 from app.llm.retry import llm_chat_with_retry
 from app.mcp.manager import mcp_manager
 from app.skills import all_handlers as all_skill_handlers, all_tools as all_skill_tools
+from app.skills.gallery import get_gallery_tools, get_gallery_handlers
 from app.tools import all_handlers as all_builtin_handlers, all_tools as all_builtin_tools
 from app.tools.metadata import get_metadata, get_max_retries, should_escalate, EscalationMode
 
@@ -80,12 +81,40 @@ _BUILTIN_INSTALL_TOOLS = [
             },
         },
     },
-    {
+        {
         "type": "function",
         "function": {
             "name": "list_skills",
             "description": "列出当前已安装的所有 Skill。",
             "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "install_skill_from_url",
+            "description": "从 GitHub URL 安装 Claude Code skill（如 https://github.com/eze-is/web-access）。使用 npx skills add 或 git clone 方式安装。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "GitHub 仓库 URL，如 https://github.com/eze-is/web-access"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "install_gallery_skill",
+            "description": "从 GitHub URL 或本地文件安装 Gallery-style skill（如 github-issues）。自动解析 SKILL.md 并生成 Python 工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "skill 来源：GitHub URL 或本地文件路径，如 https://github.com/NousResearch/hermes-agent 或 /path/to/SKILL.md"},
+                },
+                "required": ["source"],
+            },
         },
     },
 ]
@@ -122,19 +151,49 @@ async def _skill_tool_handler(name: str) -> str:
     return await _get_tool_registry().call_tool("load_skill", {"name": name})
 
 
+
+
+async def _do_gallery_install(source: str) -> dict:
+    """Handle install_gallery_skill tool call — supports both URL and local path."""
+    from app.skills.gallery import (
+        install_gallery_skill_from_url,
+        install_gallery_skill_from_path,
+    )
+    if source.startswith("http://") or source.startswith("https://"):
+        return await install_gallery_skill_from_url(source)
+    else:
+        return await install_gallery_skill_from_path(source)
+
+
+async def _do_list_gallery() -> list[dict]:
+    """Handle list_gallery_skills tool call."""
+    from app.skills.gallery import list_gallery_skills
+    return await list_gallery_skills()
+
 async def _register_builtins():
     if _BUILTIN_HANDLERS:
         return
     from app.skills.installer import install_skill as _do_install, installed_list as _do_list
+    from app.tools.skill_tool import handle_install_skill_from_url
+    from app.skills.gallery import (
+        install_gallery_skill_from_url,
+        install_gallery_skill_from_path,
+        list_gallery_skills,
+        get_gallery_tools,
+        get_gallery_handlers,
+    )
     _BUILTIN_HANDLERS.update({
         "install_skill": _do_install,
         "list_skills": _do_list,
+        "install_skill_from_url": handle_install_skill_from_url,
+        "install_gallery_skill": _do_gallery_install,
+        "list_gallery_skills": _do_list_gallery,
     })
     _BUILTIN_HANDLERS.update(all_builtin_handlers())
 
 
 def _get_tools() -> list[dict]:
-    tools = _BUILTIN_TOOLS + _BUILTIN_INSTALL_TOOLS + all_skill_tools() + mcp_manager.get_all_tools()
+    tools = _BUILTIN_TOOLS + _BUILTIN_INSTALL_TOOLS + all_skill_tools() + get_gallery_tools() + mcp_manager.get_all_tools()
     if SKILLS_ENABLED:
         tools = tools + _get_skill_tool_schemas()
     return tools
@@ -143,6 +202,7 @@ def _get_tools() -> list[dict]:
 def _get_handlers() -> dict[str, callable]:
     handlers = dict(_BUILTIN_HANDLERS)
     handlers.update(all_skill_handlers())
+    handlers.update(get_gallery_handlers())
     for sid, state in mcp_manager._servers.items():
         for tool in state.tools_cache:
             name = tool.get("name")
@@ -757,7 +817,9 @@ async def chat_with_tools(
                 if not handler:
                     last_error = f"Unknown tool: {tool_name}"
                     break
-                result = await handler(**args)
+                result = handler(**args)
+                if asyncio.iscoroutine(result):
+                    result = await result
                 if isinstance(result, dict) and result.get("status") == "failed":
                     err = result.get("error", {})
                     err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
