@@ -75,6 +75,35 @@ export function AgentEventStreamBridge() {
       });
     });
 
+    const unsubChat = subscribe("chat_response", (data) => {
+      const payload = data as {
+        reply?: string;
+        tool_calls?: Array<{ name: string; args?: Record<string, unknown> }>;
+        model?: string;
+      };
+      if (!payload?.reply) return;
+      import("@/lib/chat/data-card-parser").then(
+        ({ parseDataCardsFromMessage }) => {
+          const fakeMsg = {
+            role: "assistant" as const,
+            content: payload.reply || "",
+            tool_calls: (payload.tool_calls ?? [])
+              .filter((tc) => !!tc.name)
+              .map((tc) => ({
+                name: tc.name,
+                args: tc.args ?? {},
+                error: null as string | null,
+                needs_human: false,
+              })),
+          };
+          const cards = parseDataCardsFromMessage(fakeMsg, 0);
+          for (const card of cards) {
+            useAgentStore.getState().addCard(card);
+          }
+        }
+      );
+    });
+
     const unsubContext = subscribe("context.updated", (data) => {
       const payload = data as ContextUpdatedPayload;
       useAgentStore.getState().setCurrentContext(payload);
@@ -83,6 +112,7 @@ export function AgentEventStreamBridge() {
     return () => {
       unsubCard();
       unsubContext();
+      unsubChat();
     };
   }, [connected, subscribe]);
 

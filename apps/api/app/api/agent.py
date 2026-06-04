@@ -67,12 +67,24 @@ async def agent_chat(
         command_context=command_ctx,
     )
 
+    from app.api.agent_events import emit_chat_response
+    tool_calls_payload = [
+        tc if isinstance(tc, dict) else tc.dict()
+        for tc in (result.get("tool_calls") or [])
+    ]
+    await emit_chat_response(
+        user_id=current_user["user_id"],
+        reply=result["reply"],
+        tool_calls=tool_calls_payload,
+        model=result.get("model", ""),
+    )
+
     return AgentChatResponse(
         reply=result["reply"],
         model=result.get("model", ""),
         tool_calls=[
-            AgentToolCallInfo(**tc) for tc in result["tool_calls"]
-        ] if result.get("tool_calls") else [],
+            AgentToolCallInfo(**tc) for tc in tool_calls_payload
+        ],
         agent_actions=[
             AgentActionInfo(**ac) for ac in result.get("agent_actions", [])
         ],

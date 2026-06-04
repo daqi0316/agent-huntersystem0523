@@ -61,6 +61,28 @@ async def emit_approval_requested(user_id: str, approval: dict[str, Any]) -> Non
     await emit_to_user(user_id, "approval.requested", approval)
 
 
+async def emit_chat_response(
+    user_id: str,
+    reply: str,
+    tool_calls: list[dict[str, Any]],
+    model: str = "",
+) -> None:
+    """Emit chat_response event after /agent/chat completes.
+
+    其它设备的 EventSource 收到后，前端用 parseDataCardsFromMessage 解析
+    产生 DataCard，跨设备数据卡片同步闭环。
+    """
+    await emit_to_user(
+        user_id,
+        "chat_response",
+        {
+            "reply": reply,
+            "tool_calls": tool_calls,
+            "model": model,
+        },
+    )
+
+
 async def _generator(user_id: str):
     """SSE event generator for a single user connection."""
     queue: asyncio.Queue = asyncio.Queue(maxsize=100)
