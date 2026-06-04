@@ -5,6 +5,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
+import { ContextBar } from "@/components/common/context-bar";
 
 export function Header() {
   const { theme, setTheme } = useTheme();
@@ -25,6 +26,7 @@ export function Header() {
         )}
       </div>
       <div className="flex items-center gap-2">
+        <ContextBar />
         <Button variant="ghost" size="icon">
           <Bell className="h-4 w-4" />
         </Button>
