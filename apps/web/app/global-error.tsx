@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { Button } from "@/components/ui/button";
 
 export default function GlobalError({
   error,
@@ -11,13 +10,17 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // eslint-disable-next-line no-console
     console.error("[app error]", error);
   }, [error]);
 
   return (
     <html lang="zh-CN">
-      <body>
+      <body
+        style={{
+          margin: 0,
+          fontFamily: "system-ui, sans-serif",
+        }}
+      >
         <div
           style={{
             display: "flex",
@@ -27,14 +30,15 @@ export default function GlobalError({
             justifyContent: "center",
             gap: "16px",
             padding: "24px",
-            fontFamily: "system-ui, sans-serif",
           }}
         >
-          <h1 style={{ fontSize: "24px", fontWeight: 600 }}>出错了</h1>
-          <p style={{ color: "#666" }}>
+          <h1 style={{ fontSize: "24px", fontWeight: 600, margin: 0 }}>
+            出错了
+          </h1>
+          <p style={{ color: "#666", margin: 0 }}>
             页面渲染时发生错误。错误已记录，可重试。
           </p>
-          {error.digest && (
+          {error.digest ? (
             <code
               style={{
                 fontSize: "12px",
@@ -44,8 +48,21 @@ export default function GlobalError({
             >
               digest: {error.digest}
             </code>
-          )}
-          <Button onClick={reset}>重试</Button>
+          ) : null}
+          <button
+            onClick={reset}
+            style={{
+              padding: "8px 16px",
+              border: "none",
+              borderRadius: "6px",
+              background: "#18181b",
+              color: "white",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            重试
+          </button>
         </div>
       </body>
     </html>
