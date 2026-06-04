@@ -40,7 +40,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
 
-  const isAgentPage = pathname.startsWith("/agent");
+  const isAgentPage = pathname?.startsWith("/agent") ?? false;
   const effectivelyCollapsed = isAgentPage || sidebarCollapsed;
 
   return (
@@ -70,7 +70,7 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto p-2 space-y-1">
         {NAV_ITEMS.map((item) => {
           const Icon = iconMap[item.icon];
-          const isActive = pathname.startsWith(item.href);
+          const isActive = pathname?.startsWith(item.href) ?? false;
           return (
             <Link
               key={item.href}

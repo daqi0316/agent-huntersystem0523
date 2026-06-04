@@ -18,12 +18,13 @@ import { ensureBackendSession } from "./use-backend-session";
 import { useAgentStore } from "@/stores/agent-store";
 import { parseDataCardsFromMessage } from "@/lib/chat/data-card-parser";
 import type { UploadedFile } from "@/hooks/useResumeUpload";
-import type {
-  AgentChatResponse,
-  AgentActionInfo,
-  ChatMessage,
-  OperationPanelState,
-  ToolCallInfo,
+import {
+  newMessage,
+  type AgentChatResponse,
+  type AgentActionInfo,
+  type ChatMessage,
+  type OperationPanelState,
+  type ToolCallInfo,
 } from "@/types/chat";
 
 export interface UseChatStreamParams {
@@ -100,26 +101,20 @@ export function useChatStream({
           const { data } = resumeResult;
           setMessages((prev) => [
             ...prev,
-            {
-              role: "assistant",
-              content: `✅ 审批通过，编排继续执行。\n\n${data.summary}`,
+            newMessage("assistant", `✅ 审批通过，编排继续执行。\n\n${data.summary}`, {
               agent_actions: (data.outputs || []).map((o: any) => ({
                 agent: o.agent || "",
                 status: o.status || "",
                 summary: o.summary || "",
               })),
               model: `orchestrator/${data.status}`,
-            },
+            }),
           ]);
         }
       } catch (err: any) {
         setMessages((prev) => [
           ...prev,
-          {
-            role: "assistant",
-            content: err.message || "审批处理失败",
-            error: true,
-          },
+          newMessage("assistant", err.message || "审批处理失败", { error: true }),
         ]);
       } finally {
         setApproval({ visible: false, approval_id: "", summary: "", loading: false });
@@ -147,7 +142,7 @@ export function useChatStream({
     (summary: string) => {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `✅ ${summary}` },
+        newMessage("assistant", `✅ ${summary}`),
       ]);
     },
     [setMessages]
@@ -157,12 +152,11 @@ export function useChatStream({
     async (text: string, attachment?: UploadedFile | null) => {
       if (!text.trim() && !attachment) return;
 
-      const userMsg: ChatMessage = {
-        role: "user",
-        content:
-          text.trim() ||
-          (attachment ? `上传简历: ${attachment.filename}` : ""),
-      };
+      const userMsg = newMessage(
+        "user",
+        text.trim() ||
+          (attachment ? `上传简历: ${attachment.filename}` : "")
+      );
       const currentHistory = historyRef.current;
       setMessages((prev) => [...prev, userMsg]);
       useAgentStore.getState().recordMessage();
@@ -177,6 +171,8 @@ export function useChatStream({
             text.trim() ||
             (attachment ? `解析这份简历: ${attachment.filename}` : ""),
           history: currentHistory.map((m) => ({
+            id: m.id,
+            createdAt: m.createdAt,
             role: m.role,
             content: m.content,
           })),
@@ -190,17 +186,12 @@ export function useChatStream({
             : undefined,
         });
 
-        const assistantMsg: ChatMessage = {
-          role: "assistant",
-          content: data.reply,
+        const assistantMsg = newMessage("assistant", data.reply, {
           tool_calls: data.tool_calls?.filter((tc) => tc.name),
           agent_actions: data.agent_actions,
           model: data.model,
-        };
-        const newCards = parseDataCardsFromMessage(
-          assistantMsg,
-          historyRef.current.length
-        );
+        });
+        const newCards = parseDataCardsFromMessage(assistantMsg);
         setMessages((prev) => [...prev, assistantMsg]);
         for (const tc of assistantMsg.tool_calls || []) {
           if (tc.name) {
@@ -239,7 +230,7 @@ export function useChatStream({
         const errorMsg = err.message || "请求失败，请稍后重试";
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: errorMsg, error: true },
+          newMessage("assistant", errorMsg, { error: true }),
         ]);
         const failedTool =
           lastToolCalls.find((tc) => tc.error) || lastToolCalls[0];

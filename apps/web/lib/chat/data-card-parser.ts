@@ -141,7 +141,7 @@ function cardFromData(
   data: unknown,
   toolHint: string | undefined,
   blockIdx: number,
-  messageIdx: number
+  msg: ChatMessage
 ): DataCard | null {
   if (data == null) return null;
 
@@ -155,15 +155,16 @@ function cardFromData(
     summary: buildSummary(type, data),
     payload: data,
     toolName: toolHint,
-    messageId: `msg_${messageIdx}_block_${blockIdx}`,
+    messageId: msg.id
+      ? `msg_${msg.id}_block_${blockIdx}`
+      : `msg_legacy_block_${blockIdx}`,
     createdAt: "",
     isRead: false,
   };
 }
 
 export function parseDataCardsFromMessage(
-  msg: ChatMessage,
-  messageIdx: number
+  msg: ChatMessage
 ): Omit<DataCard, "id" | "createdAt" | "isRead">[] {
   if (msg.role !== "assistant") return [];
   if (msg.error) return [];
@@ -180,7 +181,7 @@ export function parseDataCardsFromMessage(
     } catch {
       continue;
     }
-    const card = cardFromData(parsed, toolHint, i, messageIdx);
+    const card = cardFromData(parsed, toolHint, i, msg);
     if (card) cards.push(card);
   }
   return cards;
@@ -191,7 +192,7 @@ export function parseDataCardsFromMessages(
 ): Omit<DataCard, "id" | "createdAt" | "isRead">[] {
   const out: Omit<DataCard, "id" | "createdAt" | "isRead">[] = [];
   messages.forEach((m, idx) => {
-    out.push(...parseDataCardsFromMessage(m, idx));
+    out.push(...parseDataCardsFromMessage(m));
   });
   return out;
 }

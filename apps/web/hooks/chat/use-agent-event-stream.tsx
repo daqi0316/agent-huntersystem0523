@@ -85,6 +85,11 @@ export function AgentEventStreamBridge() {
       import("@/lib/chat/data-card-parser").then(
         ({ parseDataCardsFromMessage }) => {
           const fakeMsg = {
+            id:
+              typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            createdAt: new Date().toISOString(),
             role: "assistant" as const,
             content: payload.reply || "",
             tool_calls: (payload.tool_calls ?? [])
@@ -96,7 +101,7 @@ export function AgentEventStreamBridge() {
                 needs_human: false,
               })),
           };
-          const cards = parseDataCardsFromMessage(fakeMsg, 0);
+          const cards = parseDataCardsFromMessage(fakeMsg);
           for (const card of cards) {
             useAgentStore.getState().addCard(card);
           }

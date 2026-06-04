@@ -37,6 +37,11 @@ export function PendingApprovalSection() {
         }>("/human-loop/resume", { approval_id: approval.approval_id });
         if (resume.success && resume.data) {
           useAgentStore.getState().addMessage({
+            id:
+              typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `approval_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            createdAt: new Date().toISOString(),
             role: "assistant",
             content: `✅ 审批通过，编排继续执行。\n\n${resume.data.summary}`,
           });
@@ -45,6 +50,11 @@ export function PendingApprovalSection() {
       useAgentStore.getState().resetApproval();
     } catch (err) {
       useAgentStore.getState().addMessage({
+        id:
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `approval_err_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        createdAt: new Date().toISOString(),
         role: "assistant",
         content: (err as Error).message || "审批处理失败",
         error: true,

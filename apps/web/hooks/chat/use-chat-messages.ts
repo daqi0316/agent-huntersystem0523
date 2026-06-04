@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { ChatMessage } from "@/types/chat";
+import { newMessage, type ChatMessage } from "@/types/chat";
 
 const STORAGE_KEY = "agent-chat-history";
 
@@ -18,10 +18,29 @@ function saveMessages(messages: ChatMessage[]) {
   }
 }
 
+function backfillIds(raws: Array<Record<string, unknown>>): ChatMessage[] {
+  return raws.map((r, i) => {
+    const id =
+      typeof r.id === "string" && r.id
+        ? r.id
+        : typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `legacy_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 10)}`;
+    const createdAt =
+      typeof r.createdAt === "string" && r.createdAt
+        ? r.createdAt
+        : new Date().toISOString();
+    return { ...r, id, createdAt } as ChatMessage;
+  });
+}
+
 function loadMessages(): ChatMessage[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return backfillIds(parsed as Array<Record<string, unknown>>);
   } catch {
     return [];
   }

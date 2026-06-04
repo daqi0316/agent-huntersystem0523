@@ -39,7 +39,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm dev --port 3001",
+    command: "node node_modules/next/dist/bin/next dev --port 3001",
     url: "http://localhost:3001",
     reuseExistingServer: true,
     timeout: 120 * 1000,
