@@ -22,14 +22,20 @@ _discovered: dict[str, Skill] | None = None
 
 
 def discover_skills() -> dict[str, Skill]:
-    """扫描 skills/ 子目录，返回 {skill_name: Skill}。"""
+    """扫描 skills/ 子目录，返回 {skill_name: Skill}。
+
+    包括：
+    - app/skills/<name>/skill.py（标准 skill）
+    - app/skills/_gallery/<name>/skill.py（Gallery 安装的 skill）
+    """
     global _discovered
     if _discovered is not None:
         return _discovered
 
     _discovered = {}
+
+    # 1. 标准 skill（通过 pkgutil）
     for mod_info in pkgutil.iter_modules([str(SKILLS_DIR)]):
-        # 跳过 __init__ 和 base
         if mod_info.name in ("__init__", "base"):
             continue
 
@@ -43,6 +49,31 @@ def discover_skills() -> dict[str, Skill]:
                 logger.debug("Skipped %s: no 'skill' instance found", mod_info.name)
         except Exception:
             logger.exception("Failed to load skill module: %s", mod_info.name)
+
+    # 2. Gallery skill（_gallery 目录下的子目录，pkgutil 找不到）
+    gallery_dir = SKILLS_DIR / "_gallery"
+    if gallery_dir.exists():
+        for skill_dir in gallery_dir.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            if skill_dir.name.startswith("__") or skill_dir.name.startswith("."):
+                continue
+            skill_file = skill_dir / "skill.py"
+            if not skill_file.exists():
+                continue
+
+            # 尝试导入 app.skills._gallery.<name>
+            full_name = f"app.skills._gallery.{skill_dir.name}"
+            try:
+                mod = importlib.import_module(full_name)
+                skill = getattr(mod, "skill", None)
+                if skill is not None and isinstance(skill, Skill):
+                    _discovered[skill.name] = skill
+                    logger.info("Loaded gallery skill: %s", skill.name)
+                else:
+                    logger.debug("Skipped gallery skill %s: no 'skill' instance", skill_dir.name)
+            except Exception:
+                logger.exception("Failed to load gallery skill module: %s", skill_dir.name)
 
     return _discovered
 
