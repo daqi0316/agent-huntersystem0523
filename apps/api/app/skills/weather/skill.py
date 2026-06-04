@@ -78,6 +78,41 @@ _TOOL_WEATHER = {
 }
 
 
+def _format_search_as_weather(search_results: list, location: str, days: int) -> dict:
+    """把 web_search 返回的搜索结果包装成天气数据结构。"""
+    if not search_results or "error" in search_results[0]:
+        return {"error": {"code": "search_failed", "message": search_results[0].get("error", "搜索失败") if search_results else "无结果"}}
+    answer = search_results[0].get("answer", "")
+    sources = search_results[0].get("sources", [])
+    label = {0: "今天", 1: "明天", 2: "后天"}.get(days, f"{days}天后")
+    parts = [f"【{label}{location}天气（来自网络搜索）】"]
+    if answer:
+        parts.append(answer[:500])
+    for i, s in enumerate(sources[:3]):
+        title = s.get("title", "")
+        content = s.get("content", "")
+        if title or content:
+            parts.append(f"• {title}: {content[:150]}")
+    return {
+        "location": location,
+        "current": {"desc": f"见下方搜索结果（{label}）"},
+        "forecast_note": "\n".join(parts),
+        "source": "web_search",
+    }
+
+
+async def _web_search_weather(location: str, days: int) -> dict:
+    """Tavily web_search 兜底 — 任何 QWeather 失败都走这条。"""
+    label = {0: "今天", 1: "明天", 2: "后天"}.get(days, f"{days}天后")
+    query = f"{location} {label}天气 预报 温度"
+    try:
+        from app.skills.web_search.skill import _web_search
+        results = await _web_search(query, max_results=3)
+        return _format_search_as_weather(results, location, days)
+    except Exception as e:
+        return {"error": {"code": "web_search_failed", "message": f"网络搜索失败：{e}"}}
+
+
 def _get_qweather_key() -> str:
     return (settings.qweather_api_key or os.getenv("QWEATHER_API_KEY", "")).strip()
 
@@ -204,49 +239,39 @@ async def _wttr_weather_entry(location: str, days: int) -> dict:
 
 
 async def _get_weather(location: str, days: int = 0) -> dict:
-    """并发竞速：QWeather 主 + wttr.in 备，谁先成功用谁。"""
+    """三级 fallback：QWeather → wttr.in → Tavily web_search。
+
+    设计原因（2026-06 教训）：
+      QWeather 新版需要公私钥对，老版 key 也不稳。wttr.in SSL 不稳。
+      Tavily web_search 是最稳路径：搜真实天气页面，LLM 解析结果。
+    """
     days = max(0, min(days, 2))
 
-    async def try_qweather() -> dict:
-        return await _qweather_weather(location, days)
+    # 1) 试 QWeather
+    qweather_result = await _qweather_weather(location, days)
+    if qweather_result and not qweather_result.get("error"):
+        return qweather_result
 
-    async def try_wttr() -> dict:
-        return await _wttr_weather_entry(location, days)
-
-    tasks = [
-        asyncio.create_task(try_qweather(), name="qweather"),
-        asyncio.create_task(try_wttr(), name="wttr"),
-    ]
-    last_error: str | None = None
+    # 2) 试 wttr.in
     try:
-        done, pending = await asyncio.wait(tasks, timeout=_OVERALL_TIMEOUT, return_when=asyncio.FIRST_COMPLETED)
-    except Exception as e:
-        last_error = f"wait failed: {e}"
-        done, pending = set(), tasks
+        wttr_result = await _wttr_weather_entry(location, days)
+        if wttr_result and not wttr_result.get("error"):
+            return wttr_result
+    except Exception:
+        pass
 
-    for t in done:
-        try:
-            result = t.result()
-            if result and not result.get("error"):
-                for p in pending:
-                    p.cancel()
-                return result
-            err = (result or {}).get("error", {})
-            last_error = f"{t.get_name()}: {err.get('code', '?')} {err.get('message', err)}"
-        except Exception as e:
-            last_error = f"{t.get_name()}: {type(e).__name__}: {e}"
+    # 3) 最后兜底：Tavily web_search（最稳）
+    search_result = await _web_search_weather(location, days)
+    if search_result and not search_result.get("error"):
+        return search_result
 
-    for t in tasks:
-        if not t.done():
-            t.cancel()
-
-    if last_error is None:
-        last_error = f"双源均超时（>{_OVERALL_TIMEOUT}s）"
     return {
         "error": {
             "code": "upstream_unavailable",
-            "message": f"天气服务暂时不可达：{last_error}",
-            "timeout_s": _OVERALL_TIMEOUT,
+            "message": (
+                f"天气服务暂时不可达（QWeather: {qweather_result.get('error', {}).get('message', '?')}）。"
+                "建议查看手机自带天气或访问中国天气网。"
+            ),
         }
     }
 
