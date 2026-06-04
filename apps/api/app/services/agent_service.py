@@ -820,6 +820,17 @@ async def chat_with_tools(
 
     system_content = system_prompt if system_prompt is not None else SYSTEM_PROMPT
     system_content = await _inject_memory_context(system_content, user_id, messages)
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    yesterday = now - timedelta(days=1)
+    tomorrow = now + timedelta(days=1)
+    date_ctx = (
+        f"\n\n## 当前时间锚点\n"
+        f"服务器时间：{now.strftime('%Y-%m-%d %H:%M:%S')} ({now.strftime('%A')})\n"
+        f"用户口中的'今天'={now.strftime('%Y-%m-%d')}，'昨天'={yesterday.strftime('%Y-%m-%d')}，'明天'={tomorrow.strftime('%Y-%m-%d')}。\n"
+        f"涉及'昨天/今天/明天'的问题：先确定目标日期，再调 web_search（带日期关键词）。"
+    )
+    system_content = (system_content + date_ctx) if system_content else system_content
     msgs = [system_content] if system_content else []
 
     cb = None
