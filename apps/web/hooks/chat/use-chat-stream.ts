@@ -15,6 +15,8 @@ import { useState, useRef, useCallback } from "react";
 import { api } from "@/lib/trpc";
 import { getSessionId } from "./use-chat-session";
 import { ensureBackendSession } from "./use-backend-session";
+import { useAgentStore } from "@/stores/agent-store";
+import { parseDataCardsFromMessage } from "@/lib/chat/data-card-parser";
 import type { UploadedFile } from "@/hooks/useResumeUpload";
 import type {
   AgentChatResponse,
@@ -194,7 +196,14 @@ export function useChatStream({
           agent_actions: data.agent_actions,
           model: data.model,
         };
-        setMessages((prev) => [...prev, assistantMsg]);
+        setMessages((prev) => {
+          const next = [...prev, assistantMsg];
+          const messageIdx = prev.length;
+          const newCards = parseDataCardsFromMessage(assistantMsg, messageIdx);
+          const addCard = useAgentStore.getState().addCard;
+          for (const card of newCards) addCard(card);
+          return next;
+        });
         setLastToolCalls(
           data.tool_calls?.filter((tc) => tc.name) || []
         );
