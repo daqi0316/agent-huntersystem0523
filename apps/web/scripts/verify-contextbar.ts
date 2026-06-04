@@ -212,6 +212,73 @@ async function main() {
 
   await page.screenshot({ path: "/tmp/contextbar-verify.png", fullPage: true });
 
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+
+  const mobileContext = await browser.newContext({
+    viewport: { width: 375, height: 667 },
+  });
+  const mobilePage = await mobileContext.newPage();
+  await mobilePage.addInitScript(
+    ({ token }: { token: string }) => {
+      localStorage.setItem("ai-recruitment-token", token);
+    },
+    { token: TEST_TOKEN }
+  );
+  await mobilePage.route("**/api/v1/auth/me", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "verify-user",
+        email: "verify@test.com",
+        name: "Verify User",
+        role: "hr",
+      }),
+    });
+  });
+  await mobilePage.route("**/api/v1/conversation/session", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: { id: "verify-sess-m" } }),
+    });
+  });
+  await mobilePage.goto(`${BASE_URL}/agent`, { waitUntil: "domcontentloaded" });
+  await mobilePage.waitForTimeout(1500);
+
+  const mobileChipVisible = await mobilePage
+    .getByRole("button", { name: /数据看板/ })
+    .isVisible()
+    .catch(() => false);
+  checks.push({
+    name: "移动端 viewport：缩略按钮仍可见",
+    ok: mobileChipVisible,
+    detail: mobileChipVisible ? "375x667 已渲染" : "未渲染",
+  });
+
+  if (mobileChipVisible) {
+    await mobilePage.getByRole("button", { name: /数据看板/ }).click();
+    await mobilePage.waitForTimeout(400);
+
+    const drawerBox = await mobilePage
+      .locator('[role="dialog"]')
+      .boundingBox()
+      .catch(() => null);
+    const isBottomSheet =
+      drawerBox !== null &&
+      drawerBox.width > 300 &&
+      drawerBox.y > 100;
+    checks.push({
+      name: "移动端 drawer 变底部 sheet（宽 > 300px, y > 100）",
+      ok: !!isBottomSheet,
+      detail: drawerBox
+        ? `w=${drawerBox.width} h=${drawerBox.height} y=${drawerBox.y}`
+        : "no box",
+    });
+  }
+
+  await mobileContext.close();
   await browser.close();
 
   console.log("\n=== 验证结果 ===\n");

@@ -47,7 +47,7 @@ export function ContextChip({
       {subtitle && (
         <span
           className={cn(
-            "hidden md:inline-block max-w-[140px] truncate text-[10px] font-normal",
+            "hidden xl:inline-block max-w-[140px] truncate text-[10px] font-normal",
             active ? "text-primary/70" : "text-muted-foreground/70"
           )}
           title={subtitle}
