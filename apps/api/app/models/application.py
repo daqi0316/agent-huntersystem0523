@@ -11,6 +11,8 @@ import enum
 
 
 class ApplicationStatus(str, enum.Enum):
+    # DB label 大写、value 小写 — 保留 SAEnum（写 name 匹配 DB）。不可改 enum_column（写 value 会 500）。
+    # 详见 .omo/plans/decision-records/2026-06-03-enum-and-uuid-pattern.md
     PENDING = "pending"
     SCREENING = "screening"
     INTERVIEW = "interview"

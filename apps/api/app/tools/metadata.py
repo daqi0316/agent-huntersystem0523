@@ -119,6 +119,20 @@ register_tool(
 
 # Interview tools
 register_tool(
+    "get_upcoming_interviews",
+    retryable=True,
+    max_retries=1,
+    escalation=EscalationMode.NONE,
+    description="查询未来 n 天内的面试日程 — 读操作，瞬态错误可重试",
+)
+register_tool(
+    "get_schedule",
+    retryable=True,
+    max_retries=1,
+    escalation=EscalationMode.NONE,
+    description="查询指定月份所有面试日程（含过去和未来）— 读操作，瞬态错误可重试",
+)
+register_tool(
     "schedule_interview",
     retryable=True,
     max_retries=1,

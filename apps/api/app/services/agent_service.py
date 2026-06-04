@@ -30,6 +30,33 @@ from app.commands.registry import get_default_registry, register_all
 
 logger = logging.getLogger(__name__)
 
+import re
+
+
+def _strip_thinking(content: str) -> str:
+    if not content:
+        return content
+
+    content = re.sub(r"<thinking[^>]*>.*?</thinking>", "", content, flags=re.DOTALL | re.IGNORECASE)
+
+    if re.match(r"Here's a thinking process:", content, re.IGNORECASE):
+        content = re.sub(r"Here's a thinking process:.*?(?=\n\n|\n[A-Za-z]|\Z)", "", content, flags=re.DOTALL)
+
+    lines = content.split("\n")
+    cleaned, skip = [], False
+    for line in lines:
+        if re.match(r"^\s*(\d+)\.\s+\*\*[A-Z]", line):
+            skip = True
+            continue
+        if skip:
+            if not re.match(r"^\s", line) and line.strip():
+                skip = False
+            else:
+                continue
+        cleaned.append(line)
+
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned).strip())
+
 
 def _adapt_graph_result_to_legacy(graph_state: dict) -> dict:
     """Adapt new orchestrator_graph.ainvoke() output to legacy route_single() format.
@@ -877,7 +904,7 @@ async def chat_with_tools(
         asyncio.create_task(_background_record_preferences(user_id, session_id, messages))
 
     return {
-        "reply": reply,
+        "reply": _strip_thinking(reply),
         "tool_calls": [
             {
                 "name": t["tool"],

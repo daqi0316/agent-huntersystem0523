@@ -2,12 +2,12 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, DateTime, Boolean, Enum as SAEnum, JSON, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, Text, DateTime, Boolean, JSON, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+from app.models._base import enum_column
 
 
 class ApprovalStatus(str, enum.Enum):
@@ -24,22 +24,25 @@ class Approval(Base):
     __tablename__ = "approvals"
 
     id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()),
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4()),
     )
     user_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
     )
     action_type: Mapped[str] = mapped_column(String(64), nullable=False)
     target_type: Mapped[str | None] = mapped_column(String(32), nullable=True, comment="candidate / interview / job")
     target_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[ApprovalStatus] = mapped_column(
-        SAEnum(ApprovalStatus, name="approval_status"), nullable=False, default=ApprovalStatus.PENDING, index=True,
+        enum_column(ApprovalStatus, "approval_status"),
+        nullable=False,
+        default=ApprovalStatus.PENDING,
+        index=True,
     )
     proposal: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     params: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     candidate_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     resolver_id: Mapped[str | None] = mapped_column(
-        UUID(as_uuid=False), nullable=True, comment="审批人 user_id",
+        String(36), nullable=True, comment="审批人 user_id",
     )
     resolution: Mapped[str | None] = mapped_column(Text, nullable=True, comment="审批意见")
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

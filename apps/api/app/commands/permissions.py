@@ -125,5 +125,9 @@ def role_to_permissions(role: str | None) -> list[str]:
         "hiring_manager": ["L1_BASIC", "L2_CONFIRM", "L3_ELEVATED"],
         "admin": ["L1_BASIC", "L2_CONFIRM", "L3_ELEVATED", "L4_ADMIN"],
         "owner": ["L1_BASIC", "L2_CONFIRM", "L3_ELEVATED", "L4_ADMIN"],
+        "ADMIN": ["L1_BASIC", "L2_CONFIRM", "L3_ELEVATED", "L4_ADMIN"],
+        "HR": ["L1_BASIC", "L2_CONFIRM", "L3_ELEVATED"],
+        "RECRUITER": ["L1_BASIC", "L2_CONFIRM", "L3_ELEVATED"],
+        "VIEWER": ["L1_BASIC"],
     }
     return mapping.get(role, ["L1_BASIC"])

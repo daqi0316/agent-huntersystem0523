@@ -116,7 +116,18 @@ class ApprovalService:
         return expired
 
     async def list_pending(self, user_id: str = "") -> list[dict]:
-        await self.expire_pending()
+        try:
+            await self.expire_pending()
+        except Exception:
+            # Anti-regression: expire 失败不能阻塞主接口；失败事实必须 log+event 上报。
+            logger.exception("expire_pending failed; pending list may include expired rows")
+            try:
+                event_bus.publish("approval.expire_failed", {
+                    "context": "list_pending",
+                    "user_id": user_id,
+                })
+            except Exception:
+                logger.exception("event_bus.publish failed for approval.expire_failed")
         stmt = (
             select(Approval)
             .where(Approval.status == ApprovalStatus.PENDING)

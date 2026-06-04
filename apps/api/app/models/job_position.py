@@ -11,6 +11,7 @@ import enum
 
 
 class JobStatus(str, enum.Enum):
+    # 同 ApplicationStatus：DB label 大写、value 小写，保留裸 SAEnum（写 name）。
     DRAFT = "draft"
     ACTIVE = "active"
     PAUSED = "paused"

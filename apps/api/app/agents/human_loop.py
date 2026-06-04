@@ -280,6 +280,12 @@ class HumanLoopAgent(BaseAgent):
         async with AsyncSessionLocal() as db:
             from sqlalchemy import update as sa_update
             from app.models.approval import Approval
-            stmt = sa_update(Approval).where(Approval.status == ApprovalStatus.PENDING)
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            stmt = (
+                sa_update(Approval)
+                .where(Approval.status == ApprovalStatus.PENDING)
+                .values(status=ApprovalStatus.CANCELLED, resolved_at=now, updated_at=now)
+            )
             await db.execute(stmt)
             await db.commit()

@@ -11,6 +11,8 @@ import enum
 
 
 class InterviewStatus(str, enum.Enum):
+    # 同 ApplicationStatus：DB label 大写、value 小写，保留裸 SAEnum（写 name）。
+    # 详见 .omo/plans/decision-records/2026-06-03-enum-and-uuid-pattern.md
     SCHEDULED = "scheduled"
     CONFIRMED = "confirmed"
     COMPLETED = "completed"
@@ -19,6 +21,7 @@ class InterviewStatus(str, enum.Enum):
 
 
 class InterviewType(str, enum.Enum):
+    # 同 ApplicationStatus
     PHONE = "phone"
     VIDEO = "video"
     ONSITE = "onsite"

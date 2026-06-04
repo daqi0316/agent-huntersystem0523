@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from sqlalchemy import select, func as sa_func, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -127,8 +128,42 @@ def _percentile(sorted_vals: list[float], p: int) -> float:
     return sorted_vals[f] * (c - k) + sorted_vals[c] * (k - f)
 
 
+async def _ensure_target_table_exists() -> bool:
+    """检查 operation_stats_hourly 表是否存在。
+
+    用 ``pg_class`` 系统表查询（不触发 ORM session / 不打开表扫描），
+    表不存在时直接 False，避免后台循环每 5 分钟抛 UndefinedTableError
+    累积 asyncpg 连接导致 pool 耗尽（2026-06-03 事故根因）。
+
+    Returns
+    -------
+    bool
+        True = 表存在，可安全运行聚合；False = 表缺失，需 skip。
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            row = await db.execute(text(
+                "SELECT 1 FROM pg_class WHERE relname = 'operation_stats_hourly' LIMIT 1"
+            ))
+            return row.scalar() is not None
+    except SQLAlchemyError as e:
+        logger.warning("audit operation_stats_hourly failed: %s", e)
+        return False
+
+
 async def aggregation_loop() -> None:
-    """后台循环：每 5 分钟执行一次聚合。"""
+    """后台循环：每 5 分钟执行一次聚合。
+
+    启动时先 audit 目标表存在性：表缺失则 log + 立即 return，
+    不进入 while 循环，避免每 5 分钟抛 UndefinedTableError 累积连接泄漏。
+    """
+    logger.info("Aggregation loop starting (interval=%d min)", AGGREGATION_INTERVAL_MINUTES)
+    if not await _ensure_target_table_exists():
+        logger.warning(
+            "operation_stats_hourly 表不存在，aggregation_loop 跳过。"
+            "运行 `alembic upgrade head` 建表后重启服务。"
+        )
+        return
     logger.info("Aggregation loop started (interval=%d min)", AGGREGATION_INTERVAL_MINUTES)
     while True:
         try:

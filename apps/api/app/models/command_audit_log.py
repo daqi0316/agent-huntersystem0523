@@ -12,7 +12,6 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Index, JSON, String, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -30,7 +29,7 @@ class CommandAuditLog(Base):
     __tablename__ = "command_audit_log"
 
     id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()),
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4()),
     )
     command_name: Mapped[str] = mapped_column(
         String(64), nullable=False, index=True, comment="主命令名(已展开 alias)",
@@ -51,7 +50,7 @@ class CommandAuditLog(Base):
         String(64), nullable=True, index=True, comment="会话 ID",
     )
     user_id: Mapped[str | None] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"),
+        String(36), ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True, index=True, comment="执行用户",
     )
     error_message: Mapped[str | None] = mapped_column(

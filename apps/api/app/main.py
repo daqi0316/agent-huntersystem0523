@@ -20,6 +20,7 @@ from app.api.router import api_router
 from app.agents.bootstrap import init_agents
 from app.services.recommendation_scheduler import recommendation_scheduler_loop
 from app.services.aggregation_service import aggregation_loop
+import app.models  # noqa: F401  # 触发 model 注册到 Base.metadata，启动时 audit 可见
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,29 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s v0.1.0", settings.app_name)
+
+    # ── Schema 审计（防止 model enum/UUID 与 DB 不一致时静默 500）──
+    # L2 启动期护栏：L1 编译期（pre-commit）+ 测试期（集成测试）失效时的兜底
+    try:
+        from app.core.schema_audit import audit_db_consistency, audit_required_tables
+        await audit_db_consistency(fail_on_mismatch=True)
+        logger.info("Schema audit passed")
+    except RuntimeError as e:
+        # 阻止启动：DB 与 model enum 不一致 = 必爆 500
+        logger.error("Schema audit FAILED: %s", e)
+        raise
+    except Exception as e:
+        # DB 连不上 / 其他非致命错误：仅 warn，不阻止启动（dev 早期允许）
+        logger.warning("Schema audit skipped due to error: %s", e)
+
+    # ── 必需表审计（model 声明的所有表必须在 DB 存在）──
+    # 表缺失只 warn 不阻止启动（dashboard 端点会优雅降级返 mock），
+    # 但聚合后台任务会拿不到表 → 需跑 `alembic upgrade head`。
+    try:
+        from app.core.schema_audit import audit_required_tables
+        await audit_required_tables(fail_on_mismatch=False)
+    except Exception as e:
+        logger.warning("Required-tables audit skipped: %s", e)
 
     # ── 加载已启用的 MCP Server ──
     try:

@@ -1,5 +1,7 @@
 """面试 CRUD API — 安排、确认、取消、完成（含状态机闭环）+ 评价管理。"""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,14 +53,18 @@ router = APIRouter()
 
 @router.get("", response_model=ListResponse)
 async def list_interviews(
+    date_from: datetime | None = Query(None, description="ISO datetime 起点（含）"),
+    date_to: datetime | None = Query(None, description="ISO datetime 终点（不含）"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     status: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """分页查询面试列表"""
+    """分页查询面试列表，可选 date_from/date_to 时间窗过滤。"""
     service = InterviewService(db)
-    items, total = await service.list_all(skip=skip, limit=limit, status=status)
+    items, total = await service.list_all(
+        skip=skip, limit=limit, status=status, date_from=date_from, date_to=date_to,
+    )
     return ListResponse(items=items, total=total, skip=skip, limit=limit)
 
 

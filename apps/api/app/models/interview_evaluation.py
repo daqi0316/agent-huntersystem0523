@@ -1,13 +1,13 @@
 import uuid
 from datetime import datetime
+import enum
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, Float, Enum as SAEnum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, Float
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.core.database import Base
-import enum
+from app.models._base import enum_column
 
 
 class InterviewRound(str, enum.Enum):
@@ -28,18 +28,18 @@ class InterviewEvaluation(Base):
     __tablename__ = "interview_evaluations"
 
     id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()),
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4()),
     )
     interview_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("interviews.id", ondelete="CASCADE"), nullable=False, index=True,
+        String(36), ForeignKey("interviews.id", ondelete="CASCADE"), nullable=False, index=True,
     )
     round: Mapped[InterviewRound] = mapped_column(
-        SAEnum(InterviewRound, name="interview_round"), default=InterviewRound.R1,
+        enum_column(InterviewRound, "interview_round"), default=InterviewRound.R1,
     )
     interviewer_id: Mapped[str | None] = mapped_column(String(255))
     overall_score: Mapped[float | None] = mapped_column(Float)
     verdict: Mapped[EvaluationVerdict] = mapped_column(
-        SAEnum(EvaluationVerdict, name="evaluation_verdict"), default=EvaluationVerdict.CONSIDER,
+        enum_column(EvaluationVerdict, "evaluation_verdict"), default=EvaluationVerdict.CONSIDER,
     )
     dimensions: Mapped[str | None] = mapped_column(Text)  # JSON string
     key_observations: Mapped[str | None] = mapped_column(Text)

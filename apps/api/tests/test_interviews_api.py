@@ -49,6 +49,48 @@ async def test_list_interviews_with_status_filter(client):
     assert data["items"][0]["status"] == "scheduled"
 
 
+async def test_list_interviews_with_date_range_filter(client):
+    """GET /api/v1/interviews?date_from=&date_to= forwards both to service.list_all."""
+    from datetime import datetime
+    mock_service = AsyncMock()
+    mock_service.list_all.return_value = (
+        [
+            {"id": "iv-1", "candidate_id": "cand-1", "status": "scheduled",
+             "scheduled_at": "2026-06-15T10:00:00Z"},
+        ],
+        1,
+    )
+
+    with patch("app.api.interviews.InterviewService", return_value=mock_service):
+        resp = await client.get(
+            "/api/v1/interviews?date_from=2026-06-01T00:00:00Z&date_to=2026-07-01T00:00:00Z"
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["items"]) == 1
+    # Verify service.list_all was called with date_from/date_to kwargs
+    call_kwargs = mock_service.list_all.call_args.kwargs
+    assert "date_from" in call_kwargs
+    assert "date_to" in call_kwargs
+    assert call_kwargs["date_from"] == datetime.fromisoformat("2026-06-01T00:00:00+00:00")
+    assert call_kwargs["date_to"] == datetime.fromisoformat("2026-07-01T00:00:00+00:00")
+
+
+async def test_list_interviews_no_date_filter_backward_compat(client):
+    """GET /api/v1/interviews without date_from/date_to works (向后兼容)."""
+    mock_service = AsyncMock()
+    mock_service.list_all.return_value = ([], 0)
+
+    with patch("app.api.interviews.InterviewService", return_value=mock_service):
+        resp = await client.get("/api/v1/interviews")
+
+    assert resp.status_code == 200
+    call_kwargs = mock_service.list_all.call_args.kwargs
+    assert call_kwargs.get("date_from") is None
+    assert call_kwargs.get("date_to") is None
+
+
 async def test_get_interview_by_id(client):
     """GET /api/v1/interviews/{id} returns interview detail."""
     mock_interview = MagicMock()

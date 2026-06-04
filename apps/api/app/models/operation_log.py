@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, DateTime, Float, Boolean, Enum as SAEnum, JSON, ForeignKey, Index
+from sqlalchemy import String, Text, DateTime, Float, Boolean, JSON, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -32,7 +32,7 @@ class OperationLog(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4()),
     )
     user_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
     )
     agent_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(128), nullable=False)

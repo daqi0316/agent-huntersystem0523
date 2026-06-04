@@ -152,9 +152,18 @@ class InterviewService:
         return [self._to_dict(iv) for iv in interviews]
 
     async def list_all(
-        self, skip: int = 0, limit: int = 20, status: str | None = None
+        self,
+        skip: int = 0,
+        limit: int = 20,
+        status: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
     ) -> tuple[list[dict], int]:
-        """分页查询面试列表。"""
+        """分页查询面试列表。
+
+        时间窗过滤：date_from ≤ scheduled_at < date_to。
+        date_from/date_to 为 None 时不过滤（向后兼容）。
+        """
         from sqlalchemy import func
 
         query = select(Interview)
@@ -167,6 +176,13 @@ class InterviewService:
                 count_query = count_query.where(Interview.status == st)
             except ValueError:
                 pass
+
+        if date_from is not None:
+            query = query.where(Interview.scheduled_at >= date_from)
+            count_query = count_query.where(Interview.scheduled_at >= date_from)
+        if date_to is not None:
+            query = query.where(Interview.scheduled_at < date_to)
+            count_query = count_query.where(Interview.scheduled_at < date_to)
 
         total = (await self.db.execute(count_query)).scalar() or 0
         query = query.order_by(Interview.scheduled_at.desc()).offset(skip).limit(limit)

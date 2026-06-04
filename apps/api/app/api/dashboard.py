@@ -4,6 +4,7 @@
 减少前端多次请求的开销。
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
@@ -14,6 +15,8 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user_id
 from app.core.response import success
 from app.models.operation_stats import OperationStatsHourly
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -161,14 +164,22 @@ async def operation_summary(
     since = now - timedelta(hours=24)
 
     from sqlalchemy import select as sa_select
+    from sqlalchemy.exc import SQLAlchemyError
 
     stmt = (
         sa_select(OperationStatsHourly)
         .where(OperationStatsHourly.bucket_hour >= since)
         .order_by(OperationStatsHourly.bucket_hour.desc())
     )
-    result = await db.execute(stmt)
-    rows = list(result.scalars().all())
+    try:
+        result = await db.execute(stmt)
+        rows = list(result.scalars().all())
+    except SQLAlchemyError as e:
+        if "does not exist" in str(e).lower():
+            logger.warning("operation_stats_hourly 表缺失，返空聚合: %s", e)
+            rows = []
+        else:
+            raise
 
     by_agent: dict[str, dict] = {}
     for r in rows:
@@ -227,14 +238,22 @@ async def operation_trend(
     since = now - timedelta(hours=hours)
 
     from sqlalchemy import select as sa_select
+    from sqlalchemy.exc import SQLAlchemyError
 
     stmt = (
         sa_select(OperationStatsHourly)
         .where(OperationStatsHourly.bucket_hour >= since)
         .order_by(OperationStatsHourly.bucket_hour.asc())
     )
-    result = await db.execute(stmt)
-    rows = list(result.scalars().all())
+    try:
+        result = await db.execute(stmt)
+        rows = list(result.scalars().all())
+    except SQLAlchemyError as e:
+        if "does not exist" in str(e).lower():
+            logger.warning("operation_stats_hourly 表缺失，返空趋势: %s", e)
+            rows = []
+        else:
+            raise
 
     all_agents = list(set(r.agent_name for r in rows))
     buckets: dict[str, dict] = {}
