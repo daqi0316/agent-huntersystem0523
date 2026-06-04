@@ -20,16 +20,22 @@
 
 import { useEffect, type ReactNode } from "react";
 import { useAgentStore } from "@/stores/agent-store";
+import {
+  initAgentStoreSync,
+  teardownAgentStoreSync,
+} from "@/lib/agent-store-sync";
 
 interface AgentProviderProps {
   children: ReactNode;
 }
 
 export function AgentProvider({ children }: AgentProviderProps) {
-  // 客户端 hydrate：触发 persist 中间件的 rehydrate
   useEffect(() => {
-    // 触发 zustand/persist 的 rehydrate（如果还没完成）
     useAgentStore.persist.rehydrate();
+    initAgentStoreSync();
+    return () => {
+      teardownAgentStoreSync();
+    };
   }, []);
 
   return <>{children}</>;
