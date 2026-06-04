@@ -456,6 +456,48 @@ def _build_tool_messages_manually(
     return msgs
 
 
+def _build_fallback_reply(tool_results: list[dict]) -> str:
+    """第二轮 LLM 返回空时的兜底——永不让用户看到空白回复。
+
+    三种场景：
+      1) 所有 tool 都失败 → 告诉用户哪个工具为什么失败
+      2) 部分失败 → 展示成功的，附带错误说明
+      3) 全部成功但 LLM 没总结 → 直接给结果
+      4) 没调任何 tool → 通用占位（兜底兜底）
+    """
+    if not tool_results:
+        return "抱歉，我这边有点状况，请稍后重试或换个问法。"
+
+    errors = [t for t in tool_results if "error" in t]
+    successes = [t for t in tool_results if "error" not in t]
+
+    if not successes:
+        lines = []
+        for e in errors:
+            err = e.get("error", "未知错误")
+            if isinstance(err, dict):
+                err = err.get("message", str(err))
+            lines.append(f"• {e.get('tool', '?')}: {err}")
+        return "抱歉，相关服务暂时不可达：\n" + "\n".join(lines) + "\n\n建议稍后重试或换个问法。"
+
+    parts: list[str] = []
+    for s in successes:
+        tool_name = s.get("tool", "工具")
+        result = s.get("result")
+        try:
+            result_str = json.dumps(result, ensure_ascii=False, default=str)
+        except Exception:
+            result_str = str(result)
+        parts.append(f"【{tool_name}】\n{result_str[:800]}")
+    for e in errors:
+        err = e.get("error", "未知错误")
+        if isinstance(err, dict):
+            err = err.get("message", str(err))
+        parts.append(f"（{e.get('tool', '?')} 失败：{err}）")
+    header = "以下是查询结果：" if not errors else "部分工具失败，以下是成功部分："
+    return header + "\n\n" + "\n\n".join(parts)
+
+
 async def _background_record_facts(
     user_id: str | None,
     session_id: str | None,
@@ -886,14 +928,27 @@ async def chat_with_tools(
                 msgs2 = _build_tool_messages_manually(msgs, reply, tool_calls, tool_results)
         else:
             msgs2 = _build_tool_messages_manually(msgs, reply, tool_calls, tool_results)
-        final = await llm.client.chat.completions.create(
-            model=llm.model,
-            messages=msgs2,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            extra_body={"thinking": {"type": "disabled"}},
-        )
-        reply = final.choices[0].message.content or ""
+        try:
+            final = await asyncio.wait_for(
+                llm.client.chat.completions.create(
+                    model=llm.model,
+                    messages=msgs2,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    extra_body={"thinking": {"type": "disabled"}},
+                ),
+                timeout=20.0,
+            )
+            reply = final.choices[0].message.content or ""
+        except asyncio.TimeoutError:
+            logger.warning("Second LLM call timed out after 20s, using fallback")
+            reply = ""
+        except Exception as e:
+            logger.warning("Second LLM call failed: %s, using fallback", e)
+            reply = ""
+
+        if not reply or not reply.strip():
+            reply = _build_fallback_reply(tool_results)
 
     # Step 3: Save conversation turn
     await _save_conversation_turn(last_user_msg, reply, user_id, session_id)

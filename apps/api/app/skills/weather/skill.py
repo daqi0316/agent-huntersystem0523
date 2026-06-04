@@ -135,7 +135,7 @@ async def _fetch_forecast(
     return resp.json()
 
 
-async def _format_openmeteo(geo: dict, data: dict, days: int) -> dict:
+def _format_openmeteo(geo: dict, data: dict, days: int) -> dict:
     current = data.get("current", {})
     daily = data.get("daily", {})
     current_code = current.get("weather_code", -1)
