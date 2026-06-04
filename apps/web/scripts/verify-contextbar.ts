@@ -261,6 +261,36 @@ async function main() {
         ? `text="${statsText?.slice(0, 60)}"`
         : "section 未渲染",
     });
+
+    const activityVisible = await page
+      .locator('[aria-label="最近活动"]')
+      .isVisible()
+      .catch(() => false);
+    const activityText = await page
+      .locator('[aria-label="最近活动"]')
+      .textContent()
+      .catch(() => "");
+    const hasActivityItems =
+      activityText?.includes("会话开始") ||
+      activityText?.includes("看板数据") ||
+      activityText?.includes("数据卡片");
+    checks.push({
+      name: "RecentActivitySection 渲染（时间线插槽）",
+      ok: activityVisible && !!hasActivityItems,
+      detail: activityVisible
+        ? `text="${activityText?.slice(0, 60)}"`
+        : "section 未渲染",
+    });
+
+    const chipTextAfter = await chipWithBadge.textContent();
+    const stillHasBadge = chipTextAfter?.match(/[1-9]/) !== null;
+    checks.push({
+      name: "打开抽屉 → 自动 markAllCardsRead → 角标消失",
+      ok: !stillHasBadge,
+      detail: stillHasBadge
+        ? `角标仍在：${chipTextAfter?.slice(0, 40)}`
+        : `角标清除：${chipTextAfter?.slice(0, 40)}`,
+    });
   }
 
   checks.push({

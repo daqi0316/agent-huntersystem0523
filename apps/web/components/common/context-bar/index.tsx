@@ -33,6 +33,7 @@ import { ContextDrawer } from "./context-drawer";
 import { DataCardItem } from "./data-card-item";
 import { CurrentContextSection } from "./current-context-section";
 import { SessionStatsSection } from "./session-stats-section";
+import { RecentActivitySection } from "./recent-activity-section";
 
 const TOOL_LABELS: Record<string, string> = {
   get_dashboard_stats: "看板数据",
@@ -118,6 +119,7 @@ export function ContextBar() {
       requestAnimationFrame(() => {
         closeButtonRef.current?.focus();
       });
+      useAgentStore.getState().markAllCardsRead();
     }
   }, [open]);
 
@@ -149,6 +151,7 @@ export function ContextBar() {
       >
         <CurrentContextSection context={context} />
         <SessionStatsSection />
+        <RecentActivitySection />
         {sortedCards.length === 0 && !context.recentTopic ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
             <p className="text-sm">暂无数据卡片</p>

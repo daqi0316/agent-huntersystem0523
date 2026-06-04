@@ -92,6 +92,7 @@ export interface AgentStoreState {
   addRemoteCard: (card: DataCard) => void;
   removeCard: (id: string) => void;
   markCardRead: (id: string) => void;
+  markAllCardsRead: () => void;
   clearCards: () => void;
 
   setCurrentContext: (ctx: Partial<ChatContext>) => void;
@@ -202,6 +203,11 @@ export const useAgentStore = create<AgentStoreState>()(
           dataCards: s.dataCards.map((c) =>
             c.id === id ? { ...c, isRead: true } : c
           ),
+        })),
+
+      markAllCardsRead: () =>
+        set((s) => ({
+          dataCards: s.dataCards.map((c) => ({ ...c, isRead: true })),
         })),
 
       clearCards: () => set({ dataCards: [] }),
