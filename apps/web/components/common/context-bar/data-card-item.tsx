@@ -106,20 +106,44 @@ interface DataCardItemProps {
   active: boolean;
   expanded: boolean;
   onClick: () => void;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
+  isDragOver?: boolean;
 }
 
-export function DataCardItem({ card, active, expanded, onClick }: DataCardItemProps) {
+export function DataCardItem({
+  card,
+  active,
+  expanded,
+  onClick,
+  draggable = false,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  isDragOver = false,
+}: DataCardItemProps) {
   const Icon = TYPE_ICON[card.type];
   return (
     <button
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       className={cn(
         "w-full text-left rounded-lg border p-3 transition-colors",
         active
           ? "border-primary bg-primary/5"
           : card.isRead
             ? "border-border bg-card hover:bg-accent"
-            : "border-primary/30 bg-card hover:bg-accent"
+            : "border-primary/30 bg-card hover:bg-accent",
+        draggable && "cursor-grab active:cursor-grabbing",
+        isDragOver && "border-dashed border-primary bg-primary/5"
       )}
     >
       <div className="flex items-start gap-2">

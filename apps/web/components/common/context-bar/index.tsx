@@ -118,6 +118,48 @@ export function ContextBar() {
     }
   }, [open]);
 
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const handleDragStart = useCallback((id: string) => (e: React.DragEvent) => {
+    setDraggingId(id);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", id);
+  }, []);
+
+  const handleDragOver = useCallback((id: string) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverId(id);
+  }, []);
+
+  const handleDrop = useCallback(
+    (targetId: string) => (e: React.DragEvent) => {
+      e.preventDefault();
+      const sourceId = e.dataTransfer.getData("text/plain");
+      if (!sourceId || sourceId === targetId) {
+        setDraggingId(null);
+        setDragOverId(null);
+        return;
+      }
+      const next = [...cards];
+      const srcIdx = next.findIndex((c) => c.id === sourceId);
+      const dstIdx = next.findIndex((c) => c.id === targetId);
+      if (srcIdx < 0 || dstIdx < 0) return;
+      const [moved] = next.splice(srcIdx, 1);
+      next.splice(dstIdx, 0, moved);
+      useAgentStore.setState({ dataCards: next });
+      setDraggingId(null);
+      setDragOverId(null);
+    },
+    [cards]
+  );
+
+  const handleDragEnd = useCallback(() => {
+    setDraggingId(null);
+    setDragOverId(null);
+  }, []);
+
   const closeDrawer = useCallback(() => {
     if (!open) return;
     setOpen(false);
@@ -200,6 +242,12 @@ export function ContextBar() {
                   useAgentStore.getState().markCardRead(c.id);
                 }}
                 expanded={c.id === activeId}
+                draggable
+                onDragStart={handleDragStart(c.id)}
+                onDragOver={handleDragOver(c.id)}
+                onDrop={handleDrop(c.id)}
+                onDragEnd={handleDragEnd}
+                isDragOver={dragOverId === c.id && draggingId !== c.id}
               />
             ))}
             {filteredCards.length === 0 && sortedCards.length > 0 && (
