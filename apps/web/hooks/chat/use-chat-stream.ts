@@ -14,6 +14,7 @@
 import { useState, useRef, useCallback } from "react";
 import { api } from "@/lib/trpc";
 import { getSessionId } from "./use-chat-session";
+import { ensureBackendSession } from "./use-backend-session";
 import type { UploadedFile } from "@/hooks/useResumeUpload";
 import type {
   AgentChatResponse,
@@ -165,6 +166,9 @@ export function useChatStream({
       setLoading(true);
 
       try {
+        const backendSessionId = await ensureBackendSession();
+        const sessionId = backendSessionId || getSessionId();
+
         const data = await api.post<AgentChatResponse>("/agent/chat", {
           message:
             text.trim() ||
@@ -173,7 +177,7 @@ export function useChatStream({
             role: m.role,
             content: m.content,
           })),
-          session_id: getSessionId(),
+          session_id: sessionId,
           attachment: attachment
             ? {
                 file_url: attachment.file_url,
