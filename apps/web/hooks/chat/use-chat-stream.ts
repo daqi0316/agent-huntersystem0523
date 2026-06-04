@@ -165,6 +165,7 @@ export function useChatStream({
       };
       const currentHistory = historyRef.current;
       setMessages((prev) => [...prev, userMsg]);
+      useAgentStore.getState().recordMessage();
       setLoading(true);
 
       try {
@@ -201,6 +202,11 @@ export function useChatStream({
           historyRef.current.length
         );
         setMessages((prev) => [...prev, assistantMsg]);
+        for (const tc of assistantMsg.tool_calls || []) {
+          if (tc.name) {
+            useAgentStore.getState().recordToolCall(tc.name);
+          }
+        }
         for (const card of newCards) {
           useAgentStore.getState().addCard(card);
         }

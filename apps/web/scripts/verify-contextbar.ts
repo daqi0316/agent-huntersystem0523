@@ -244,6 +244,23 @@ async function main() {
           ? `section text="${sectionText?.slice(0, 60)}..."`
           : `section=${contextSectionVisible} topic=${topicVisible} text="${sectionText?.slice(0, 80)}"`,
     });
+
+    const statsSectionVisible = await page
+      .locator('[aria-label="本次会话统计"]')
+      .isVisible()
+      .catch(() => false);
+    const statsText = await page
+      .locator('[aria-label="本次会话统计"]')
+      .textContent()
+      .catch(() => "");
+    const hasStatsValues = /[1-9]/.test(statsText || "");
+    checks.push({
+      name: "SessionStatsSection 渲染（可扩展插槽演示）",
+      ok: statsSectionVisible && hasStatsValues,
+      detail: statsSectionVisible
+        ? `text="${statsText?.slice(0, 60)}"`
+        : "section 未渲染",
+    });
   }
 
   checks.push({

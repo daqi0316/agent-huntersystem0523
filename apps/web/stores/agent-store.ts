@@ -62,6 +62,13 @@ export interface ApprovalState {
   loading: boolean;
 }
 
+export interface SessionStats {
+  messageCount: number;
+  toolCallCount: number;
+  usedTools: string[];
+  startedAt: string | null;
+}
+
 export interface AgentStoreState {
   messages: ChatMessage[];
   dataCards: DataCard[];
@@ -75,6 +82,7 @@ export interface AgentStoreState {
     needs_human?: boolean;
   }>;
   operationPanel: OperationPanelState;
+  sessionStats: SessionStats;
 
   setMessages: (messages: ChatMessage[]) => void;
   addMessage: (message: ChatMessage) => void;
@@ -106,6 +114,10 @@ export interface AgentStoreState {
   setOperationPanel: (state: OperationPanelState) => void;
   closeOperationPanel: () => void;
 
+  recordMessage: () => void;
+  recordToolCall: (name: string) => void;
+  resetSession: () => void;
+
   reset: () => void;
 }
 
@@ -134,6 +146,12 @@ const EMPTY_STATE = {
   attachment: null as UploadedFile | null,
   lastToolCalls: [] as AgentStoreState["lastToolCalls"],
   operationPanel: INITIAL_OPERATION_PANEL,
+  sessionStats: {
+    messageCount: 0,
+    toolCallCount: 0,
+    usedTools: [],
+    startedAt: null,
+  },
 };
 
 function genCardId(): string {
@@ -204,6 +222,45 @@ export const useAgentStore = create<AgentStoreState>()(
       setOperationPanel: (state) => set({ operationPanel: state }),
 
       closeOperationPanel: () => set({ operationPanel: INITIAL_OPERATION_PANEL }),
+
+      recordMessage: () =>
+        set((s) => ({
+          sessionStats: {
+            messageCount: s.sessionStats.messageCount + 1,
+            toolCallCount: s.sessionStats.toolCallCount,
+            usedTools: s.sessionStats.usedTools,
+            startedAt: s.sessionStats.startedAt ?? new Date().toISOString(),
+          },
+        })),
+
+      recordToolCall: (name) =>
+        set((s) => {
+          if (s.sessionStats.usedTools.includes(name)) {
+            return {
+              sessionStats: {
+                ...s.sessionStats,
+                toolCallCount: s.sessionStats.toolCallCount + 1,
+              },
+            };
+          }
+          return {
+            sessionStats: {
+              ...s.sessionStats,
+              toolCallCount: s.sessionStats.toolCallCount + 1,
+              usedTools: [...s.sessionStats.usedTools, name],
+            },
+          };
+        }),
+
+      resetSession: () =>
+        set((s) => ({
+          sessionStats: {
+            messageCount: 0,
+            toolCallCount: 0,
+            usedTools: [],
+            startedAt: null,
+          },
+        })),
 
       reset: () => set({ ...EMPTY_STATE }),
     }),

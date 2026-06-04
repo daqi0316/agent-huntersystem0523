@@ -166,6 +166,7 @@ export function parseDataCardsFromMessage(
   messageIdx: number
 ): Omit<DataCard, "id" | "createdAt" | "isRead">[] {
   if (msg.role !== "assistant") return [];
+  if (msg.error) return [];
 
   const toolHint = msg.tool_calls?.[0]?.name;
   const blocks = extractJsonBlocks(msg.content);
