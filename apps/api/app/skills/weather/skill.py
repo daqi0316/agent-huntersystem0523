@@ -1,22 +1,55 @@
-"""天气查询 Skill — 使用 Open-Meteo（公开 API、无需 key）。"""
+"""天气查询 Skill — 和风天气（QWeather，国内 CDN）主 + wttr.in 兜底。
+
+主源：QWeather dev API（geoapi.qweather.com + devapi.qweather.com）
+  - 国内 CDN，稳定
+  - 需 API Key：https://console.qweather.com 注册（免费 1000 次/天）
+  - 配置：QWEATHER_API_KEY（空则跳过主源）
+
+兜底：wttr.in
+  - 无 key，但 SSL 不稳
+  - 偶尔成功
+
+设计原因（2026-06 教训）：
+  - api.open-meteo.com 在用户网络 DNS 解析到德国 Hetzner IP，TLS 握手 hang
+  - 之前用 wttr.in 也 SSL_ERROR_SYSCALL
+  - QWeather 国内 CDN，0.2s 响应（实测），最适合国内环境
+"""
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 import httpx
 
 from app.skills.base import Skill
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
-_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+_QWEATHER_GEO_URL = "https://geoapi.qweather.com/v2/city/lookup"
+_QWEATHER_NOW_URL = "https://devapi.qweather.com/v7/weather/now"
+_QWEATHER_3D_URL = "https://devapi.qweather.com/v7/weather/3d"
 _WTTR_URL = "https://wttr.in/{loc}?format=j1"
 
 _TIMEOUT = 8.0
-_OVERALL_TIMEOUT = 12.0
-_MAX_ATTEMPTS = 1
+_OVERALL_TIMEOUT = 15.0
+
+# QWeather 天气现象代码 → 中文
+_QWEATHER_CODE_DESC = {
+    "CLEAR_DAY": "晴", "CLEAR_NIGHT": "晴",
+    "PARTLY_CLOUDY_DAY": "多云", "PARTLY_CLOUDY_NIGHT": "多云",
+    "CLOUDY": "阴", "LIGHT_HAZE": "轻度雾霾", "MODERATE_HAZE": "中度雾霾",
+    "HEAVY_HAZE": "重度雾霾",
+    "LIGHT_RAIN": "小雨", "MODERATE_RAIN": "中雨", "HEAVY_RAIN": "大雨",
+    "STORM_RAIN": "暴雨", "FROST_RAIN": "冻雨",
+    "LIGHT_SNOW": "小雪", "MODERATE_SNOW": "中雪", "HEAVY_SNOW": "大雪",
+    "STORM_SNOW": "暴雪",
+    "DUST": "浮尘", "SAND": "沙尘", "WIND": "大风",
+    "FOG": "雾", "HAZE": "霾", "THUNDER_SHOWER": "雷阵雨",
+    "HAIL": "冰雹", "SLEET": "雨夹雪", "SNOW": "雪", "RAIN": "雨",
+    "DRIZZLE": "毛毛雨", "SHOWER_RAIN": "阵雨",
+}
 
 _TOOL_WEATHER = {
     "type": "function",
@@ -45,131 +78,96 @@ _TOOL_WEATHER = {
 }
 
 
-# WMO 天气代码 → 中文描述（Open-Meteo 标准）
-# https://open-meteo.com/en/docs#weather_variable_documentation
-_WMO_CODE_DESC = {
-    0: "晴", 1: "基本晴朗", 2: "局部多云", 3: "阴",
-    45: "雾", 48: "冻雾",
-    51: "小毛毛雨", 53: "中等毛毛雨", 55: "密集毛毛雨",
-    56: "冻毛毛雨", 57: "密集冻毛毛雨",
-    61: "小雨", 63: "中雨", 65: "大雨",
-    66: "冻雨", 67: "密集冻雨",
-    71: "小雪", 73: "中雪", 75: "大雪", 77: "雪粒",
-    80: "小阵雨", 81: "中阵雨", 82: "密集阵雨",
-    85: "小阵雪", 86: "密集阵雪",
-    95: "雷暴", 96: "雷暴伴小冰雹", 99: "雷暴伴大冰雹",
-}
+def _get_qweather_key() -> str:
+    return (settings.qweather_api_key or os.getenv("QWEATHER_API_KEY", "")).strip()
 
 
-def _pick_best_geo_result(results: list[dict]) -> dict | None:
-    """Open-Meteo geocode 多个结果时按 admin 级别 + 人口选最佳。
-
-    例：「佛山」会同时匹配广东佛山（PPLA2, 人口 9M）和云南佛山（PPLA4, 人口少），
-    应优先选广东佛山。
-
-    排序：feature_code 级别升序 → 人口降序 → 海拔升序
-    """
-    if not results:
-        return None
-
-    admin_rank = {
-        "PPLC": 0, "PPLA": 1, "PPLA2": 2, "PPLA3": 3,
-        "PPLA4": 4, "PPL": 5,
-    }
-
-    def sort_key(r: dict) -> tuple[int, int, float]:
-        rank = admin_rank.get(r.get("feature_code", "PPL"), 99)
-        pop = r.get("population") or 0
-        elev = r.get("elevation") or 0
-        return (rank, -pop, elev)
-
-    return sorted(results, key=sort_key)[0]
-
-
-async def _geocode(client: httpx.AsyncClient, location: str) -> dict:
+async def _qweather_lookup_location(client: httpx.AsyncClient, location: str, key: str) -> dict:
     is_chinese = any("\u4e00" <= c <= "\u9fff" for c in location)
-    params = {
-        "name": location,
-        "count": 5,
-        "language": "zh" if is_chinese else "en",
-    }
-    resp = await client.get(_GEOCODE_URL, params=params)
+    params = {"location": location, "key": key, "lang": "zh" if is_chinese else "en", "number": 1}
+    resp = await client.get(_QWEATHER_GEO_URL, params=params, timeout=_TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
-    results = data.get("results") or []
-    if not results:
+    if data.get("code") != "200":
+        raise ValueError(f"QWeather 城市查询失败：code={data.get('code')}, {location}")
+    locs = data.get("location") or []
+    if not locs:
         raise ValueError(f"找不到城市：{location}")
-    best = _pick_best_geo_result(results)
-    if best is None:
-        raise ValueError(f"找不到城市：{location}")
+    loc = locs[0]
     return {
-        "lat": best["latitude"],
-        "lon": best["longitude"],
-        "name": best.get("name", location),
-        "country": best.get("country", ""),
-        "admin1": best.get("admin1", ""),
-        "timezone": best.get("timezone", "auto"),
+        "id": loc["id"],
+        "name": loc.get("name", location),
+        "adm1": loc.get("adm1", ""),
+        "adm2": loc.get("adm2", ""),
+        "country": loc.get("country", ""),
     }
 
 
-async def _fetch_forecast(
-    client: httpx.AsyncClient, lat: float, lon: float, timezone: str
-) -> dict:
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "current": ",".join([
-            "temperature_2m", "apparent_temperature",
-            "relative_humidity_2m", "wind_speed_10m",
-            "wind_direction_10m", "weather_code",
-        ]),
-        "daily": ",".join([
-            "weather_code", "temperature_2m_max", "temperature_2m_min",
-            "sunrise", "sunset", "uv_index_max",
-        ]),
-        "timezone": timezone,
-        "forecast_days": 3,
-    }
-    resp = await client.get(_FORECAST_URL, params=params)
+async def _qweather_now(client: httpx.AsyncClient, loc_id: str, key: str) -> dict:
+    params = {"location": loc_id, "key": key, "lang": "zh"}
+    resp = await client.get(_QWEATHER_NOW_URL, params=params, timeout=_TIMEOUT)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    if data.get("code") != "200":
+        raise ValueError(f"QWeather 实时天气失败：code={data.get('code')}")
+    return data.get("now", {})
 
 
-def _format_openmeteo(geo: dict, data: dict, days: int) -> dict:
-    current = data.get("current", {})
-    daily = data.get("daily", {})
-    current_code = current.get("weather_code", -1)
+async def _qweather_3d(client: httpx.AsyncClient, loc_id: str, key: str) -> list:
+    params = {"location": loc_id, "key": key, "lang": "zh"}
+    resp = await client.get(_QWEATHER_3D_URL, params=params, timeout=_TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("code") != "200":
+        raise ValueError(f"QWeather 预报失败：code={data.get('code')}")
+    return data.get("daily", [])
+
+
+def _format_qweather(loc: dict, now: dict, daily: list, days: int) -> dict:
+    code = now.get("icon", "999")
+    desc = _QWEATHER_CODE_DESC.get(code, code)
     result: dict[str, Any] = {
-        "location": geo["name"],
-        "region": geo["admin1"],
-        "country": geo["country"],
+        "location": loc["name"],
+        "region": loc.get("adm2") or loc.get("adm1", ""),
+        "country": loc.get("country", ""),
         "current": {
-            "temp_c": current.get("temperature_2m"),
-            "feels_like_c": current.get("apparent_temperature"),
-            "humidity_pct": current.get("relative_humidity_2m"),
-            "wind_kmh": current.get("wind_speed_10m"),
-            "wind_dir": current.get("wind_direction_10m"),
-            "desc": _WMO_CODE_DESC.get(current_code, f"代码{current_code}"),
+            "temp_c": now.get("temp"),
+            "feels_like_c": now.get("feelsLike"),
+            "humidity_pct": now.get("humidity"),
+            "wind_kmh": now.get("windSpeed"),
+            "wind_dir": now.get("windDir"),
+            "pressure_hpa": now.get("pressure"),
+            "visibility_km": now.get("vis"),
+            "desc": desc,
         },
     }
-    if days >= 1 and daily.get("time"):
-        idx = min(days, len(daily["time"]) - 1)
-        future_code = daily["weather_code"][idx]
+    if days >= 1 and daily:
+        idx = max(0, min(days, len(daily) - 1))
+        d = daily[idx]
         result["forecast"] = {
-            "date": daily["time"][idx],
-            "max_temp_c": daily["temperature_2m_max"][idx],
-            "min_temp_c": daily["temperature_2m_min"][idx],
-            "desc": _WMO_CODE_DESC.get(future_code, f"代码{future_code}"),
-            "uv_index_max": daily.get("uv_index_max", [None] * 3)[idx],
-            "sunrise": daily.get("sunrise", [None] * 3)[idx],
-            "sunset": daily.get("sunset", [None] * 3)[idx],
+            "date": d.get("fxDate"),
+            "max_temp_c": d.get("tempMax"),
+            "min_temp_c": d.get("tempMin"),
+            "desc": _QWEATHER_CODE_DESC.get(d.get("iconDay", "999"), d.get("iconDay", "?")),
+            "uv_index": d.get("uvIndex"),
         }
     return result
 
 
-async def _get_weather_wttr(client: httpx.AsyncClient, location: str, days: int) -> dict:
+async def _qweather_weather(location: str, days: int) -> dict:
+    key = _get_qweather_key()
+    if not key:
+        return {"error": {"code": "no_api_key", "message": "QWEATHER_API_KEY 未配置（请去 https://console.qweather.com 注册免费 key）"}}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        loc = await _qweather_lookup_location(client, location, key)
+        now = await _qweather_now(client, loc["id"], key)
+        daily = await _qweather_3d(client, loc["id"], key) if days >= 1 else []
+    return _format_qweather(loc, now, daily, days)
+
+
+async def _wttr_weather(client: httpx.AsyncClient, location: str, days: int) -> dict:
     url = _WTTR_URL.format(loc=location)
-    resp = await client.get(url)
+    resp = await client.get(url, timeout=_TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
     current = data.get("current_condition", [{}])[0]
@@ -188,7 +186,7 @@ async def _get_weather_wttr(client: httpx.AsyncClient, location: str, days: int)
         },
     }
     if days >= 1 and data.get("weather"):
-        idx = min(days, len(data["weather"]) - 1)
+        idx = max(0, min(days, len(data["weather"]) - 1))
         future = data["weather"][idx]
         hourly4 = (future.get("hourly") or [{}])[4] if future.get("hourly") else {}
         result["forecast"] = {
@@ -200,28 +198,23 @@ async def _get_weather_wttr(client: httpx.AsyncClient, location: str, days: int)
     return result
 
 
-async def _get_weather(location: str, days: int = 0) -> dict:
-    """并发竞速：Open-Meteo 主 + wttr.in 备，谁先回成功用谁。
+async def _wttr_weather_entry(location: str, days: int) -> dict:
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        return await _wttr_weather(client, location, days)
 
-    设计原因（2026-06 教训）：
-      api.open-meteo.com（forecast 域名）在用户网络环境 DNS 解析到德国 Hetzner IP，
-      TLS 握手被卡死。geocoding 域名（同公司）解析到国内 CDN → 正常。
-      单源不可靠，并发竞速 + 早失败是唯一选项。
-    """
+
+async def _get_weather(location: str, days: int = 0) -> dict:
+    """并发竞速：QWeather 主 + wttr.in 备，谁先成功用谁。"""
     days = max(0, min(days, 2))
 
-    async def try_openmeteo() -> dict:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            geo = await _geocode(client, location)
-            data = await _fetch_forecast(client, geo["lat"], geo["lon"], geo["timezone"])
-            return _format_openmeteo(geo, data, days)
+    async def try_qweather() -> dict:
+        return await _qweather_weather(location, days)
 
     async def try_wttr() -> dict:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            return await _get_weather_wttr(client, location, days)
+        return await _wttr_weather_entry(location, days)
 
     tasks = [
-        asyncio.create_task(try_openmeteo(), name="openmeteo"),
+        asyncio.create_task(try_qweather(), name="qweather"),
         asyncio.create_task(try_wttr(), name="wttr"),
     ]
     last_error: str | None = None
@@ -252,22 +245,20 @@ async def _get_weather(location: str, days: int = 0) -> dict:
     return {
         "error": {
             "code": "upstream_unavailable",
-            "message": f"天气服务暂时不可达：{last_error}。建议用其他渠道查询。",
+            "message": f"天气服务暂时不可达：{last_error}",
             "timeout_s": _OVERALL_TIMEOUT,
         }
     }
 
 
 class WeatherSkill(Skill):
-    """天气查询技能。"""
-
     @property
     def name(self) -> str:
         return "weather"
 
     @property
     def description(self) -> str:
-        return "实时天气查询（Open-Meteo，公开 API），支持全球城市"
+        return "实时天气查询（和风天气 QWeather，国内 CDN），支持全球城市"
 
     def get_tools(self) -> list[dict]:
         return [_TOOL_WEATHER]
