@@ -66,7 +66,7 @@ class ApprovalService:
 
         from app.api.agent_events import emit_approval_requested
         await emit_approval_requested(
-            user_id=user_id,
+            user_id,
             {
                 "approval_id": approval.id,
                 "action_type": approval.action_type,
@@ -110,7 +110,7 @@ class ApprovalService:
 
         from app.api.agent_events import emit_approval_resolved
         await emit_approval_resolved(
-            user_id=approval.user_id,
+            approval.user_id,
             {
                 "approval_id": approval.id,
                 "action_type": approval.action_type,

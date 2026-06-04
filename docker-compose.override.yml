@@ -1,0 +1,15 @@
+# 自动 override：把镜像源从 Docker Hub 切到 docker.m.daocloud.io
+# 用途：用户环境 Docker Hub 不可达（5s timeout），但 daocloud 可达
+# 撤销：删除此文件即可，docker compose 会回到 docker-compose.dev.yml 配置
+
+services:
+  postgres:
+    image: docker.m.daocloud.io/library/postgres:16-alpine
+  redis:
+    image: docker.m.daocloud.io/library/redis:7-alpine
+  qdrant:
+    image: docker.m.daocloud.io/qdrant/qdrant:latest
+  minio:
+    image: docker.m.daocloud.io/minio/minio:latest
+  rabbitmq:
+    image: docker.m.daocloud.io/library/rabbitmq:3-management-alpine
