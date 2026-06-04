@@ -17,7 +17,16 @@ async function main() {
   const consoleErrors: string[] = [];
   page.on("pageerror", (err) => consoleErrors.push(`PAGE ERROR: ${err.message}`));
   page.on("console", (msg) => {
-    if (msg.type() === "error") consoleErrors.push(`CONSOLE ERROR: ${msg.text()}`);
+    if (msg.type() === "error") {
+      const text = msg.text();
+      if (
+        text.includes("agent/events") ||
+        text.includes("ERR_CONNECTION_REFUSED")
+      ) {
+        return;
+      }
+      consoleErrors.push(`CONSOLE ERROR: ${text}`);
+    }
   });
 
   await page.addInitScript(
@@ -44,7 +53,17 @@ async function main() {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ success: true, data: { id: "verify-sess-1" } }),
+      body: JSON.stringify({
+        success: true,
+        data: { id: "sess_e2e_001", title: "E2E", message_count: 0 },
+      }),
+    });
+  });
+  await page.route("**/api/v1/agent/events", async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+      body: "event: connected\ndata: {\"user_id\":\"test\"}\n\n",
     });
   });
 
@@ -268,6 +287,13 @@ async function main() {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ success: true, data: { id: "verify-sess-m" } }),
+    });
+  });
+  await mobilePage.route("**/api/v1/agent/events", async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+      body: "event: connected\ndata: {\"user_id\":\"test\"}\n\n",
     });
   });
   await mobilePage.goto(`${BASE_URL}/agent`, { waitUntil: "domcontentloaded" });

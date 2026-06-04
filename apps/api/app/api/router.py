@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.auth import router as auth_router
 from app.api.agent import router as agent_router
+from app.api.agent_events import router as agent_events_router
 from app.api.pipeline import router as pipeline_router
 from app.api.router_route import router as router_route
 from app.api.parallel import router as parallel_router
@@ -41,6 +42,7 @@ api_router.include_router(auth_router, prefix="/auth", tags=["Auth"])
 
 # 图1: 单Agent
 api_router.include_router(agent_router, prefix="/agent", tags=["Agent"])
+api_router.include_router(agent_events_router, prefix="/agent", tags=["Agent Events"])
 
 # 图2: 流水线
 api_router.include_router(pipeline_router, prefix="/pipeline", tags=["Pipeline"])

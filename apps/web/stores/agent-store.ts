@@ -81,6 +81,7 @@ export interface AgentStoreState {
   clearMessages: () => void;
 
   addCard: (card: Omit<DataCard, "id" | "createdAt" | "isRead">) => void;
+  addRemoteCard: (card: DataCard) => void;
   removeCard: (id: string) => void;
   markCardRead: (id: string) => void;
   clearCards: () => void;
@@ -165,6 +166,13 @@ export const useAgentStore = create<AgentStoreState>()(
             isRead: false,
           };
           const next = [newCard, ...s.dataCards].slice(0, 50);
+          return { dataCards: next };
+        }),
+
+      addRemoteCard: (card) =>
+        set((s) => {
+          if (s.dataCards.some((c) => c.id === card.id)) return s;
+          const next = [card, ...s.dataCards].slice(0, 50);
           return { dataCards: next };
         }),
 

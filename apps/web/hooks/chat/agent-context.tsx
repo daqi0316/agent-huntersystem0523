@@ -24,6 +24,7 @@ import {
   initAgentStoreSync,
   teardownAgentStoreSync,
 } from "@/lib/agent-store-sync";
+import { AgentEventStreamBridge } from "@/hooks/chat/use-agent-event-stream";
 
 interface AgentProviderProps {
   children: ReactNode;
@@ -38,5 +39,10 @@ export function AgentProvider({ children }: AgentProviderProps) {
     };
   }, []);
 
-  return <>{children}</>;
+  return (
+    <>
+      <AgentEventStreamBridge />
+      {children}
+    </>
+  );
 }
