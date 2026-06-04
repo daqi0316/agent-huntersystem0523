@@ -199,6 +199,32 @@ async function main() {
         ? `title="${chipTitle}"`
         : `title="${chipTitle}" text="${badgeText}"`,
     });
+
+    await chipWithBadge.click();
+    await page.waitForTimeout(400);
+
+    const contextSectionVisible = await page
+      .locator('[aria-label="当前讨论上下文"]')
+      .isVisible()
+      .catch(() => false);
+    const topicVisible = await page
+      .getByText("查看招聘数据看板")
+      .nth(1)
+      .isVisible()
+      .catch(() => false);
+    const sectionText = await page
+      .locator('[aria-label="当前讨论上下文"]')
+      .textContent()
+      .catch(() => "");
+    const lastToolInText = sectionText?.includes("看板数据") ?? false;
+    checks.push({
+      name: "CurrentContextSection 渲染（Phase 5：当前讨论 + 上次工具）",
+      ok: contextSectionVisible && topicVisible && lastToolInText,
+      detail:
+        contextSectionVisible && topicVisible && lastToolInText
+          ? `section text="${sectionText?.slice(0, 60)}..."`
+          : `section=${contextSectionVisible} topic=${topicVisible} text="${sectionText?.slice(0, 80)}"`,
+    });
   }
 
   checks.push({

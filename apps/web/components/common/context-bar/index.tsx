@@ -31,6 +31,7 @@ import { useGlobalShortcut } from "@/hooks/chat/use-global-shortcut";
 import { ContextChip } from "./context-chip";
 import { ContextDrawer } from "./context-drawer";
 import { DataCardItem } from "./data-card-item";
+import { CurrentContextSection } from "./current-context-section";
 
 const TOOL_LABELS: Record<string, string> = {
   get_dashboard_stats: "看板数据",
@@ -145,7 +146,8 @@ export function ContextBar() {
           ) : null
         }
       >
-        {sortedCards.length === 0 ? (
+        <CurrentContextSection context={context} />
+        {sortedCards.length === 0 && !context.recentTopic ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
             <p className="text-sm">暂无数据卡片</p>
             <p className="text-xs mt-1">
@@ -169,6 +171,11 @@ export function ContextBar() {
                 expanded={c.id === activeId}
               />
             ))}
+            {sortedCards.length === 0 && context.recentTopic && (
+              <div className="text-center text-xs text-muted-foreground py-4">
+                本轮对话尚未产生数据卡片
+              </div>
+            )}
           </div>
         )}
       </ContextDrawer>
