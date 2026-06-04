@@ -61,6 +61,11 @@ async def emit_approval_requested(user_id: str, approval: dict[str, Any]) -> Non
     await emit_to_user(user_id, "approval.requested", approval)
 
 
+async def emit_approval_resolved(user_id: str, resolution: dict[str, Any]) -> None:
+    """Emit approval.resolved event."""
+    await emit_to_user(user_id, "approval.resolved", resolution)
+
+
 async def emit_chat_response(
     user_id: str,
     reply: str,

@@ -63,6 +63,18 @@ class ApprovalService:
             "status": approval.status.value,
             "expires_at": approval.expires_at.isoformat() if approval.expires_at else "",
         })
+
+        from app.api.agent_events import emit_approval_requested
+        await emit_approval_requested(
+            user_id=user_id,
+            {
+                "approval_id": approval.id,
+                "action_type": approval.action_type,
+                "status": approval.status.value,
+                "expires_at": approval.expires_at.isoformat() if approval.expires_at else "",
+                "proposal_summary": (proposal or {}).get("summary", ""),
+            },
+        )
         return approval
 
     async def resolve(
@@ -95,6 +107,17 @@ class ApprovalService:
             "status": approval.status.value,
             "resolver_id": resolver_id,
         })
+
+        from app.api.agent_events import emit_approval_resolved
+        await emit_approval_resolved(
+            user_id=approval.user_id,
+            {
+                "approval_id": approval.id,
+                "action_type": approval.action_type,
+                "status": approval.status.value,
+                "resolver_id": resolver_id,
+            },
+        )
         return approval
 
     async def expire_pending(self) -> int:

@@ -104,6 +104,30 @@ export function AgentEventStreamBridge() {
       );
     });
 
+    const unsubApproval = subscribe("approval.requested", (data) => {
+      const payload = data as {
+        approval_id: string;
+        action_type: string;
+        status: string;
+        expires_at?: string;
+        proposal_summary?: string;
+      };
+      if (!payload?.approval_id) return;
+      useAgentStore.getState().setApproval({
+        visible: true,
+        approval_id: payload.approval_id,
+        summary:
+          payload.proposal_summary || `待审批：${payload.action_type}`,
+        loading: false,
+      });
+    });
+
+    const unsubApprovalResolved = subscribe("approval.resolved", (data) => {
+      const payload = data as { approval_id: string };
+      if (!payload?.approval_id) return;
+      useAgentStore.getState().resetApproval();
+    });
+
     const unsubContext = subscribe("context.updated", (data) => {
       const payload = data as ContextUpdatedPayload;
       useAgentStore.getState().setCurrentContext(payload);
@@ -113,6 +137,8 @@ export function AgentEventStreamBridge() {
       unsubCard();
       unsubContext();
       unsubChat();
+      unsubApproval();
+      unsubApprovalResolved();
     };
   }, [connected, subscribe]);
 
