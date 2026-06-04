@@ -4,16 +4,17 @@ import { useEffect, useRef, useState } from "react";
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const TOKEN_KEY = "ai-recruitment-token";
 
-/**
- * Centralized SSE connection hook.
- *
- * - Single EventSource per endpoint
- * - Tracks connection state
- * - Provides `subscribe(event, handler)` that returns an unsubscribe function
- * - EventSource auto-reconnects by default (no manual reconnect needed)
- * - Cleans up on unmount or endpoint change
- */
+function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function useEventSource(endpoint: string | null) {
   const [connected, setConnected] = useState(false);
   const esRef = useRef<EventSource | null>(null);
@@ -22,13 +23,17 @@ export function useEventSource(endpoint: string | null) {
   useEffect(() => {
     if (!endpoint) return;
 
-    const url = `${BASE_URL}${endpoint}`;
+    const token = getStoredToken();
+    const sep = endpoint.includes("?") ? "&" : "?";
+    const url = token
+      ? `${BASE_URL}${endpoint}${sep}token=${encodeURIComponent(token)}`
+      : `${BASE_URL}${endpoint}`;
     const es = new EventSource(url);
     esRef.current = es;
     cleanupFnsRef.current = [];
 
     es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false); // EventSource auto-reconnects
+    es.onerror = () => setConnected(false);
 
     return () => {
       es.close();

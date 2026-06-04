@@ -25,7 +25,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from app.core.dependencies import get_current_user_id
+from app.core.dependencies import get_current_user_id, get_user_id_sse
 from app.core.sse import sse_event, sse_headers
 
 logger = logging.getLogger(__name__)
@@ -203,20 +203,11 @@ async def _generator(user_id: str):
 
 @router.get("/events")
 async def agent_events(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_user_id_sse),
 ):
     """SSE 端点：订阅 agent 实时事件。
 
-    事件流：
-      - connected        连接建立
-      - ping             每 15s 心跳
-      - data_card.created  新数据卡片（来自其它设备）
-      - context.updated    上下文变化
-      - approval.requested 审批请求
-
-    跨进程：
-      - REDIS_URL 环境变量启用时，所有事件经 Redis pub/sub 广播
-      - 多实例部署时，连接在不同实例上的用户也能收到事件
+    鉴权：SSE 专用 dep（header Bearer 或 ?token= query，EventSource 用后者）
     """
     return StreamingResponse(
         _generator(user_id),
