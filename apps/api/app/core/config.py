@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     llm_embed_model: str = "bge-m3-mlx-4bit"
 
     qweather_api_key: str = ""
+    qweather_api_host: str = ""
 
     # JD Generator
     jd_gen_max_iterations: int = 6
