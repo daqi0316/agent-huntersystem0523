@@ -123,9 +123,13 @@ async def _qweather_3d(client: httpx.AsyncClient, lat: float, lon: float, key: s
 def _format_qweather(loc_name: str, now: dict, daily: list, days: int) -> dict:
     code = now.get("icon", "999")
     desc = _QWEATHER_CODE_DESC.get(code, now.get("text", code))
+    obs_time = now.get("obsTime", "")
+    current_date = obs_time[:10] if len(obs_time) >= 10 else ""
     result: dict[str, Any] = {
         "location": loc_name,
+        "date": current_date if days == 0 else (daily[min(days, len(daily) - 1)].get("fxDate", "") if daily else ""),
         "current": {
+            "date": current_date,
             "temp_c": now.get("temp"),
             "feels_like_c": now.get("feelsLike"),
             "humidity_pct": now.get("humidity"),
