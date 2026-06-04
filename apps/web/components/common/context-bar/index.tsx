@@ -26,6 +26,7 @@ import {
   useAgentStore,
   selectUnreadCardCount,
   type DataCard,
+  type DataCardType,
 } from "@/stores/agent-store";
 import { useGlobalShortcut } from "@/hooks/chat/use-global-shortcut";
 import { ContextChip } from "./context-chip";
@@ -34,6 +35,7 @@ import { DataCardItem } from "./data-card-item";
 import { CurrentContextSection } from "./current-context-section";
 import { SessionStatsSection } from "./session-stats-section";
 import { RecentActivitySection } from "./recent-activity-section";
+import { SearchBar, filterCards, EMPTY_FILTERS } from "./search-bar";
 
 const TOOL_LABELS: Record<string, string> = {
   get_dashboard_stats: "看板数据",
@@ -65,6 +67,8 @@ export function ContextBar() {
   const context = useAgentStore((s) => s.currentContext);
   const [open, setOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [activeTypes, setActiveTypes] = useState<DataCardType[]>([]);
 
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
@@ -72,6 +76,11 @@ export function ContextBar() {
   const sortedCards = useMemo(
     () => [...cards].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [cards]
+  );
+
+  const filteredCards = useMemo(
+    () => filterCards(sortedCards, { query, types: activeTypes }),
+    [sortedCards, query, activeTypes]
   );
 
   const activeCard = useMemo<DataCard | null>(() => {
@@ -100,6 +109,13 @@ export function ContextBar() {
     if (open) return;
     lastFocusedRef.current = document.activeElement as HTMLElement | null;
     setOpen(true);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setActiveTypes([]);
+    }
   }, [open]);
 
   const closeDrawer = useCallback(() => {
@@ -152,6 +168,16 @@ export function ContextBar() {
         <CurrentContextSection context={context} />
         <SessionStatsSection />
         <RecentActivitySection />
+        {sortedCards.length > 0 && (
+          <SearchBar
+            query={query}
+            onQueryChange={setQuery}
+            activeTypes={activeTypes}
+            onActiveTypesChange={setActiveTypes}
+            resultCount={filteredCards.length}
+            totalCount={sortedCards.length}
+          />
+        )}
         {sortedCards.length === 0 && !context.recentTopic ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
             <p className="text-sm">暂无数据卡片</p>
@@ -164,7 +190,7 @@ export function ContextBar() {
           </div>
         ) : (
           <div className="space-y-2">
-            {sortedCards.map((c) => (
+            {filteredCards.map((c) => (
               <DataCardItem
                 key={c.id}
                 card={c}
@@ -176,6 +202,11 @@ export function ContextBar() {
                 expanded={c.id === activeId}
               />
             ))}
+            {filteredCards.length === 0 && sortedCards.length > 0 && (
+              <div className="text-center text-xs text-muted-foreground py-4">
+                没有匹配的卡片
+              </div>
+            )}
             {sortedCards.length === 0 && context.recentTopic && (
               <div className="text-center text-xs text-muted-foreground py-4">
                 本轮对话尚未产生数据卡片
