@@ -196,14 +196,14 @@ export function useChatStream({
           agent_actions: data.agent_actions,
           model: data.model,
         };
-        setMessages((prev) => {
-          const next = [...prev, assistantMsg];
-          const messageIdx = prev.length;
-          const newCards = parseDataCardsFromMessage(assistantMsg, messageIdx);
-          const addCard = useAgentStore.getState().addCard;
-          for (const card of newCards) addCard(card);
-          return next;
-        });
+        const newCards = parseDataCardsFromMessage(
+          assistantMsg,
+          historyRef.current.length
+        );
+        setMessages((prev) => [...prev, assistantMsg]);
+        for (const card of newCards) {
+          useAgentStore.getState().addCard(card);
+        }
         setLastToolCalls(
           data.tool_calls?.filter((tc) => tc.name) || []
         );

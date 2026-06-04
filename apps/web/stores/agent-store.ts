@@ -13,11 +13,12 @@
  * 用法（Phase 1 缩略按钮接入示例）：
  *   const cards = useAgentStore(s => s.dataCards);
  *   const addCard = useAgentStore(s => s.addCard);
+ *
+ * 注意：不使用 immer 中间件（避免新增 immer 依赖），改用 spread 模式手动不可变更新。
  */
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { immer } from "zustand/middleware/immer";
 import type {
   ChatMessage,
   OperationPanelState,
@@ -27,31 +28,31 @@ import type { UploadedFile } from "@/hooks/useResumeUpload";
 // ── Types ──
 
 export type DataCardType =
-  | "candidate_list" // 候选人列表（JsonPreview 中前 5 个）
-  | "dashboard_stats" // 看板数据（get_dashboard_stats）
-  | "search_result" // 搜索结果
-  | "evaluation" // 评估结果（含 overall_score）
-  | "jd" // JD 内容（jd_content）
-  | "interview_schedule" // 面试安排
-  | "other"; // 兜底
+  | "candidate_list"
+  | "dashboard_stats"
+  | "search_result"
+  | "evaluation"
+  | "jd"
+  | "interview_schedule"
+  | "other";
 
 export interface DataCard {
   id: string;
   type: DataCardType;
-  title: string; // 卡片标题（用于缩略按钮 tooltip）
-  summary: string; // 简短摘要（用于缩略按钮副标题）
-  payload: unknown; // 原始数据（结构化）
-  toolName?: string; // 来源工具名
-  messageId?: string; // 来源消息 ID（可关联）
+  title: string;
+  summary: string;
+  payload: unknown;
+  toolName?: string;
+  messageId?: string;
   createdAt: string;
-  isRead: boolean; // 缩略按钮未读徽章用
+  isRead: boolean;
 }
 
 export interface ChatContext {
-  currentCandidateIds: string[]; // 最近讨论的候选人 ID 列表
-  currentJobIds: string[]; // 最近讨论的职位 ID 列表
-  recentTopic: string; // 最近的话题
-  lastToolUsed?: string; // 最近一次工具调用名
+  currentCandidateIds: string[];
+  currentJobIds: string[];
+  recentTopic: string;
+  lastToolUsed?: string;
 }
 
 export interface ApprovalState {
@@ -62,55 +63,36 @@ export interface ApprovalState {
 }
 
 export interface AgentStoreState {
-  // ── 消息（当前仍由 useChatMessages 内部管理，本字段预留给 Phase 0.3 迁移） ──
   messages: ChatMessage[];
-
-  // ── 数据卡片（Phase 0.4 填充；Phase 1 缩略按钮读取） ──
   dataCards: DataCard[];
-
-  // ── 上下文（Phase 2 上下文感知） ──
   currentContext: ChatContext;
-
-  // ── 审批状态（Phase 0.3 从 useChatStream 迁入） ──
   approval: ApprovalState;
-
-  // ── 当前附件（Phase 0.3 从 ChatInput 迁入，可选） ──
   attachment: UploadedFile | null;
-
-  // ── 最近工具调用（用于错误时回填到 OperationPanel） ──
   lastToolCalls: Array<{
     name: string;
     args: Record<string, unknown>;
     error?: string | null;
     needs_human?: boolean;
   }>;
-
-  // ── 操作面板状态（Phase 0.3 从 useChatStream 迁入） ──
   operationPanel: OperationPanelState;
 
-  // ── Actions: messages ──
   setMessages: (messages: ChatMessage[]) => void;
   addMessage: (message: ChatMessage) => void;
   clearMessages: () => void;
 
-  // ── Actions: dataCards ──
   addCard: (card: Omit<DataCard, "id" | "createdAt" | "isRead">) => void;
   removeCard: (id: string) => void;
   markCardRead: (id: string) => void;
   clearCards: () => void;
 
-  // ── Actions: context ──
   setCurrentContext: (ctx: Partial<ChatContext>) => void;
   resetContext: () => void;
 
-  // ── Actions: approval ──
   setApproval: (approval: ApprovalState) => void;
   resetApproval: () => void;
 
-  // ── Actions: attachment ──
   setAttachment: (file: UploadedFile | null) => void;
 
-  // ── Actions: lastToolCalls ──
   setLastToolCalls: (
     calls: Array<{
       name: string;
@@ -120,11 +102,9 @@ export interface AgentStoreState {
     }>
   ) => void;
 
-  // ── Actions: operationPanel ──
   setOperationPanel: (state: OperationPanelState) => void;
   closeOperationPanel: () => void;
 
-  // ── 全局重置 ──
   reset: () => void;
 }
 
@@ -145,122 +125,83 @@ const INITIAL_APPROVAL: ApprovalState = {
 
 const INITIAL_OPERATION_PANEL: OperationPanelState = { open: false };
 
+const EMPTY_STATE = {
+  messages: [] as ChatMessage[],
+  dataCards: [] as DataCard[],
+  currentContext: INITIAL_CONTEXT,
+  approval: INITIAL_APPROVAL,
+  attachment: null as UploadedFile | null,
+  lastToolCalls: [] as AgentStoreState["lastToolCalls"],
+  operationPanel: INITIAL_OPERATION_PANEL,
+};
+
+function genCardId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return `card_${crypto.randomUUID().slice(0, 8)}`;
+  }
+  return `card_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 // ── Store ──
 
 export const useAgentStore = create<AgentStoreState>()(
   persist(
-    immer((set) => ({
-      messages: [],
-      dataCards: [],
-      currentContext: INITIAL_CONTEXT,
-      approval: INITIAL_APPROVAL,
-      attachment: null,
-      lastToolCalls: [],
-      operationPanel: INITIAL_OPERATION_PANEL,
+    (set) => ({
+      ...EMPTY_STATE,
 
-      // ── messages ──
-      setMessages: (messages) =>
-        set((s) => {
-          s.messages = messages;
-        }),
+      setMessages: (messages) => set({ messages }),
+
       addMessage: (message) =>
-        set((s) => {
-          s.messages.push(message);
-        }),
-      clearMessages: () =>
-        set((s) => {
-          s.messages = [];
-        }),
+        set((s) => ({ messages: [...s.messages, message] })),
 
-      // ── dataCards ──
+      clearMessages: () => set({ messages: [] }),
+
       addCard: (card) =>
         set((s) => {
-          s.dataCards.unshift({
+          const newCard: DataCard = {
             ...card,
-            id:
-              typeof crypto !== "undefined" && crypto.randomUUID
-                ? `card_${crypto.randomUUID().slice(0, 8)}`
-                : `card_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            id: genCardId(),
             createdAt: new Date().toISOString(),
             isRead: false,
-          });
-          // 限制最大 50 张（避免内存膨胀）
-          if (s.dataCards.length > 50) {
-            s.dataCards = s.dataCards.slice(0, 50);
-          }
+          };
+          const next = [newCard, ...s.dataCards].slice(0, 50);
+          return { dataCards: next };
         }),
+
       removeCard: (id) =>
-        set((s) => {
-          s.dataCards = s.dataCards.filter((c: DataCard) => c.id !== id);
-        }),
+        set((s) => ({ dataCards: s.dataCards.filter((c) => c.id !== id) })),
+
       markCardRead: (id) =>
-        set((s) => {
-          const c = s.dataCards.find((x: DataCard) => x.id === id);
-          if (c) c.isRead = true;
-        }),
-      clearCards: () =>
-        set((s) => {
-          s.dataCards = [];
-        }),
+        set((s) => ({
+          dataCards: s.dataCards.map((c) =>
+            c.id === id ? { ...c, isRead: true } : c
+          ),
+        })),
 
-      // ── context ──
+      clearCards: () => set({ dataCards: [] }),
+
       setCurrentContext: (ctx) =>
-        set((s) => {
-          s.currentContext = { ...s.currentContext, ...ctx };
-        }),
-      resetContext: () =>
-        set((s) => {
-          s.currentContext = INITIAL_CONTEXT;
-        }),
+        set((s) => ({ currentContext: { ...s.currentContext, ...ctx } })),
 
-      // ── approval ──
-      setApproval: (approval) =>
-        set((s) => {
-          s.approval = approval;
-        }),
-      resetApproval: () =>
-        set((s) => {
-          s.approval = INITIAL_APPROVAL;
-        }),
+      resetContext: () => set({ currentContext: INITIAL_CONTEXT }),
 
-      // ── attachment ──
-      setAttachment: (file) =>
-        set((s) => {
-          s.attachment = file;
-        }),
+      setApproval: (approval) => set({ approval }),
 
-      // ── lastToolCalls ──
-      setLastToolCalls: (calls) =>
-        set((s) => {
-          s.lastToolCalls = calls;
-        }),
+      resetApproval: () => set({ approval: INITIAL_APPROVAL }),
 
-      // ── operationPanel ──
-      setOperationPanel: (state) =>
-        set((s) => {
-          s.operationPanel = state;
-        }),
-      closeOperationPanel: () =>
-        set((s) => {
-          s.operationPanel = INITIAL_OPERATION_PANEL;
-        }),
+      setAttachment: (file) => set({ attachment: file }),
 
-      // ── 全局重置 ──
-      reset: () =>
-        set((s) => {
-          s.messages = [];
-          s.dataCards = [];
-          s.currentContext = INITIAL_CONTEXT;
-          s.approval = INITIAL_APPROVAL;
-          s.attachment = null;
-          s.lastToolCalls = [];
-          s.operationPanel = INITIAL_OPERATION_PANEL;
-        }),
-    })),
+      setLastToolCalls: (calls) => set({ lastToolCalls: calls }),
+
+      setOperationPanel: (state) => set({ operationPanel: state }),
+
+      closeOperationPanel: () => set({ operationPanel: INITIAL_OPERATION_PANEL }),
+
+      reset: () => set({ ...EMPTY_STATE }),
+    }),
     {
       name: "ai-recruitment-agent-store",
       storage: createJSONStorage(() => {
-        // SSR-safe：服务端没有 localStorage
         if (typeof window === "undefined") {
           return {
             getItem: () => null,
@@ -270,22 +211,21 @@ export const useAgentStore = create<AgentStoreState>()(
         }
         return localStorage;
       }),
-      // 持久化白名单：只持久化需要跨刷新的状态
       partialize: (state) => ({
         dataCards: state.dataCards,
         currentContext: state.currentContext,
-        // messages 由 useChatMessages 独立持久化（避免重复）
-        // approval / attachment / operationPanel / lastToolCalls 是临时状态
       }),
       version: 1,
     }
   )
 );
 
-// ── Selectors（避免不必要的 re-render） ──
+// ── Selectors ──
 
 export const selectUnreadCardCount = (s: AgentStoreState): number =>
   s.dataCards.filter((c) => !c.isRead).length;
 
-export const selectLatestCards = (limit: number) => (s: AgentStoreState): DataCard[] =>
-  s.dataCards.slice(0, limit);
+export const selectLatestCards =
+  (limit: number) =>
+  (s: AgentStoreState): DataCard[] =>
+    s.dataCards.slice(0, limit);
