@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user_id
+from app.core.dependencies import get_current_user_id, get_user_id_sse
 from app.core.response import success, error
 from app.core.sse import sse_headers
 from app.services.operation_service import OperationService, event_bus
@@ -176,7 +176,7 @@ async def get_operation(
 
 @router.get("/stream")
 async def operation_sse_stream(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_user_id_sse),
     db: AsyncSession = Depends(get_db),
 ):
     """SSE 实时操作流 — 所有 Agent 操作事件实时推送到前端。"""

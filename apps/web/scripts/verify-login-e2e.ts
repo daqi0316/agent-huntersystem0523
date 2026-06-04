@@ -14,11 +14,32 @@ const WEB_BASE = process.env.WEB_BASE || "http://localhost:3007";
 const TEST_EMAIL = "e2e-tester@test.com";
 const TEST_PASSWORD = "E2ePass123!";
 
+async function prewarmLogin(): Promise<void> {
+  const maxAttempts = 30;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const res = await fetch(`${WEB_BASE}/login`, { method: "GET" });
+      if (res.status === 200) {
+        if (i > 0) console.log(`[prewarm] /login ready after ${i} retries`);
+        return;
+      }
+    } catch {
+      void 0;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(`/login did not return 200 after ${maxAttempts}s prewarm`);
+}
+
 async function main() {
+  console.log(`[prewarm] 等待 ${WEB_BASE}/login 稳定（dev server 编译就绪）...`);
+  await prewarmLogin();
+
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
   const consoleErrors: string[] = [];
+  const failedRequests: string[] = [];
   page.on("pageerror", (err) => consoleErrors.push(`PAGE ERROR: ${err.message}`));
   page.on("console", (msg) => {
     if (msg.type() === "error") {
@@ -27,10 +48,28 @@ async function main() {
       consoleErrors.push(`CONSOLE ERROR: ${t}`);
     }
   });
+  page.on("response", (resp) => {
+    const status = resp.status();
+    if (status >= 400) {
+      failedRequests.push(`HTTP ${status} ${resp.url()}`);
+    }
+  });
 
   try {
     // 1. 打开 /login（不注入任何 token）
-    await page.goto(`${WEB_BASE}/login`, { waitUntil: "domcontentloaded" });
+    let navOk = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const resp = await page.goto(`${WEB_BASE}/login`, {
+        waitUntil: "domcontentloaded",
+      });
+      if (resp && resp.status() === 200) {
+        navOk = true;
+        break;
+      }
+      console.log(`[retry] /login 返回 ${resp?.status()}, 第 ${attempt + 1} 次重试...`);
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    if (!navOk) throw new Error("/login 连续 3 次未返回 200");
     await page.waitForTimeout(1000);
 
     // 2. 找表单字段（按 type=email / type=password 找）
@@ -96,6 +135,10 @@ async function main() {
     console.error("\n❌ 真实端到端登录验证失败：", (err as Error).message);
     if (consoleErrors.length > 0) {
       console.error("   console errors:", consoleErrors.slice(0, 5));
+    }
+    if (failedRequests.length > 0) {
+      console.error("   failed requests:");
+      for (const r of failedRequests.slice(0, 10)) console.error(`     ${r}`);
     }
     await browser.close();
     process.exit(1);

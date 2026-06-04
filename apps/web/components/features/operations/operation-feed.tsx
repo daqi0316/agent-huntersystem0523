@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/trpc";
+import { useEventSource } from "@/hooks/use-event-source";
 
 interface OperationEvent {
   operation_id: string;
@@ -44,51 +45,39 @@ const agentColors: Record<string, string> = {
 
 export default function OperationFeed() {
   const [events, setEvents] = useState<OperationEvent[]>([]);
-  const [connected, setConnected] = useState(false);
   const [history, setHistory] = useState<OperationEvent[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [filter, setFilter] = useState<string>("all");
-  const esRef = useRef<EventSource | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-
   useEffect(() => {
-    fetch(`${BASE_URL}/operations?limit=20`)
-      .then((r) => r.json())
+    api
+      .get<{ data?: { items?: OperationEvent[] } }>("/operations?limit=20")
       .then((res) => {
-        if (res.success) setHistory(res.data.items || []);
+        setHistory(res?.data?.items || []);
       })
-      .catch(() => {})
+      .catch(() => {
+        void 0;
+      })
       .finally(() => setLoadingHistory(false));
-  }, [BASE_URL]);
+  }, []);
+
+  const { connected, subscribe } = useEventSource("/operations/stream");
 
   useEffect(() => {
-    const url = `${BASE_URL}/operations/stream`;
-    const es = new EventSource(url);
-    esRef.current = es;
-
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false);
-
-    es.addEventListener("operation", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as OperationEvent;
-        setEvents((prev) => [data, ...prev].slice(0, 100));
-      } catch { /* ignore */ }
+    const unsub = subscribe("operation", (data) => {
+      const ev = data as OperationEvent;
+      if (!ev?.operation_id) return;
+      setEvents((prev) => [ev, ...prev].slice(0, 100));
     });
-
-    return () => {
-      es.close();
-      esRef.current = null;
-    };
-  }, [BASE_URL]);
+    return unsub;
+  }, [subscribe]);
 
   useEffect(() => {
     if (feedRef.current) {
       feedRef.current.scrollTop = 0;
     }
-  }, [events]);
+  });
 
   const filtered = filter === "all"
     ? events

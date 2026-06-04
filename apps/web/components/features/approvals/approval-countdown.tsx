@@ -64,7 +64,7 @@ export default function ApprovalCountdown() {
   const load = useCallback(async () => {
     try {
       const res = await api.get<{ data?: PendingApproval[] } | PendingApproval[]>(
-        "/human_loop/pending"
+        "/human-loop/pending"
       );
       const items = Array.isArray(res) ? res : (res?.data || []);
       setPending(items);
