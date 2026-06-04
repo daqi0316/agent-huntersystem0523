@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 interface ContextDrawerProps {
@@ -11,6 +11,7 @@ interface ContextDrawerProps {
   subtitle?: string;
   children: ReactNode;
   footer?: ReactNode;
+  closeButtonRef?: RefObject<HTMLButtonElement>;
 }
 
 export function ContextDrawer({
@@ -20,6 +21,7 @@ export function ContextDrawer({
   subtitle,
   children,
   footer,
+  closeButtonRef,
 }: ContextDrawerProps) {
   return (
     <div
@@ -27,6 +29,9 @@ export function ContextDrawer({
         "fixed inset-y-0 right-0 z-40 w-96 bg-background border-l shadow-xl transform transition-transform duration-200",
         open ? "translate-x-0" : "translate-x-full pointer-events-none"
       )}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
       aria-hidden={!open}
     >
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -39,6 +44,7 @@ export function ContextDrawer({
           )}
         </div>
         <button
+          ref={closeButtonRef}
           onClick={onClose}
           className="rounded-md p-1 hover:bg-accent transition-colors shrink-0 ml-2"
           aria-label="关闭抽屉"

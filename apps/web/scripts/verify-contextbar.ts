@@ -107,6 +107,42 @@ async function main() {
       ok: drawerVisible,
       detail: drawerVisible ? "展开 + 显示空态" : "未展开",
     });
+
+    const closeBtn = page.getByRole("button", { name: "关闭抽屉" });
+    await closeBtn.click();
+    await page.waitForTimeout(300);
+
+    const isMac = process.platform === "darwin";
+    const modKey = isMac ? "Meta" : "Control";
+    await page.keyboard.down(modKey);
+    await page.keyboard.press("k");
+    await page.keyboard.up(modKey);
+    await page.waitForTimeout(400);
+
+    const reopened = await page
+      .getByText("暂无数据卡片")
+      .isVisible()
+      .catch(() => false);
+    checks.push({
+      name: "⌘K / Ctrl+K 全局快捷键打开抽屉（Phase 3）",
+      ok: reopened,
+      detail: reopened ? "快捷键生效" : "快捷键未生效",
+    });
+
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    const drawerAriaHidden = await page
+      .locator('[role="dialog"]')
+      .getAttribute("aria-hidden")
+      .catch(() => null);
+    const closedByEsc = drawerAriaHidden === "true";
+    checks.push({
+      name: "Esc 关闭抽屉（Phase 3）",
+      ok: closedByEsc,
+      detail: closedByEsc
+        ? "Esc 生效（aria-hidden=true）"
+        : `aria-hidden=${drawerAriaHidden}`,
+    });
   }
 
   if (chipVisible) {

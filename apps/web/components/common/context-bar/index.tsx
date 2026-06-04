@@ -5,11 +5,12 @@
  *
  * Phase 1: 单个缩略按钮 + 抽屉 + DataCardItem
  * Phase 2: 接入 currentContext，显示"正在讨论 X" + 上次工具
+ * Phase 3: ⌘K / Ctrl+K 全局快捷键 + Esc 关闭 + 焦点管理 + a11y
  *
  * 行为：
- *  - 缩略按钮「📊 数据看板 · N 项」徽章显示未读 dataCards 数
- *  - tooltip 显示 currentContext.recentTopic（最近讨论话题）
- *  - 抽屉头部显示 currentTopic + lastToolUsed
+ *  - ⌘K (Mac) / Ctrl+K (Win/Linux) 全局打开抽屉
+ *  - Esc 关闭抽屉
+ *  - 打开时 focus 移到关闭按钮；关闭时还原 focus
  *  - 抽屉关闭不丢状态：缩略按钮常驻
  *  - MemoryPanel / OperationPanel / CommandPalette 仍由 /agent 页面独立控制
  *    （用户明确要求「共存」，不并入 ContextBar）
@@ -20,12 +21,13 @@
  *  抽屉点击 DataCardItem        → markCardRead
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   useAgentStore,
   selectUnreadCardCount,
   type DataCard,
 } from "@/stores/agent-store";
+import { useGlobalShortcut } from "@/hooks/chat/use-global-shortcut";
 import { ContextChip } from "./context-chip";
 import { ContextDrawer } from "./context-drawer";
 import { DataCardItem } from "./data-card-item";
@@ -61,6 +63,9 @@ export function ContextBar() {
   const [open, setOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
+
   const sortedCards = useMemo(
     () => [...cards].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [cards]
@@ -88,20 +93,47 @@ export function ContextBar() {
     return parts.join(" · ");
   }, [context]);
 
+  const openDrawer = useCallback(() => {
+    if (open) return;
+    lastFocusedRef.current = document.activeElement as HTMLElement | null;
+    setOpen(true);
+  }, [open]);
+
+  const closeDrawer = useCallback(() => {
+    if (!open) return;
+    setOpen(false);
+    setActiveId(null);
+    requestAnimationFrame(() => {
+      lastFocusedRef.current?.focus();
+    });
+  }, [open]);
+
+  useGlobalShortcut("k", openDrawer, { mod: true });
+  useGlobalShortcut("escape", closeDrawer);
+
+  useEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => {
+        closeButtonRef.current?.focus();
+      });
+    }
+  }, [open]);
+
   return (
     <>
       <ContextChip
         unreadCount={unreadCount}
-        onClick={() => setOpen((v) => !v)}
+        onClick={openDrawer}
         active={open}
         title={chipTitle}
         subtitle={context.recentTopic}
       />
       <ContextDrawer
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={closeDrawer}
         title="数据看板"
         subtitle={drawerSubtitle}
+        closeButtonRef={closeButtonRef}
         footer={
           cards.length > 0 ? (
             <button
@@ -118,6 +150,9 @@ export function ContextBar() {
             <p className="text-sm">暂无数据卡片</p>
             <p className="text-xs mt-1">
               在助手中询问「看板概览」「搜索候选人」等，会自动归档
+            </p>
+            <p className="text-[10px] mt-3 text-muted-foreground/60">
+              快捷键：⌘K 打开 · Esc 关闭
             </p>
           </div>
         ) : (
