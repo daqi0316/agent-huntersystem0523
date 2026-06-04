@@ -1,0 +1,109 @@
+#!/bin/bash
+# ============================================================
+# 系统健康检查 — 一键脚本
+# 来源：docs/system-health-check.md
+# 用法：./scripts/health-check.sh
+# 返回：0=全过 / 1=有失败
+# ============================================================
+
+set -u
+
+API_BASE="${API_BASE:-http://localhost:8000/api/v1}"
+WEB_BASE="${WEB_BASE:-http://localhost:3007}"
+TEST_EMAIL="${TEST_EMAIL:-e2e-tester@test.com}"
+TEST_PASSWORD="${TEST_PASSWORD:-E2ePass123!}"
+
+PASS=0
+FAIL=0
+
+ok()   { echo "  ✅ $1"; PASS=$((PASS+1)); }
+fail() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
+
+echo ""
+echo "=== Step 1/6: 基础设施（postgres/redis/qdrant/minio）==="
+MISSING=()
+for port in 5432 6379 6333 9000; do
+  if ! lsof -i:$port >/dev/null 2>&1; then
+    MISSING+=("$port")
+  fi
+done
+if [ ${#MISSING[@]} -eq 0 ]; then
+  ok "5432/6379/6333/9000 全部 LISTEN"
+else
+  fail "缺失端口：${MISSING[*]}"
+  echo "       修复：docker compose -f docker-compose.dev.yml up -d postgres redis qdrant minio"
+fi
+
+echo ""
+echo "=== Step 2/6: 后端进程（uvicorn 8000）==="
+if lsof -i:8000 >/dev/null 2>&1; then
+  ok "uvicorn 8000 在跑"
+else
+  fail "uvicorn 未运行"
+  echo "       修复：cd apps/api && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+fi
+
+echo ""
+echo "=== Step 3/6: 后端可登录（POST /auth/login）==="
+LOGIN_RES=$(curl -sS -X POST "$API_BASE/auth/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" 2>&1)
+TOKEN=$(echo "$LOGIN_RES" | jq -r .access_token 2>/dev/null)
+if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+  ok "登录成功 token=${TOKEN:0:20}..."
+else
+  fail "登录失败：$LOGIN_RES"
+  echo "       提示：先 POST /auth/register 注册用户"
+fi
+
+echo ""
+echo "=== Step 4/6: 后端可验证（GET /auth/me）==="
+if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+  ME_RES=$(curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/auth/me" 2>&1)
+  EMAIL=$(echo "$ME_RES" | jq -r .email 2>/dev/null)
+  if [ -n "$EMAIL" ] && [ "$EMAIL" != "null" ]; then
+    ok "/auth/me 返回 user email=$EMAIL"
+  else
+    fail "/auth/me 失败：$ME_RES"
+  fi
+else
+  fail "跳过（无 token）"
+fi
+
+echo ""
+echo "=== Step 5/6: 前端可达 ==="
+for path in /login /agent; do
+  CODE=$(curl -sS -o /dev/null -w "%{http_code}" "$WEB_BASE$path" 2>&1)
+  if [ "$CODE" = "200" ]; then
+    ok "GET $path → 200"
+  else
+    fail "GET $path → $CODE"
+  fi
+done
+
+echo ""
+echo "=== Step 6/6: 端到端登录（Playwright 真实后端）==="
+if [ -x "$(command -v npx)" ]; then
+  if [ -f "apps/web/scripts/verify-login-e2e.ts" ]; then
+    if npx tsx "apps/web/scripts/verify-login-e2e.ts" >/tmp/login-e2e.log 2>&1; then
+      ok "verify-login-e2e.ts 通过"
+    else
+      fail "verify-login-e2e.ts 失败（看 /tmp/login-e2e.log）"
+    fi
+  else
+    fail "verify-login-e2e.ts 还未写（待办）"
+  fi
+else
+  fail "npx 不可用"
+fi
+
+echo ""
+echo "================================================"
+echo "  通过：$PASS"
+echo "  失败：$FAIL"
+echo "================================================"
+
+if [ $FAIL -gt 0 ]; then
+  exit 1
+fi
+exit 0
