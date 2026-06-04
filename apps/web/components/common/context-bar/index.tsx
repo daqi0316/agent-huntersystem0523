@@ -35,6 +35,8 @@ import { DataCardItem } from "./data-card-item";
 import { CurrentContextSection } from "./current-context-section";
 import { SessionStatsSection } from "./session-stats-section";
 import { RecentActivitySection } from "./recent-activity-section";
+import { PendingApprovalSection } from "./pending-approval-section";
+import { QuickActionsSection } from "./quick-actions-section";
 import { SearchBar, filterCards, EMPTY_FILTERS } from "./search-bar";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -208,8 +210,10 @@ export function ContextBar() {
         }
       >
         <CurrentContextSection context={context} />
+        <PendingApprovalSection />
         <SessionStatsSection />
         <RecentActivitySection />
+        <QuickActionsSection />
         {sortedCards.length > 0 && (
           <SearchBar
             query={query}
