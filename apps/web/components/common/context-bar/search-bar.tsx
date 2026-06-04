@@ -13,7 +13,7 @@
 import { useEffect, useRef } from "react";
 import { Search, X } from "lucide-react";
 import { useAgentStore, type DataCardType } from "@/stores/agent-store";
-import { cn } from "@/lib/utils";
+import { cn } from "../../../lib/utils";
 
 const TYPE_FILTERS: Array<{ key: DataCardType | "all"; label: string }> = [
   { key: "all", label: "全部" },

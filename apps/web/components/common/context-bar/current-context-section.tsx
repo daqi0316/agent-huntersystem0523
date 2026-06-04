@@ -17,7 +17,7 @@
  */
 
 import { Briefcase, User, Wrench } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "../../../lib/utils";
 import type { ChatContext } from "@/stores/agent-store";
 
 const TOOL_LABELS: Record<string, string> = {

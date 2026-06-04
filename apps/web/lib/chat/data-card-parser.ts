@@ -15,7 +15,7 @@
  *  - 其它                                → other
  */
 
-import type { ChatMessage } from "@/types/chat";
+import type { ChatMessage } from "../../types/chat";
 import type { DataCard, DataCardType } from "@/stores/agent-store";
 
 const TOOL_HINT_TO_TYPE: Record<string, DataCardType> = {

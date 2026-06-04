@@ -1,7 +1,7 @@
 "use client";
 
 import { BarChart3 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "../../../lib/utils";
 
 interface ContextChipProps {
   unreadCount: number;

@@ -9,7 +9,7 @@ import {
   Calendar,
   Layers,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "../../../lib/utils";
 import type { DataCard, DataCardType } from "@/stores/agent-store";
 
 const TYPE_ICON: Record<DataCardType, typeof Users> = {
