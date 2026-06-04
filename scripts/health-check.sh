@@ -71,13 +71,24 @@ else
 fi
 
 echo ""
-echo "=== Step 5/6: 前端可达 ==="
+echo "=== Step 5/6: 前端可达（HTML + _next 资源都必须 200）==="
 for path in /login /agent; do
   CODE=$(curl -sS -o /dev/null -w "%{http_code}" "$WEB_BASE$path" 2>&1)
   if [ "$CODE" = "200" ]; then
     ok "GET $path → 200"
   else
     fail "GET $path → $CODE"
+  fi
+  # 验 _next 静态资源（防止 dev server 编译坏时 HTML 200 但 chunks 500，
+  # 浏览器拿不到 JS → fetch handler 没注册 → 用户操作 → 'Failed to fetch'）
+  CHUNK=$(curl -sS "$WEB_BASE$path" 2>/dev/null | grep -oE '/_next/static/chunks/[^"?]*\.js' | head -1)
+  if [ -n "$CHUNK" ]; then
+    CCODE=$(curl -sS -o /dev/null -w "%{http_code}" "$WEB_BASE$CHUNK" 2>&1)
+    if [ "$CCODE" = "200" ]; then
+      ok "  _next chunk 200"
+    else
+      fail "  _next chunk $CCODE（$CHUNK）— 浏览器会 'Failed to fetch'！"
+    fi
   fi
 done
 
