@@ -100,6 +100,27 @@ export function AgentEventStreamBridge() {
           for (const card of cards) {
             useAgentStore.getState().addCard(card);
           }
+          const toolCalls = fakeMsg.tool_calls || [];
+          const candidateIds: string[] = [];
+          const jobIds: string[] = [];
+          let lastTool: string | undefined;
+          for (const tc of toolCalls) {
+            if (tc.name) lastTool = tc.name;
+            const args = (tc.args || {}) as Record<string, unknown>;
+            for (const [k, v] of Object.entries(args)) {
+              if (typeof v === "string" && v) {
+                if (/(candidate|candid)/i.test(k)) candidateIds.push(v);
+                if (/(job[_-]?id|position[_-]?id)/i.test(k)) jobIds.push(v);
+              }
+            }
+          }
+          const recentTopic = (payload.reply || "").slice(0, 30);
+          useAgentStore.getState().setCurrentContext({
+            currentCandidateIds: Array.from(new Set(candidateIds)),
+            currentJobIds: Array.from(new Set(jobIds)),
+            recentTopic,
+            lastToolUsed: lastTool,
+          });
         }
       );
     });
