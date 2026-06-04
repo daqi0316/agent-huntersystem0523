@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     jd_gen_threshold: float = 7.0
 
     # CORS
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
+    cors_origins: list[str] = [f"http://localhost:{p}" for p in range(3000, 3011)]
 
     langgraph_pg_dsn: str | None = None
 

@@ -76,8 +76,7 @@ async function main() {
       .locator('[role="dialog"]')
       .getAttribute("aria-hidden")
       .catch(() => null);
-    if (drawerAriaHidden !== "true") {
-      // 期望 false（开），但关键是 aria-hidden 被设置
+    if (drawerAriaHidden === "true" || drawerAriaHidden === null) {
       throw new Error(`抽屉未正确打开：aria-hidden=${drawerAriaHidden}`);
     }
 
