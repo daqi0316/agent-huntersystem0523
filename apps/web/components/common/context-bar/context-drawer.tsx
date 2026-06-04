@@ -8,6 +8,7 @@ interface ContextDrawerProps {
   open: boolean;
   onClose: () => void;
   title: string;
+  subtitle?: string;
   children: ReactNode;
   footer?: ReactNode;
 }
@@ -16,6 +17,7 @@ export function ContextDrawer({
   open,
   onClose,
   title,
+  subtitle,
   children,
   footer,
 }: ContextDrawerProps) {
@@ -28,10 +30,17 @@ export function ContextDrawer({
       aria-hidden={!open}
     >
       <div className="flex items-center justify-between border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold truncate">{title}</h2>
+          {subtitle && (
+            <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+              {subtitle}
+            </p>
+          )}
+        </div>
         <button
           onClick={onClose}
-          className="rounded-md p-1 hover:bg-accent transition-colors"
+          className="rounded-md p-1 hover:bg-accent transition-colors shrink-0 ml-2"
           aria-label="关闭抽屉"
         >
           <X className="h-4 w-4 text-muted-foreground" />

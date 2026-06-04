@@ -7,14 +7,22 @@ interface ContextChipProps {
   unreadCount: number;
   active: boolean;
   onClick: () => void;
+  title?: string;
+  subtitle?: string;
 }
 
-export function ContextChip({ unreadCount, active, onClick }: ContextChipProps) {
+export function ContextChip({
+  unreadCount,
+  active,
+  onClick,
+  title,
+  subtitle,
+}: ContextChipProps) {
   return (
     <button
       onClick={onClick}
-      title={`数据看板 · ${unreadCount} 项未读`}
-      aria-label={`数据看板 ${unreadCount} 项未读`}
+      title={title || `数据看板 · ${unreadCount} 项未读`}
+      aria-label={title || `数据看板 ${unreadCount} 项未读`}
       className={cn(
         "relative flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
         active
@@ -34,6 +42,17 @@ export function ContextChip({ unreadCount, active, onClick }: ContextChipProps) 
           )}
         >
           {unreadCount > 99 ? "99+" : unreadCount}
+        </span>
+      )}
+      {subtitle && (
+        <span
+          className={cn(
+            "hidden md:inline-block max-w-[140px] truncate text-[10px] font-normal",
+            active ? "text-primary/70" : "text-muted-foreground/70"
+          )}
+          title={subtitle}
+        >
+          · {subtitle}
         </span>
       )}
     </button>

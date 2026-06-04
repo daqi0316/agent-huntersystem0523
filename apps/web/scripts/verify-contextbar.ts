@@ -149,6 +149,20 @@ async function main() {
       ok: badgeVisible && (badgeText?.includes("1") ?? false),
       detail: `chip="${badgeText}"`,
     });
+
+    const chipTitle = badgeVisible
+      ? await chipWithBadge.getAttribute("title")
+      : "";
+    const showsTopic =
+      (chipTitle?.includes("查看招聘数据看板") ?? false) ||
+      (badgeText?.includes("查看招聘数据看板") ?? false);
+    checks.push({
+      name: "ContextBar 显示当前话题（Phase 2 上下文感知）",
+      ok: showsTopic,
+      detail: showsTopic
+        ? `title="${chipTitle}"`
+        : `title="${chipTitle}" text="${badgeText}"`,
+    });
   }
 
   checks.push({

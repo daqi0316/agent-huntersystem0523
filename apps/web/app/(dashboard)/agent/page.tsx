@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { useChatMessages } from "@/hooks/chat/use-chat-messages";
 import { useChatStream } from "@/hooks/chat/use-chat-stream";
+import { useAgentContext } from "@/hooks/chat/use-agent-context";
 import { renderRichContent } from "@/lib/chat/render-message";
 import { MemoryPanel } from "@/components/features/chat/MemoryPanel";
 import { ChatInput } from "@/components/features/chat/ChatInput";
@@ -59,6 +60,7 @@ const SUGGESTED_PROMPTS = [
 
 export default function AgentChatPage() {
   const { messages, setMessages, historyRef, clearHistory } = useChatMessages();
+  useAgentContext(messages);
   const {
     loading,
     approval,
