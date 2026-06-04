@@ -14,3 +14,16 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+
+  # 防止 model 模式 bug 复发（2026-06-03 enum 500 + schema 漂移 500 事件）
+  # 规则：
+  #   1. 小写 DB label 的 enum 必须用 enum_column() 工厂（强制 values_callable）
+  #   2. 生产阻塞 model（approvals/recommendations/command_audit_log）不得用 UUID(as_uuid=False)
+  - repo: local
+    hooks:
+      - id: check-model-patterns
+        name: Check SQLAlchemy model patterns (no bare SAEnum, no UUID-as-string in blocked models)
+        entry: python3 scripts/check_model_patterns.py
+        language: system
+        pass_filenames: false
+        types_or: [python]
