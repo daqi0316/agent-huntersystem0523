@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   TrendingUp, Users, Briefcase, Activity, ArrowUpRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { ErrorAlert } from "@/components/common/error-alert";
-import RecommendationSection from "@/components/features/recommendations/recommendation-section";
 import OperationFeed from "@/components/features/operations/operation-feed";
 import AIHealth from "@/components/features/monitoring/ai-health";
 import ApprovalCountdown from "@/components/features/approvals/approval-countdown";
@@ -72,7 +71,15 @@ const iconMap: Record<string, { icon: typeof Users; color: string }> = {
   onboards: { icon: TrendingUp, color: "text-green-600" },
 };
 
+const linkMap: Record<string, string> = {
+  candidates: "/candidates",
+  jobs: "/jobs",
+  interviews: "/interview",
+  onboards: "/interview",
+};
+
 export default function DashboardPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<DashboardStats>(fallbackStats);
@@ -141,9 +148,17 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {stats.kpis.map((k) => {
           const cfg = iconMap[k.key] || { icon: Users, color: "text-muted-foreground" };
+          const href = linkMap[k.key] ?? "#";
           const Icon = cfg.icon;
           return (
-            <Card key={k.key}>
+            <Card
+              key={k.key}
+              role="link"
+              tabIndex={0}
+              onClick={() => router.push(href)}
+              onKeyDown={(e) => e.key === "Enter" && router.push(href)}
+              className="cursor-pointer hover:bg-accent/50 transition-colors"
+            >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {k.label}

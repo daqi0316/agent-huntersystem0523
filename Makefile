@@ -37,6 +37,9 @@ api:dev:	## Start API with hot-reload (requires infra)
 api:migrate:	## Run Alembic migrations
 	cd apps/api && alembic upgrade head
 
+api:check-schema:	## Compare SQLAlchemy models with current DB schema (alembic check)
+	cd apps/api && alembic check
+
 api:test:	## Run API tests
 	cd apps/api && python -m pytest tests/ -v --tb=short
 

@@ -58,8 +58,22 @@ uv pip install -r requirements.txt
 # Run migrations
 alembic upgrade head
 
-# Start dev server (hot-reload)
-uvicorn app.main:app --reload --port 8000
+# Start dev server (hot-reload) — 必须用 make api:dev，不要直接 uvicorn
+make api:dev
+#  或：cd apps/api && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+> **重要**：dev server 必须带 `--reload`。否则改 model/枚举后，旧进程仍用旧字节码，会出现
+> "代码已修但生产仍 500" 的假象（2026-06-03 事故根因之一）。
+
+### 2.5. Pre-commit（强烈推荐）
+
+防 model enum 模式 bug 复发（`SAEnum` 漏 `values_callable`、`UUID(as_uuid=False)` schema 漂移）。
+
+```bash
+pip install pre-commit
+pre-commit install
+# 之后每次 commit 会自动跑 scripts/check_model_patterns.py
 ```
 
 ### 3. Frontend
@@ -106,11 +120,22 @@ npx playwright test
 
 | Command | Description |
 |---------|-------------|
-| `make dev` | Start API + web in parallel |
+| `make dev` | Start API + web in parallel (docker) |
+| `make api:dev` | Start API with hot-reload (**推荐本地开发**) |
 | `make test` | Run all backend tests |
 | `make coverage` | Tests with coverage report |
 | `make db-up` | Start Docker services |
 | `make db-migrate` | Run Alembic migrations |
+
+## Development Guards（多层防护）
+
+防 2026-06-03 enum 500 / schema 漂移 500 类事故复发：
+
+- **L1 编译期**：`scripts/check_model_patterns.py`（pre-commit hook）扫危险 model 模式
+- **L2 启动期**：`app.core.schema_audit` 在 `lifespan` 启动时比对 model 与 DB enum label，**不一致阻止启动**
+- **L3 测试期**：`tests/test_models_enum_integration.py` 真 DB round-trip 测试
+
+详见 `.omo/plans/decision-records/2026-06-03-enum-and-uuid-pattern.md`。
 
 ## Tech Stack
 

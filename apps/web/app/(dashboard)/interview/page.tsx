@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Calendar, Clock, Users, Plus, Loader2, X,
   Check, Ban, FileText, History, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown,
@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/common/data-table";
 import EvaluationDialog from "@/components/features/interview/evaluation-dialog";
+import { CalendarView } from "@/components/features/interview/calendar-view";
 import { api } from "@/lib/trpc";
 import { useHumanLoopEvents } from "@/hooks/use-human-loop-events";
 
@@ -116,6 +117,23 @@ export default function InterviewPage() {
   const [form, setForm] = useState({ candidate: "", job: "", time: "", interviewer: "", notes: "" });
   const [pendingProposals, setPendingProposals] = useState<PendingProposal[]>([]);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "today" | "completed">("all");
+  const [viewMode, setViewMode] = useState<"list" | "calendar">(() => {
+    if (typeof window === "undefined") return "list";
+    return (localStorage.getItem("interview_view_mode") as "list" | "calendar") || "list";
+  });
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
+  // 缓存 today：避免按钮 count 和 filter 跨午夜不一致
+  const today = useMemo(() => new Date(), []);
+  const filteredInterviews = useMemo(() => {
+    switch (statusFilter) {
+      case "pending":   return interviews.filter(i => i.status === "pending");
+      case "today":     return interviews.filter(i => i.rawDate && isSameDay(new Date(i.rawDate), today));
+      case "completed": return interviews.filter(i => i.status === "completed");
+      default:          return interviews;
+    }
+  }, [interviews, statusFilter, today]);
 
   // Evaluation dialog
   const [evalDialog, setEvalDialog] = useState<{ open: boolean; interviewId: string; candidateName: string }>({
@@ -251,6 +269,22 @@ export default function InterviewPage() {
     })();
     fetchPending();
   }, []);
+
+  // 持久化 viewMode：放 fetch useEffect 之后，确保所有 useState 已声明
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("interview_view_mode", viewMode);
+    }
+  }, [viewMode]);
+
+  // 日历视图点击日期后，弹窗显示当日面试；放所有 useState 之后确保 hooks 顺序稳定
+  const selectedDateInterviews = useMemo(() => {
+    if (!selectedDate) return [];
+    const key = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`;
+    return interviews.filter(
+      (i) => i.rawDate && i.rawDate.slice(0, 10) === key,
+    );
+  }, [selectedDate, interviews]);
 
   const handleCreate = async () => {
     setSubmitting(true);
@@ -392,7 +426,13 @@ export default function InterviewPage() {
             <History className="h-4 w-4" />
             审批历史
           </Button>
-          <Button variant="outline" size="sm" className="gap-1">
+          <Button
+            variant={viewMode === "calendar" ? "default" : "outline"}
+            size="sm"
+            className="gap-1"
+            onClick={() => setViewMode(viewMode === "calendar" ? "list" : "calendar")}
+            aria-pressed={viewMode === "calendar"}
+          >
             <Calendar className="h-4 w-4" />
             日历视图
           </Button>
@@ -403,24 +443,30 @@ export default function InterviewPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        {[
-          { label: "总面试", value: interviews.length, icon: Users, color: "text-blue-600" },
-          { label: "待确认", value: interviews.filter(i => i.status === "pending").length, icon: Clock, color: "text-amber-600" },
-          { label: "今日面试", value: interviews.filter(i => i.rawDate && isSameDay(new Date(i.rawDate), new Date())).length, icon: Calendar, color: "text-violet-600" },
-          { label: "已完成", value: interviews.filter(i => i.status === "completed").length, icon: Calendar, color: "text-green-600" },
-        ].map(s => {
+      <div className="grid gap-3 md:grid-cols-4">
+        {([
+          { key: "all",       label: "总面试",  value: interviews.length,                                       icon: Users,    color: "text-blue-600" },
+          { key: "pending",   label: "待确认",  value: interviews.filter(i => i.status === "pending").length,  icon: Clock,    color: "text-amber-600" },
+          { key: "today",     label: "今日面试", value: interviews.filter(i => i.rawDate && isSameDay(new Date(i.rawDate), today)).length, icon: Calendar, color: "text-violet-600" },
+          { key: "completed", label: "已完成",  value: interviews.filter(i => i.status === "completed").length,  icon: Check,    color: "text-green-600" },
+        ] as const).map(s => {
           const Icon = s.icon;
+          const active = statusFilter === s.key;
           return (
-            <Card key={s.label}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{s.label}</CardTitle>
-                <Icon className={`h-4 w-4 ${s.color}`} />
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{s.value}</p>
-              </CardContent>
-            </Card>
+            <Button
+              key={s.key}
+              type="button"
+              variant={active ? "default" : "outline"}
+              className="h-auto py-4 flex-col items-start gap-1"
+              onClick={() => setStatusFilter(s.key)}
+              aria-pressed={active}
+            >
+              <div className="flex w-full items-center justify-between">
+                <span className="text-sm font-medium">{s.label}</span>
+                <Icon className={`h-4 w-4 ${active ? "" : s.color}`} />
+              </div>
+              <span className="text-3xl font-bold">{s.value}</span>
+            </Button>
           );
         })}
       </div>
@@ -550,7 +596,14 @@ export default function InterviewPage() {
         </Card>
       )}
 
-      <DataTable columns={columns} data={interviews as unknown as Record<string, unknown>[]} />
+      {viewMode === "list" ? (
+        <DataTable columns={columns} data={filteredInterviews as unknown as Record<string, unknown>[]} />
+      ) : (
+        <CalendarView
+          interviews={interviews}
+          onSelectDate={setSelectedDate}
+        />
+      )}
 
       {/* Approval History */}
       {showHistory && (
@@ -610,6 +663,32 @@ export default function InterviewPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Calendar Date Modal (M3 — 自建 Sheet 模式，复用现有 modal 风格) */}
+      {selectedDate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setSelectedDate(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold">
+                {selectedDate.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" })} 的面试（{selectedDateInterviews.length} 场）
+              </h2>
+              <button onClick={() => setSelectedDate(null)}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <DataTable
+              columns={columns}
+              data={selectedDateInterviews as unknown as Record<string, unknown>[]}
+            />
+          </div>
+        </div>
       )}
 
       {/* Create Proposal Modal */}
