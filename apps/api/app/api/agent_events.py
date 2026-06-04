@@ -7,7 +7,8 @@
   - approval.requested  新审批请求
 
 设计：
-  - 内存 pub/sub（per-user queue），未来可换 Redis
+  - 内存 pub/sub（per-user queue），或 Redis pub/sub（REDIS_URL 启用时）
+  - 自动降级：Redis 不可用时退回内存
   - 与 /agent/chat 解耦：/agent/chat 完成后 emit → 推送到所有连接
   - 接收端 unsubscribe 自动清理
 """
@@ -15,7 +16,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 from collections import defaultdict
 from typing import Any
 
@@ -31,19 +34,65 @@ router = APIRouter()
 
 HEARTBEAT_INTERVAL = 15  # seconds
 
-# ── In-memory pub/sub ──
+# ── In-memory pub/sub fallback ──
 # _queues[user_id] = list[asyncio.Queue]
 _queues: dict[str, list[asyncio.Queue]] = defaultdict(list)
 
+# ── Redis pub/sub (optional) ──
+_REDIS_URL: str | None = os.getenv("REDIS_URL")
+_REDIS_CHANNEL_PREFIX = "agent_events:user:"
+
+_redis_client: Any | None = None
+_redis_checked = False
+
+
+async def _try_get_redis() -> Any | None:
+    """尝试连接 Redis，失败返回 None（仅检查一次）。"""
+    global _redis_client, _redis_checked
+    if _redis_checked:
+        return _redis_client
+    _redis_checked = True
+    if not _REDIS_URL:
+        logger.info("agent_events: REDIS_URL not set, using in-memory pub/sub")
+        return None
+    try:
+        import redis.asyncio as aioredis
+        client = aioredis.from_url(_REDIS_URL, decode_responses=True)
+        await client.ping()
+        _redis_client = client
+        logger.info("agent_events: connected to Redis at %s", _REDIS_URL)
+        return client
+    except Exception as e:
+        logger.warning("agent_events: Redis connection failed (%s), using in-memory", e)
+        return None
+
+
+def _redis_channel(user_id: str) -> str:
+    return f"{_REDIS_CHANNEL_PREFIX}{user_id}"
+
 
 async def emit_to_user(user_id: str, event: str, data: dict[str, Any]) -> None:
-    """Emit an event to all SSE connections of a user."""
+    """Emit an event to all SSE connections of a user.
+
+    双通道：
+      1. 内存 queue（同进程内的所有连接立即收到）
+      2. Redis pub/sub（跨进程 / 跨实例的连接也收到，启用时）
+    """
     payload = sse_event(event, data)
+
     for q in _queues.get(user_id, []):
         try:
             q.put_nowait(payload)
         except asyncio.QueueFull:
             logger.warning("agent_events: queue full for user %s", user_id)
+
+    redis_client = await _try_get_redis()
+    if redis_client is not None:
+        try:
+            envelope = json.dumps({"event": event, "data": data})
+            await redis_client.publish(_redis_channel(user_id), envelope)
+        except Exception as e:
+            logger.warning("agent_events: Redis publish failed (%s)", e)
 
 
 async def emit_data_card(user_id: str, card: dict[str, Any]) -> None:
@@ -89,14 +138,30 @@ async def emit_chat_response(
 
 
 async def _generator(user_id: str):
-    """SSE event generator for a single user connection."""
+    """SSE event generator for a single user connection.
+
+    数据来源：
+      - 本连接专属的 asyncio.Queue（in-memory 通道）
+      - 若 Redis 启用，额外订阅 Redis pub/sub channel（跨进程通道）
+    """
     queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     _queues[user_id].append(queue)
     logger.info(
         "agent_events: user=%s connected, total=%d", user_id, len(_queues[user_id])
     )
+
+    redis_sub = None
+    redis_client = await _try_get_redis()
+    if redis_client is not None:
+        try:
+            pubsub = redis_client.pubsub()
+            await pubsub.subscribe(_redis_channel(user_id))
+            redis_sub = pubsub
+            logger.info("agent_events: user=%s subscribed to Redis channel", user_id)
+        except Exception as e:
+            logger.warning("agent_events: Redis subscribe failed (%s)", e)
+
     try:
-        # 立即发一个 connected 事件
         yield sse_event("connected", {"user_id": user_id})
 
         while True:
@@ -106,12 +171,28 @@ async def _generator(user_id: str):
                 )
                 yield payload
             except asyncio.TimeoutError:
-                # 心跳保活
+                if redis_sub is not None:
+                    try:
+                        msg = await redis_sub.get_message(
+                            ignore_subscribe_messages=True, timeout=0.1
+                        )
+                        if msg and msg.get("type") == "message":
+                            envelope = json.loads(msg["data"])
+                            yield sse_event(envelope["event"], envelope["data"])
+                            continue
+                    except Exception as e:
+                        logger.debug("agent_events: redis poll: %s", e)
                 yield sse_event("ping", {"ts": asyncio.get_event_loop().time()})
     except asyncio.CancelledError:
         logger.info("agent_events: user=%s disconnected", user_id)
         raise
     finally:
+        if redis_sub is not None:
+            try:
+                await redis_sub.unsubscribe()
+                await redis_sub.close()
+            except Exception:
+                pass
         try:
             _queues[user_id].remove(queue)
         except ValueError:
@@ -132,6 +213,10 @@ async def agent_events(
       - data_card.created  新数据卡片（来自其它设备）
       - context.updated    上下文变化
       - approval.requested 审批请求
+
+    跨进程：
+      - REDIS_URL 环境变量启用时，所有事件经 Redis pub/sub 广播
+      - 多实例部署时，连接在不同实例上的用户也能收到事件
     """
     return StreamingResponse(
         _generator(user_id),
