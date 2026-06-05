@@ -9,7 +9,9 @@
 set -u
 
 API_BASE="${API_BASE:-http://localhost:8000/api/v1}"
-WEB_BASE="${WEB_BASE:-http://localhost:3007}"
+# WEB_BASE 默认 3000 — 用户 pnpm dev 实际跑在 3000。 之前 3007 daemonize 启的 next dev 不稳 (CLAUDE.md 模式 4)
+WEB_BASE="${WEB_BASE:-http://localhost:3000}"
+export WEB_BASE API_BASE
 TEST_EMAIL="${TEST_EMAIL:-e2e-tester@test.com}"
 TEST_PASSWORD="${TEST_PASSWORD:-E2ePass123!}"
 
