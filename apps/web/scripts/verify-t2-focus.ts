@@ -13,10 +13,9 @@
  */
 
 import { chromium } from "@playwright/test";
+import { getE2eToken } from "./lib/auth";
 
 const WEB_BASE = "http://localhost:3000";
-const TEST_TOKEN =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxZDIwNDYyZi02ZGVjLTRiZTAtYTQ4Yi03NTk1YjNiZjJmZmIiLCJyb2xlIjoiaHIiLCJleHAiOjE3Nzk2MzU1OTF9.7G4XT2aBRGtCGF5N4M8sJwjkheahtbx9t89Z2N92L9E";
 
 const TEST_MSG_ID = "t2-verify-msg-001";
 
@@ -27,6 +26,7 @@ interface CheckResult {
 }
 
 async function main() {
+  const token = await getE2eToken();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -58,7 +58,7 @@ async function main() {
       ];
       localStorage.setItem("agent-chat-history", JSON.stringify(fakeMsgs));
     },
-    { token: TEST_TOKEN, msgId: TEST_MSG_ID }
+    { token, msgId: TEST_MSG_ID }
   );
 
   // mock /auth/me 避免 401

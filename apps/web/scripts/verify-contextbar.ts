@@ -5,11 +5,10 @@
 
 import { chromium } from "@playwright/test";
 
+import { getE2eToken } from "./lib/auth";
 const BASE_URL = "http://localhost:3007";
-const TEST_TOKEN =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxZDIwNDYyZi02ZGVjLTRiZTAtYTQ4Yi03NTk1YjNiZjJmZmIiLCJyb2xlIjoiaHIiLCJleHAiOjE3Nzk2MzU1OTF9.7G4XT2aBRGtCGF5N4M8sJwjkheahtbx9t89Z2N92L9E";
-
 async function main() {
+  const token = await getE2eToken();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -33,7 +32,7 @@ async function main() {
     ({ token }: { token: string }) => {
       localStorage.setItem("ai-recruitment-token", token);
     },
-    { token: TEST_TOKEN }
+    { token }
   );
 
   await page.route("**/api/v1/auth/me", async (route) => {
@@ -315,7 +314,7 @@ async function main() {
     ({ token }: { token: string }) => {
       localStorage.setItem("ai-recruitment-token", token);
     },
-    { token: TEST_TOKEN }
+    { token }
   );
   await mobilePage.route("**/api/v1/auth/me", async (route) => {
     await route.fulfill({

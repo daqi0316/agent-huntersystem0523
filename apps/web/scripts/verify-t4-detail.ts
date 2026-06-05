@@ -17,10 +17,8 @@
 
 import { chromium } from "@playwright/test";
 
+import { getE2eToken } from "./lib/auth";
 const WEB_BASE = "http://localhost:3000";
-const TEST_TOKEN =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxZDIwNDYyZi02ZGVjLTRiZTAtYTQ4Yi03NTk1YjNiZjJmZmIiLCJyb2xlIjoiaHIiLCJleHAiOjE3Nzk2MzU1OTF9.7G4XT2aBRGtCGF5N4M8sJwjkheahtbx9t89Z2N92L9E";
-
 const CANDIDATE_ID = "f50bcfdc-b655-4c3b-b7fc-1737d9d2d1e5";
 const CANDIDATE_NAME = "Bob";
 
@@ -31,6 +29,7 @@ interface CheckResult {
 }
 
 async function main() {
+  const token = await getE2eToken();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -75,7 +74,7 @@ async function main() {
         return origSetItem.call(this, key, value);
       };
     },
-    { token: TEST_TOKEN, candidateId: CANDIDATE_ID }
+    { token, candidateId: CANDIDATE_ID }
   );
 
   // mock /auth/me 避免 401

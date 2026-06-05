@@ -11,11 +11,9 @@
 
 import { chromium } from "@playwright/test";
 
+import { getE2eToken } from "./lib/auth";
 const WEB_BASE = "http://localhost:3007";
 const API_BASE = "http://localhost:8000/api/v1";
-const TEST_TOKEN =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxZDIwNDYyZi02ZGVjLTRiZTAtYTQ4Yi03NTk1YjNiZjJmZmIiLCJyb2xlIjoiaHIiLCJleHAiOjE3Nzk2MzU1OTF9.7G4XT2aBRGtCGF5N4M8sJwjkheahtbx9t89Z2N92L9E";
-
 interface CheckResult {
   name: string;
   pass: boolean;
@@ -36,6 +34,7 @@ async function getMetric(name: string, labelFilter?: RegExp): Promise<number> {
 }
 
 async function main() {
+  const token = await getE2eToken();
   const results: CheckResult[] = [];
 
   const baselineErrBoundary = await getMetric(
@@ -60,7 +59,7 @@ async function main() {
         "fake-id"
       );
     },
-    { token: TEST_TOKEN }
+    { token }
   );
 
   await page.route("**/api/v1/auth/me", async (route) => {
