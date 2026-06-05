@@ -19,7 +19,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { useAgentStore } from "@/stores/agent-store";
+import { useAgentStore } from "@ai-recruitment/agent-store";
 import {
   initAgentStoreSync,
   teardownAgentStoreSync,

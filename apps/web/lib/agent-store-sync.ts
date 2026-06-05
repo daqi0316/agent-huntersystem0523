@@ -16,7 +16,7 @@
  *  - SSE：跨设备、跨浏览器（Phase 4.1，暂未实现）
  */
 
-import { useAgentStore, type DataCard, type ChatContext } from "@/stores/agent-store";
+import { useAgentStore, type DataCard, type ChatContext } from "@ai-recruitment/agent-store";
 
 const CHANNEL_NAME = "ai-recruitment-agent-sync";
 const SYNC_KEYS = ["dataCards", "currentContext"] as const;

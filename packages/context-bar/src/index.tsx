@@ -27,8 +27,8 @@ import {
   selectUnreadCardCount,
   type DataCard,
   type DataCardType,
-} from "@/stores/agent-store";
-import { useGlobalShortcut } from "@/hooks/chat/use-global-shortcut";
+} from "@ai-recruitment/agent-store";
+import { useGlobalShortcut } from "./use-global-shortcut";
 import { ContextChip } from "./context-chip";
 import { ContextDrawer } from "./context-drawer";
 import { DataCardItem } from "./data-card-item";
@@ -63,7 +63,15 @@ function toolLabel(name: string | undefined): string {
   return TOOL_LABELS[name] || name;
 }
 
-export function ContextBar() {
+export interface ContextBarProps {
+  onApprovalApprove?: (approvalId: string) => Promise<string | void>;
+  onApprovalReject?: (approvalId: string) => Promise<void> | void;
+}
+
+export function ContextBar({
+  onApprovalApprove,
+  onApprovalReject,
+}: ContextBarProps = {}) {
   const cards = useAgentStore((s) => s.dataCards);
   const unreadCount = useAgentStore(selectUnreadCardCount);
   const context = useAgentStore((s) => s.currentContext);
@@ -210,7 +218,10 @@ export function ContextBar() {
         }
       >
         <CurrentContextSection context={context} />
-        <PendingApprovalSection />
+        <PendingApprovalSection
+          onApprove={onApprovalApprove}
+          onReject={onApprovalReject}
+        />
         <SessionStatsSection />
         <RecentActivitySection />
         <QuickActionsSection />

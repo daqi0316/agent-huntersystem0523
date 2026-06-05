@@ -1,8 +1,8 @@
 {
-  "name": "@ai-recruitment/context-bar",
+  "name": "@ai-recruitment/agent-store",
   "version": "1.0.0",
   "private": true,
-  "description": "AI 助手右上角缩略按钮 + 抽屉（数据卡片 / 上下文 / 统计 / 活动 / 审批 / 快捷操作）。从 apps/web/components/common/context-bar 提取为独立 monorepo 包。",
+  "description": "AI 助手的共享状态层：Zustand store + 卡片解析器 + 工具标签映射。供 context-bar 包与 apps/web 共用。",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -12,6 +12,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
+    },
+    "./parser": {
+      "types": "./dist/parser.d.ts",
+      "import": "./dist/parser.mjs",
+      "require": "./dist/parser.cjs"
+    },
+    "./tool-labels": {
+      "types": "./dist/tool-labels.d.ts",
+      "import": "./dist/tool-labels.mjs",
+      "require": "./dist/tool-labels.cjs"
     }
   },
   "files": [
@@ -28,17 +38,11 @@
   "peerDependencies": {
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "zustand": "^4.5.0",
-    "next": "^14.2.0",
-    "lucide-react": "^0.350.0",
-    "clsx": "^2.1.0",
-    "tailwind-merge": "^2.0.0"
-  },
-  "dependencies": {
-    "@ai-recruitment/agent-store": "workspace:*"
+    "zustand": "^4.5.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.4.0",
     "unbuild": "^3.6.0"
   }

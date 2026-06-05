@@ -1,20 +1,12 @@
 /**
- * Agent Store — 统一管理 AI 助手页面的全局状态
+ * Agent Store — AI 助手全局状态层（共享给 apps/web 和 @ai-recruitment/context-bar）
  *
  * 设计原则：
- *  - useChatMessages 内部仍用 useState + localStorage（行为兼容，Phase 0.1 已 commit）
- *  - 本 store 作为**扩展层**，承载：
- *      · dataCards  (Phase 0.4 填充)
- *      · currentContext (Phase 2 上下文感知)
- *      · approval / attachment / operationPanel (Phase 0.3/0.4 接入 useChatStream)
+ *  - 跨包共享：apps/web（use-chat-stream 等 hook）和 context-bar 包（UI）都用此 store
  *  - persist 中间件开启，跨页面 + 跨刷新保留
- *  - 不与 useChatMessages 冲突：messages 走 hook 内部，dataCards 走 store
+ *  - 不使用 immer 中间件（避免新增 immer 依赖），改用 spread 模式手动不可变更新
  *
- * 用法（Phase 1 缩略按钮接入示例）：
- *   const cards = useAgentStore(s => s.dataCards);
- *   const addCard = useAgentStore(s => s.addCard);
- *
- * 注意：不使用 immer 中间件（避免新增 immer 依赖），改用 spread 模式手动不可变更新。
+ * persist key 保持 "ai-recruitment-agent-store" 与原位置一致，迁包后用户数据不丢。
  */
 
 import { create } from "zustand";
@@ -22,52 +14,30 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type {
   ChatMessage,
   OperationPanelState,
-} from "@/types/chat";
-import type { UploadedFile } from "@/hooks/useResumeUpload";
+  UploadedFile,
+  DataCard,
+  ChatContext,
+  ApprovalState,
+  SessionStats,
+} from "./types";
 
-// ── Types ──
+export type {
+  ChatMessage,
+  OperationPanelState,
+  UploadedFile,
+  DataCard,
+  ChatContext,
+  ApprovalState,
+  SessionStats,
+  DataCardType,
+  ToolCallInfo,
+  AgentActionInfo,
+  AgentChatResponse,
+  MemoryFact,
+} from "./types";
+export { newMessage } from "./types";
 
-export type DataCardType =
-  | "candidate_list"
-  | "dashboard_stats"
-  | "search_result"
-  | "evaluation"
-  | "jd"
-  | "interview_schedule"
-  | "other";
-
-export interface DataCard {
-  id: string;
-  type: DataCardType;
-  title: string;
-  summary: string;
-  payload: unknown;
-  toolName?: string;
-  messageId: string;
-  createdAt: string;
-  isRead: boolean;
-}
-
-export interface ChatContext {
-  currentCandidateIds: string[];
-  currentJobIds: string[];
-  recentTopic: string;
-  lastToolUsed?: string;
-}
-
-export interface ApprovalState {
-  visible: boolean;
-  approval_id: string;
-  summary: string;
-  loading: boolean;
-}
-
-export interface SessionStats {
-  messageCount: number;
-  toolCallCount: number;
-  usedTools: string[];
-  startedAt: string | null;
-}
+// ── State ──
 
 export interface AgentStoreState {
   messages: ChatMessage[];
@@ -152,7 +122,7 @@ const EMPTY_STATE = {
     toolCallCount: 0,
     usedTools: [],
     startedAt: null,
-  },
+  } as SessionStats,
 };
 
 function genCardId(): string {
@@ -259,7 +229,7 @@ export const useAgentStore = create<AgentStoreState>()(
         }),
 
       resetSession: () =>
-        set((s) => ({
+        set(() => ({
           sessionStats: {
             messageCount: 0,
             toolCallCount: 0,

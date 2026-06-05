@@ -12,6 +12,9 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@ai-recruitment/agent-store": "workspace:^",
+    "@ai-recruitment/context-bar": "workspace:^",
+    "@ai-recruitment/types": "workspace:^",
     "@tanstack/react-query": "^5.28.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",

@@ -18,8 +18,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { History, MessageSquare, Wrench, BarChart3 } from "lucide-react";
-import { useAgentStore } from "@/stores/agent-store";
-import { TOOL_LABELS, toolLabel } from "@/lib/chat/tool-labels";
+import { useAgentStore } from "@ai-recruitment/agent-store";
+import { TOOL_LABELS, toolLabel } from "@ai-recruitment/agent-store/tool-labels";
 
 const MAX_ITEMS = 8;
 

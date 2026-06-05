@@ -15,8 +15,8 @@ import { useState, useRef, useCallback } from "react";
 import { api } from "@/lib/trpc";
 import { getSessionId } from "./use-chat-session";
 import { ensureBackendSession } from "./use-backend-session";
-import { useAgentStore } from "@/stores/agent-store";
-import { parseDataCardsFromMessage } from "@/lib/chat/data-card-parser";
+import { useAgentStore } from "@ai-recruitment/agent-store";
+import { parseDataCardsFromMessage } from "@ai-recruitment/agent-store/parser";
 import type { UploadedFile } from "@/hooks/useResumeUpload";
 import {
   newMessage,

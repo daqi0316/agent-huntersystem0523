@@ -11,7 +11,7 @@
 
 import { useState } from "react";
 import { Copy, Download, Trash2, Check } from "lucide-react";
-import { useAgentStore } from "@/stores/agent-store";
+import { useAgentStore } from "@ai-recruitment/agent-store";
 
 export function QuickActionsSection() {
   const context = useAgentStore((s) => s.currentContext);

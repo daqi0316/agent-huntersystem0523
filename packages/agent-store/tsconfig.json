@@ -1,0 +1,15 @@
+{
+  "extends": "../../packages/config/typescript-config.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "baseUrl": ".",
+    "jsx": "preserve",
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": false
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

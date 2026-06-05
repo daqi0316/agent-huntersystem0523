@@ -18,8 +18,8 @@
 
 import { Briefcase, User, Wrench } from "lucide-react";
 import Link from "next/link";
-import { cn } from "../../../lib/utils";
-import type { ChatContext } from "@/stores/agent-store";
+import { cn } from "./utils";
+import type { ChatContext } from "@ai-recruitment/agent-store";
 
 const TOOL_LABELS: Record<string, string> = {
   get_dashboard_stats: "看板数据",

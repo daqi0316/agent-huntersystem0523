@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { Activity, MessageSquare, Wrench, BarChart3, Clock } from "lucide-react";
-import { useAgentStore } from "@/stores/agent-store";
+import { useAgentStore } from "@ai-recruitment/agent-store";
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return "刚刚";

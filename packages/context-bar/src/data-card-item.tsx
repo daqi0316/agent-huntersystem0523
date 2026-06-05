@@ -9,8 +9,8 @@ import {
   Calendar,
   Layers,
 } from "lucide-react";
-import { cn } from "../../../lib/utils";
-import type { DataCard, DataCardType } from "@/stores/agent-store";
+import { cn } from "./utils";
+import type { DataCard, DataCardType } from "@ai-recruitment/agent-store";
 
 const TYPE_ICON: Record<DataCardType, typeof Users> = {
   candidate_list: Users,

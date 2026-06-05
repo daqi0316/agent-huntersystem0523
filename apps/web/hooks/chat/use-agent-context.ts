@@ -18,7 +18,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useAgentStore } from "@/stores/agent-store";
+import { useAgentStore } from "@ai-recruitment/agent-store";
 import type { ChatMessage } from "@/types/chat";
 
 const TOPIC_LIMIT = 30;

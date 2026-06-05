@@ -1,12 +1,12 @@
 /**
  * Data Card Parser — 从助手消息中提取结构化数据卡片
  *
- * 检测逻辑：
+ * 识别逻辑：
  *  1. 扫描消息 content 中的 ```json``` 代码块
  *  2. 解析每个 JSON，按字段特征识别 DataCardType
  *  3. 命中规则则产出 DataCard（type/title/summary/payload）
  *
- * 类型识别规则（与 lib/chat/render-message.tsx 保持一致）：
+ * 类型识别规则（与 @/lib/chat/render-message.tsx 保持一致）：
  *  - Array + items[].name                → candidate_list
  *  - Object + overall_score              → evaluation
  *  - Object + jd_content                 → jd
@@ -15,8 +15,8 @@
  *  - 其它                                → other
  */
 
-import type { ChatMessage } from "../../types/chat";
-import type { DataCard, DataCardType } from "@/stores/agent-store";
+import type { ChatMessage, DataCard, DataCardType } from "./types";
+import { TOOL_LABELS } from "./tool-labels";
 
 const TOOL_HINT_TO_TYPE: Record<string, DataCardType> = {
   get_dashboard_stats: "dashboard_stats",
@@ -44,10 +44,7 @@ function extractJsonBlocks(content: string): string[] {
   return blocks;
 }
 
-function detectType(
-  data: unknown,
-  toolHint?: string
-): DataCardType {
+function detectType(data: unknown, toolHint?: string): DataCardType {
   if (toolHint && TOOL_HINT_TO_TYPE[toolHint]) {
     return TOOL_HINT_TO_TYPE[toolHint];
   }
@@ -142,14 +139,13 @@ function cardFromData(
   toolHint: string | undefined,
   blockIdx: number,
   msg: ChatMessage
-): DataCard | null {
+): Omit<DataCard, "id" | "createdAt" | "isRead"> | null {
   if (data == null) return null;
 
   const type = detectType(data, toolHint);
   if (type === "other") return null;
 
   return {
-    id: "",
     type,
     title: buildTitle(type, data),
     summary: buildSummary(type, data),
@@ -158,8 +154,6 @@ function cardFromData(
     messageId: msg.id
       ? `msg_${msg.id}_block_${blockIdx}`
       : `msg_legacy_block_${blockIdx}`,
-    createdAt: "",
-    isRead: false,
   };
 }
 
@@ -191,8 +185,11 @@ export function parseDataCardsFromMessages(
   messages: ChatMessage[]
 ): Omit<DataCard, "id" | "createdAt" | "isRead">[] {
   const out: Omit<DataCard, "id" | "createdAt" | "isRead">[] = [];
-  messages.forEach((m, idx) => {
+  messages.forEach((m) => {
     out.push(...parseDataCardsFromMessage(m));
   });
   return out;
 }
+
+// TOOL_LABELS 在本包内导出，但调用方可选择性 import
+export { TOOL_LABELS };

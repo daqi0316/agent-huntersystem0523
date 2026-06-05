@@ -1,64 +1,48 @@
 "use client";
 
 /**
- * PendingApprovalSection — 当前审批请求抽屉内展示
+ * PendingApprovalSection — 纯 UI 展示当前审批请求
  *
- * 价值：让审批状态跨页面可见
- *  - /agent 页面有 banner 提示
- *  - 其它 dashboard 页面（如 /candidates）只能从抽屉看到
- *
- * 数据源：agent-store.approval
+ * 工业级 / 全局规划：业务逻辑（调后端 api）从 UI 分离到 host 层。
+ *  - 包内组件不直接依赖 @/lib/trpc，避免包内耦合 host 的 API client
+ *  - host 通过 onApprove / onReject props 注入实际行为
+ *  - 默认 no-op，host 不传也不报错（仅 UI 渲染）
  */
 
 import { useState } from "react";
 import { AlertCircle, Check, XCircle, Loader2 } from "lucide-react";
-import { useAgentStore } from "@/stores/agent-store";
-import { api } from "@/lib/trpc";
+import { useAgentStore } from "@ai-recruitment/agent-store";
 
-export function PendingApprovalSection() {
+export interface PendingApprovalSectionProps {
+  /** 批准回调；返回 summary 文案，失败时 throw */
+  onApprove?: (approvalId: string) => Promise<string | void>;
+  /** 拒绝回调 */
+  onReject?: (approvalId: string) => Promise<void> | void;
+}
+
+export function PendingApprovalSection({
+  onApprove,
+  onReject,
+}: PendingApprovalSectionProps = {}) {
   const approval = useAgentStore((s) => s.approval);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!approval.visible) return null;
 
   const handleAction = async (approve: boolean) => {
     if (!approval.approval_id || busy) return;
     setBusy(true);
+    setError(null);
     try {
-      await api.post("/human-loop/approve", {
-        action_type: "schedule_interview",
-        approval_id: approval.approval_id,
-        approved: approve,
-      });
-      if (approve) {
-        const resume = await api.post<{
-          success: boolean;
-          data?: { status: string; summary: string };
-        }>("/human-loop/resume", { approval_id: approval.approval_id });
-        if (resume.success && resume.data) {
-          useAgentStore.getState().addMessage({
-            id:
-              typeof crypto !== "undefined" && crypto.randomUUID
-                ? crypto.randomUUID()
-                : `approval_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            createdAt: new Date().toISOString(),
-            role: "assistant",
-            content: `✅ 审批通过，编排继续执行。\n\n${resume.data.summary}`,
-          });
-        }
+      if (approve && onApprove) {
+        await onApprove(approval.approval_id);
+      } else if (!approve && onReject) {
+        await onReject(approval.approval_id);
       }
       useAgentStore.getState().resetApproval();
     } catch (err) {
-      useAgentStore.getState().addMessage({
-        id:
-          typeof crypto !== "undefined" && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `approval_err_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        createdAt: new Date().toISOString(),
-        role: "assistant",
-        content: (err as Error).message || "审批处理失败",
-        error: true,
-      });
+      setError(err instanceof Error ? err.message : "操作失败");
     } finally {
       setBusy(false);
     }
@@ -80,6 +64,9 @@ export function PendingApprovalSection() {
           <p className="text-[11px] text-amber-800 dark:text-amber-300 line-clamp-2 mt-0.5">
             {approval.summary}
           </p>
+          {error && (
+            <p className="text-[10px] text-destructive mt-1">{error}</p>
+          )}
         </div>
       </div>
       <div className="flex gap-1.5">

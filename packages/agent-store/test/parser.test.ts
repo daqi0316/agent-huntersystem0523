@@ -1,8 +1,7 @@
 /**
  * Data Card Parser — 单元测试（node:test，零额外依赖）
  *
- * 运行：node --import tsx --test apps/web/lib/chat/data-card-parser.test.ts
- * 或：  npx tsx --test apps/web/lib/chat/data-card-parser.test.ts
+ * 运行：npx tsx --test packages/agent-store/test/parser.test.ts
  *
  * 若项目后续引入 vitest/jest，可直接重命名为 *.test.ts 并复用。
  */
@@ -12,8 +11,8 @@ import assert from "node:assert/strict";
 import {
   parseDataCardsFromMessage,
   parseDataCardsFromMessages,
-} from "./data-card-parser";
-import type { ChatMessage } from "@/types/chat";
+} from "../src/parser";
+import type { ChatMessage } from "../src/types";
 
 function makeMsg(
   role: "user" | "assistant",

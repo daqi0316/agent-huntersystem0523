@@ -22,7 +22,7 @@ import {
   useAgentStore,
   type DataCard,
   type ChatContext,
-} from "@/stores/agent-store";
+} from "@ai-recruitment/agent-store";
 
 const ENDPOINT = "/agent/events";
 
@@ -82,7 +82,7 @@ export function AgentEventStreamBridge() {
         model?: string;
       };
       if (!payload?.reply) return;
-      import("@/lib/chat/data-card-parser").then(
+      import("@ai-recruitment/agent-store/parser").then(
         ({ parseDataCardsFromMessage }) => {
           const fakeMsg = {
             id:
