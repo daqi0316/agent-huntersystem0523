@@ -119,7 +119,17 @@ export function useEventSource(endpoint: string | null) {
       }
       try {
         handler(JSON.parse(e.data));
-      } catch {
+      } catch (parseErr) {
+        try {
+          const { getTelemetryQueue } = require("@ai-recruitment/agent-store");
+          getTelemetryQueue().track("sse_parse_error", {
+            source: "use-event-source",
+            success: false,
+          });
+        } catch {}
+        if (typeof console !== "undefined") {
+          console.warn("[SSE] JSON parse failed, falling back to raw data", parseErr);
+        }
         handler(e.data);
       }
     };

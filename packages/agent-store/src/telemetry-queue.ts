@@ -27,6 +27,8 @@ const ALLOWED_EVENTS = new Set<string>([
   "keyboard_nav",
   "approval_action",
   "notification_view",
+  "error_boundary",
+  "sse_parse_error",
 ]);
 
 const ALLOWED_PROPS = new Set<string>([

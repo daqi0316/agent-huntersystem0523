@@ -41,7 +41,20 @@ function loadMessages(): ChatMessage[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return backfillIds(parsed as Array<Record<string, unknown>>);
-  } catch {
+  } catch (err) {
+    try {
+      const { getTelemetryQueue } = require("@ai-recruitment/agent-store");
+      getTelemetryQueue().track("sse_parse_error", {
+        source: "use-chat-messages",
+        success: false,
+      });
+    } catch {}
+    if (typeof console !== "undefined") {
+      console.warn("[chat-messages] localStorage parse failed, resetting", err);
+    }
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
     return [];
   }
 }

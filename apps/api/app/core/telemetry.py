@@ -60,6 +60,8 @@ ALLOWED_EVENTS = frozenset(
         "keyboard_nav",
         "approval_action",
         "notification_view",
+        "error_boundary",
+        "sse_parse_error",
     }
 )
 

@@ -296,6 +296,7 @@ export {
   createTelemetryQueue,
   getTelemetryQueue,
   setTelemetryEndpoint,
+  __resetTelemetryStateForTests,
 } from "./telemetry-queue";
 export type { TelemetryQueue } from "./telemetry-queue";
 export type { TelemetryEvent, TelemetryBatch } from "./telemetry-types";

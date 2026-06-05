@@ -43,6 +43,7 @@ import { PendingApprovalSection } from "./pending-approval-section";
 import { QuickActionsSection } from "./quick-actions-section";
 import { SearchBar, filterCards, EMPTY_FILTERS } from "./search-bar";
 import { NotificationsSection } from "./notifications/notifications-section";
+import { ErrorBoundary } from "./error-boundary";
 
 const TOOL_LABELS: Record<string, string> = {
   get_dashboard_stats: "看板数据",
@@ -272,58 +273,86 @@ export function ContextBar({
 
   return (
     <>
-      <ContextChip
-        unreadCount={unreadCount}
-        onClick={openDrawer}
-        active={open}
-        title={chipTitle}
-        subtitle={context.recentTopic}
-      />
-      <ContextDrawer
-        open={open}
-        onClose={closeDrawer}
-        title="数据看板"
-        subtitle={drawerSubtitle}
-        closeButtonRef={closeButtonRef}
-        footer={
-          cards.length > 0 ? (
-            <div className="flex items-center justify-between w-full">
-              <button
-                onClick={handleExport}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="导出 JSON"
-              >
-                导出 JSON
-              </button>
-              <button
-                onClick={() => useAgentStore.getState().clearCards()}
-                className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-              >
-                清空全部
-              </button>
-            </div>
-          ) : null
+      <ErrorBoundary boundaryName="ContextChip" onRetry={openDrawer}>
+        <ContextChip
+          unreadCount={unreadCount}
+          onClick={openDrawer}
+          active={open}
+          title={chipTitle}
+          subtitle={context.recentTopic}
+        />
+      </ErrorBoundary>
+      <ErrorBoundary
+        boundaryName="ContextDrawer"
+        onRetry={openDrawer}
+        fallback={
+          <div
+            role="alert"
+            className="fixed right-4 top-4 z-50 rounded border border-destructive bg-background p-3 text-sm shadow-md"
+          >
+            抽屉加载失败 — chip 仍可点击重试
+          </div>
         }
       >
-        <CurrentContextSection context={context} />
-        <NotificationsSection />
-        <PendingApprovalSection
-          onApprove={onApprovalApprove}
-          onReject={onApprovalReject}
-        />
-        <SessionStatsSection />
-        <RecentActivitySection />
-        <QuickActionsSection />
-        {sortedCards.length > 0 && (
-          <SearchBar
-            query={query}
-            onQueryChange={setQuery}
-            activeTypes={activeTypes}
-            onActiveTypesChange={setActiveTypes}
-            resultCount={filteredCards.length}
-            totalCount={sortedCards.length}
-          />
-        )}
+        <ContextDrawer
+          open={open}
+          onClose={closeDrawer}
+          title="数据看板"
+          subtitle={drawerSubtitle}
+          closeButtonRef={closeButtonRef}
+          footer={
+            cards.length > 0 ? (
+              <div className="flex items-center justify-between w-full">
+                <button
+                  onClick={handleExport}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="导出 JSON"
+                >
+                  导出 JSON
+                </button>
+                <button
+                  onClick={() => useAgentStore.getState().clearCards()}
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  清空全部
+                </button>
+              </div>
+            ) : null
+          }
+        >
+          <ErrorBoundary boundaryName="CurrentContextSection">
+            <CurrentContextSection context={context} />
+          </ErrorBoundary>
+          <ErrorBoundary boundaryName="NotificationsSection">
+            <NotificationsSection />
+          </ErrorBoundary>
+          <ErrorBoundary boundaryName="PendingApprovalSection">
+            <PendingApprovalSection
+              onApprove={onApprovalApprove}
+              onReject={onApprovalReject}
+            />
+          </ErrorBoundary>
+          <ErrorBoundary boundaryName="SessionStatsSection">
+            <SessionStatsSection />
+          </ErrorBoundary>
+          <ErrorBoundary boundaryName="RecentActivitySection">
+            <RecentActivitySection />
+          </ErrorBoundary>
+          <ErrorBoundary boundaryName="QuickActionsSection">
+            <QuickActionsSection />
+          </ErrorBoundary>
+          {sortedCards.length > 0 && (
+            <ErrorBoundary boundaryName="SearchBar">
+              <SearchBar
+                query={query}
+                onQueryChange={setQuery}
+                activeTypes={activeTypes}
+                onActiveTypesChange={setActiveTypes}
+                resultCount={filteredCards.length}
+                totalCount={sortedCards.length}
+              />
+            </ErrorBoundary>
+          )}
         {sortedCards.length === 0 && !context.recentTopic ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
             <p className="text-sm">暂无数据卡片</p>
@@ -367,6 +396,7 @@ export function ContextBar({
           </div>
         )}
       </ContextDrawer>
+      </ErrorBoundary>
       {activeCard && <div className="hidden">{activeCard.id}</div>}
     </>
   );
