@@ -79,8 +79,6 @@ for path in /login /agent; do
   else
     fail "GET $path → $CODE"
   fi
-  # 验 _next 静态资源（防止 dev server 编译坏时 HTML 200 但 chunks 500，
-  # 浏览器拿不到 JS → fetch handler 没注册 → 用户操作 → 'Failed to fetch'）
   CHUNK=$(curl -sS "$WEB_BASE$path" 2>/dev/null | grep -oE '/_next/static/chunks/[^"?]*\.js' | head -1)
   if [ -n "$CHUNK" ]; then
     CCODE=$(curl -sS -o /dev/null -w "%{http_code}" "$WEB_BASE$CHUNK" 2>&1)
