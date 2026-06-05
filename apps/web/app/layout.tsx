@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { APP_NAME } from "@/lib/constants";
 import { AuthProvider } from "@/lib/auth-context";
 import "@/styles/globals.css";
@@ -9,6 +9,16 @@ export const metadata: Metadata = {
     template: `%s | ${APP_NAME}`,
   },
   description: "AI驱动的智能招聘管理系统",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
 };
 
 export default function RootLayout({

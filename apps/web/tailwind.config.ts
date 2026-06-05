@@ -7,6 +7,7 @@ const config: Config = {
     "./components/**/*.{ts,tsx}",
     "./hooks/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
+    "./node_modules/@ai-recruitment/context-bar/dist/**/*.{js,cjs,mjs}",
   ],
   theme: {
     container: {

@@ -24,7 +24,7 @@ export function ContextChip({
       title={title || `数据看板 · ${unreadCount} 项未读`}
       aria-label={title || `数据看板 ${unreadCount} 项未读`}
       className={cn(
-        "relative flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+        "relative flex h-9 md:h-9 min-h-[44px] md:min-h-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
         active
           ? "border-primary bg-primary/10 text-primary"
           : "border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent"

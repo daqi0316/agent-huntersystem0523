@@ -360,7 +360,9 @@ export function ContextBar({
               在助手中询问「看板概览」「搜索候选人」等，会自动归档
             </p>
             <p className="text-[10px] mt-3 text-muted-foreground/60">
-              快捷键：⌘K 打开 · Esc 关闭
+              <span className="hidden md:inline">快捷键：⌘K 打开 · </span>
+              <span className="md:hidden">点击外部或点此处关闭</span>
+              <span className="hidden md:inline">Esc 关闭</span>
             </p>
           </div>
         ) : (
