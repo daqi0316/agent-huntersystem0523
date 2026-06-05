@@ -29,6 +29,9 @@ import {
   type DataCardType,
 } from "@ai-recruitment/agent-store";
 import { useGlobalShortcut } from "./use-global-shortcut";
+import { useCardOrderHash, applyHashOrder } from "./use-card-order-hash";
+import { useCardKeyboardNav } from "./use-card-keyboard-nav";
+import { buildExportPayload, downloadJson } from "./export-cards";
 import { ContextChip } from "./context-chip";
 import { ContextDrawer } from "./context-drawer";
 import { DataCardItem } from "./data-card-item";
@@ -80,13 +83,17 @@ export function ContextBar({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [activeTypes, setActiveTypes] = useState<DataCardType[]>([]);
+  const [keyboardIndex, setKeyboardIndex] = useState(0);
 
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
 
+  // T5: URL hash ↔ sort order 同步（跨 tab 共享 sort 顺序）
+  const { hashOrder, setOrder, clearOrder } = useCardOrderHash();
+
   const sortedCards = useMemo(
-    () => [...cards].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [cards]
+    () => applyHashOrder(cards, hashOrder),
+    [cards, hashOrder]
   );
 
   const filteredCards = useMemo(
@@ -98,6 +105,62 @@ export function ContextBar({
     if (!activeId) return null;
     return cards.find((c) => c.id === activeId) ?? null;
   }, [activeId, cards]);
+
+  // T5: 拖拽后写 URL hash（仅当顺序真变化时）
+  const handleDrop = useCallback(
+    (targetId: string) => (e: React.DragEvent) => {
+      e.preventDefault();
+      const sourceId = e.dataTransfer.getData("text/plain");
+      if (!sourceId || sourceId === targetId) {
+        setDraggingId(null);
+        setDragOverId(null);
+        return;
+      }
+      const next = [...sortedCards];
+      const srcIdx = next.findIndex((c) => c.id === sourceId);
+      const dstIdx = next.findIndex((c) => c.id === targetId);
+      if (srcIdx < 0 || dstIdx < 0) return;
+      const [moved] = next.splice(srcIdx, 1);
+      next.splice(dstIdx, 0, moved);
+      useAgentStore.setState({ dataCards: next });
+      setOrder(next.map((c) => c.id));
+      setDraggingId(null);
+      setDragOverId(null);
+    },
+    [sortedCards, setOrder]
+  );
+
+  // T5: 拖到 body 外部 = 不更新 order（即回滚；React 不触发 onDrop）
+  // 已通过 React 行为天然处理；显式 dragend 清理视觉状态
+  const handleDragEnd = useCallback(() => {
+    setDraggingId(null);
+    setDragOverId(null);
+  }, []);
+
+  // T5: ⌘↑/↓ 键盘上下选 + Enter 展开
+  useCardKeyboardNav({
+    enabled: open && (query.length > 0 || activeTypes.length > 0),
+    cards: filteredCards,
+    activeIndex: keyboardIndex,
+    onActiveIndexChange: setKeyboardIndex,
+    onActivate: (id) => {
+      const card = cards.find((c) => c.id === id);
+      if (card) {
+        useAgentStore.getState().markCardRead(card.id);
+        setActiveId(card.id);
+      }
+    },
+  });
+
+  // T5: 导出 JSON
+  const handleExport = useCallback(() => {
+    const payload = buildExportPayload(
+      filteredCards,
+      sortedCards.map((c) => c.id),
+      { query, types: activeTypes }
+    );
+    downloadJson(payload);
+  }, [filteredCards, sortedCards, query, activeTypes]);
 
   const chipTitle = context.recentTopic
     ? `数据看板 · ${unreadCount} 项未读 · 当前讨论：${context.recentTopic}`
@@ -144,33 +207,6 @@ export function ContextBar({
     setDragOverId(id);
   }, []);
 
-  const handleDrop = useCallback(
-    (targetId: string) => (e: React.DragEvent) => {
-      e.preventDefault();
-      const sourceId = e.dataTransfer.getData("text/plain");
-      if (!sourceId || sourceId === targetId) {
-        setDraggingId(null);
-        setDragOverId(null);
-        return;
-      }
-      const next = [...cards];
-      const srcIdx = next.findIndex((c) => c.id === sourceId);
-      const dstIdx = next.findIndex((c) => c.id === targetId);
-      if (srcIdx < 0 || dstIdx < 0) return;
-      const [moved] = next.splice(srcIdx, 1);
-      next.splice(dstIdx, 0, moved);
-      useAgentStore.setState({ dataCards: next });
-      setDraggingId(null);
-      setDragOverId(null);
-    },
-    [cards]
-  );
-
-  const handleDragEnd = useCallback(() => {
-    setDraggingId(null);
-    setDragOverId(null);
-  }, []);
-
   const closeDrawer = useCallback(() => {
     if (!open) return;
     setOpen(false);
@@ -209,12 +245,21 @@ export function ContextBar({
         closeButtonRef={closeButtonRef}
         footer={
           cards.length > 0 ? (
-            <button
-              onClick={() => useAgentStore.getState().clearCards()}
-              className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-            >
-              清空全部
-            </button>
+            <div className="flex items-center justify-between w-full">
+              <button
+                onClick={handleExport}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="导出 JSON"
+              >
+                导出 JSON
+              </button>
+              <button
+                onClick={() => useAgentStore.getState().clearCards()}
+                className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+              >
+                清空全部
+              </button>
+            </div>
           ) : null
         }
       >
