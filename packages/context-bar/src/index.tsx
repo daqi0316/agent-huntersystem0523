@@ -25,6 +25,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   useAgentStore,
   selectUnreadCardCount,
+  getTelemetryQueue,
   type DataCard,
   type DataCardType,
 } from "@ai-recruitment/agent-store";
@@ -126,6 +127,14 @@ export function ContextBar({
       setOrder(next.map((c) => c.id));
       setDraggingId(null);
       setDragOverId(null);
+      getTelemetryQueue().track("drag_drop", {
+        card_type: moved.type,
+        success: true,
+      });
+      getTelemetryQueue().track("hash_order_change", {
+        card_type: moved.type,
+        success: true,
+      });
     },
     [sortedCards, setOrder]
   );
@@ -148,6 +157,10 @@ export function ContextBar({
       if (card) {
         useAgentStore.getState().markCardRead(card.id);
         setActiveId(card.id);
+        getTelemetryQueue().track("keyboard_nav", {
+          card_type: card.type,
+          success: true,
+        });
       }
     },
   });
@@ -160,6 +173,11 @@ export function ContextBar({
       { query, types: activeTypes }
     );
     downloadJson(payload);
+    getTelemetryQueue().track("card_export", {
+      card_type: filteredCards[0]?.type ?? "none",
+      result_count: filteredCards.length,
+      success: true,
+    });
   }, [filteredCards, sortedCards, query, activeTypes]);
 
   const chipTitle = context.recentTopic
@@ -218,6 +236,30 @@ export function ContextBar({
 
   useGlobalShortcut("k", openDrawer, { mod: true });
   useGlobalShortcut("escape", closeDrawer);
+
+  useEffect(() => {
+    if (open) {
+      getTelemetryQueue().track("drawer_open", { source: "chip" });
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const start = window.performance.now();
+    return () => {
+      if (!open) return;
+      const duration = Math.round(window.performance.now() - start);
+      getTelemetryQueue().track("drawer_close", { duration_ms: duration });
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!query && activeTypes.length === 0) return;
+    getTelemetryQueue().track("search_use", {
+      result_count: filteredCards.length,
+      source: activeTypes.length > 0 ? "filter" : "query",
+    });
+  }, [query, activeTypes, filteredCards.length]);
 
   useEffect(() => {
     if (open) {

@@ -291,3 +291,11 @@ export {
   clearAllDetailCache,
 } from "./detail-cache";
 export type { CachedCandidate, CachedJob } from "./detail-cache";
+
+export {
+  createTelemetryQueue,
+  getTelemetryQueue,
+  setTelemetryEndpoint,
+} from "./telemetry-queue";
+export type { TelemetryQueue } from "./telemetry-queue";
+export type { TelemetryEvent, TelemetryBatch } from "./telemetry-types";

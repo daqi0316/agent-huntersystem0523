@@ -10,12 +10,13 @@ load_dotenv()
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.core.config import settings
 from app.core.rate_limit import create_rate_limit_middleware
 from app.core.redis import close_redis
 from app.core.qdrant import close_qdrant
+from app.core.telemetry import api_request_total, render_prometheus
 from app.api.router import api_router
 from app.agents.bootstrap import init_agents
 from app.services.recommendation_scheduler import recommendation_scheduler_loop
@@ -120,10 +121,21 @@ app = FastAPI(
 
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
-    """Log each request method, path, status, and duration."""
+    """Log each request method, path, status, and duration; count via Prometheus."""
     start = time.monotonic()
     response = await call_next(request)
     elapsed = time.monotonic() - start
+    # T6: 用 matched route template 作为 label（防 UUID 爆 cardinality）
+    route = request.scope.get("route")
+    path_label = getattr(route, "path", request.url.path)
+    try:
+        api_request_total.labels(
+            method=request.method,
+            path=path_label,
+            status=str(response.status_code),
+        ).inc()
+    except Exception:
+        pass
     logger.info(
         "%s %s → %s (%.0fms)",
         request.method,
@@ -197,19 +209,6 @@ async def health_check():
 
 @app.get("/metrics")
 async def metrics():
-    """基础 Prometheus-style 指标（不含 prometheus_client 时返回存活信号）。"""
-    from app.core.redis import redis_client
-
-    redis_ok = False
-    try:
-        await redis_client.ping()
-        redis_ok = True
-    except Exception:
-        pass
-
-    return {
-        "service": settings.app_name,
-        "version": "2.0.0",
-        "uptime_seconds": 0,
-        "redis_connected": redis_ok,
-    }
+    """Prometheus 指标端点（T6：返标准 prom 文本格式）。"""
+    body, content_type = render_prometheus()
+    return Response(content=body, media_type=content_type)
