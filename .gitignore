@@ -61,4 +61,7 @@ test-results/
 *.sqlite
 *.sqlite3
 
+# Next.js auto-managed (dev rewrites on every run)
+next-env.d.ts
+
 .archive/
