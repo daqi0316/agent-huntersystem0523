@@ -2,6 +2,9 @@
 
 > 当日 ship: 9 PRs + 22 单测 + 3 文档, P5-1 阶段完整闭环。
 
+> 2026-06-05 23:50 补救完成 — 3 P0 修复 + 1 dedicated cross-tenant negative test, 共 23 单测过。
+> 补救 commits: 429ac78 (e2e 改造) + 6e0a28c (audit log API) + 0d78ea4 (cross-tenant test + lessons)
+
 ## 1. 最终状态
 
 ### 1.1 Pushed commits (9 PRs)

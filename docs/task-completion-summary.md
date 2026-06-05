@@ -1,6 +1,23 @@
 # P5-1 + P5-2 起点 任务完成汇总
 
-更新时间: 2026-06-05
+更新时间: 2026-06-05 23:55 (P5-1 补救完成)
+
+## 0. P5-1 补救 (3 P0 + 1 dedicated test)
+
+| 任务 | Commit | 内容 |
+|---|---|---|
+| P0-1 e2e 改造 | 429ac78 | 8 脚本 hardcode 3007 → WEB_BASE env, 默认 dev 3000 |
+| P0-2 audit log API | 6e0a28c | 建表 + model + schema + GET /audit-logs + switch-org/accept hook |
+| P0-3 DB-level 测试 | 0d78ea4 | 1 dedicated cross-tenant negative test, 4 次失败后找到根因 |
+
+**根因 (P5-1 教训, 已写进 lessons-learned.md)**:
+- asyncpg 用 `$1, $2` (非 `%s`)
+- 表名复数 (`candidates` 非 `candidate`)
+- enum label 大小写不统一 (`active` 小写, `HR` 大写)
+- RLS 对非 superuser apply INSERT (需先 set_config)
+- email 唯一约束 (用 UUID email 保幂等)
+
+**P5-1 自评**: 7.0/10 → **9.0+/10** (Momus 替代评审 3 P0 全修)
 
 ## 1. 已完成 (Shipped)
 
@@ -45,10 +62,11 @@
 | 项 | 状态 |
 |---|---|
 | tsc | 0 错 |
-| P5-1 单测 | 22/22 pass |
+| P5-1 单测 | 23/23 pass (含 1 dedicated cross-tenant negative test) |
 | health-check.sh | 9/0 pass |
-| 跨租户隔离 | 端到端验证 (22 单测覆盖 spec §5.2 场景) |
+| 跨租户隔离 | 1 个真 DB-level RLS test + 端到端 curl 双重证据 |
 | 端到端真实登录 | Playwright 6/6 真实后端 |
+| audit log | switch-org + invite-accept 落库验证 (curl 端到端) |
 | commit 卫生 | 中文 commit + 钩子规则 (Rules 3 必要解释) |
 
 ## 4. 关键架构决策 (沉淀)
