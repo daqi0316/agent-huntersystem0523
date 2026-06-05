@@ -3,6 +3,20 @@ from app.models.job_position import JobPosition
 from app.models.application import Application
 from app.models.interview import Interview
 from app.models.user import User, UserRole
+from app.models.organization import (
+    Organization,
+    OrganizationPlan,
+    OrganizationStatus,
+)
+from app.models.membership import (
+    Membership,
+    MembershipRole,
+    MembershipStatus,
+)
+from app.models.invitation import (
+    Invitation,
+    InvitationStatus,
+)
 from app.models.setting import Setting
 from app.models.session_summary import SessionSummary
 from app.models.mcp_server import MCPServer
@@ -16,6 +30,9 @@ from app.models.operation_log import OperationLog, OperationStatus  # noqa: F401
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
+    "Organization", "OrganizationPlan", "OrganizationStatus",
+    "Membership", "MembershipRole", "MembershipStatus",
+    "Invitation", "InvitationStatus",
     "Setting", "SessionSummary", "MemoryFact", "MCPServer", "InterviewEvaluation",
     "InterviewRound", "EvaluationVerdict", "ConversationSession", "ConversationMessage",
     "Recommendation", "RecommendationType", "CommandAuditLog",
