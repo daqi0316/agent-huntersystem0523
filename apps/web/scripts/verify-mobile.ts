@@ -86,8 +86,7 @@ async function main() {
     });
   });
 
-  await page.goto(`${WEB_BASE}/agent`);
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.goto(`${WEB_BASE}/agent`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1500);
 
   // 1. viewport meta 存在

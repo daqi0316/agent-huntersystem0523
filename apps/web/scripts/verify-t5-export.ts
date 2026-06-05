@@ -88,8 +88,7 @@ async function main() {
 
   const results: CheckResult[] = [];
 
-  await page.goto(`${WEB_BASE}/agent`);
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.goto(`${WEB_BASE}/agent`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1200);
 
   await page

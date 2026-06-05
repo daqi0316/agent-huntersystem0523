@@ -94,8 +94,7 @@ async function main() {
     localStorage.setItem("ai-recruitment-chat-history", "this-is-not-json");
   });
 
-  await page.goto(`${WEB_BASE}/agent`);
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.goto(`${WEB_BASE}/agent`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(8000);
 
   // 1. 直接 POST 验证后端接受新事件 + 暴露 label

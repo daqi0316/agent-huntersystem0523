@@ -119,8 +119,7 @@ async function main() {
     });
   });
 
-  await page.goto(`${WEB_BASE}/agent`);
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.goto(`${WEB_BASE}/agent`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1200);
 
   // 打开抽屉 → drawer_open

@@ -103,8 +103,7 @@ async function main() {
   const results: CheckResult[] = [];
 
   // 1. 加载 /agent（zustand init 时 setItem 被 mock 阻止，会读我们的 seed）
-  await page.goto(`${WEB_BASE}/agent`);
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.goto(`${WEB_BASE}/agent`, { waitUntil: "domcontentloaded" });
   // 等 zustand 初始化完成
   await page.waitForTimeout(1000);
 

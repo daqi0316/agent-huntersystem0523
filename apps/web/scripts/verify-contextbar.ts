@@ -67,7 +67,6 @@ async function main() {
   });
 
   await page.goto(`${BASE_URL}/agent`, { waitUntil: "domcontentloaded" });
-  await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(1500);
 
   const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
