@@ -1,14 +1,16 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auto_org import get_or_create_default_org
 from app.core.database import get_db
 from app.core.dependencies import get_current_user_id
 from app.core.security import create_access_token
-from app.models import Membership, MembershipStatus
+from app.models import Membership, MembershipStatus, Organization
 from app.schemas.auth import (
     LoginRequest,
     RegisterRequest,
+    SwitchOrgRequest,
     TokenResponse,
     UserResponse,
 )
@@ -35,6 +37,34 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(access_token=token, token_type="bearer")
 
 
+@router.post("/switch-org", response_model=TokenResponse)
+async def switch_org(
+    body: SwitchOrgRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """P0-4: 切换当前 org, 返新 JWT。
+
+    流程: 验 membership → 签新 JWT → 客户端存新 token + 替换 header + SSE 重连
+    """
+    r = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.org_id == body.org_id,
+            Membership.status == MembershipStatus.ACTIVE,
+        )
+    )
+    m = r.scalar_one_or_none()
+    if m is None:
+        raise HTTPException(403, "not a member of this org")
+    user = await UserService.get_by_id(db, user_id)
+    if user is None:
+        raise HTTPException(404, "user not found")
+    role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    token = create_access_token(user_id=user_id, role=role, current_org_id=body.org_id)
+    return TokenResponse(access_token=token, token_type="bearer")
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_me(
     user_id: str = Depends(get_current_user_id),
@@ -45,10 +75,8 @@ async def get_me(
     前端用 memberships 渲染 org switcher, 用 current_org 选默认 org。
     """
     from sqlalchemy import select
-    from app.models import Organization
     user = await UserService.get_by_id(db, user_id)
     if user is None:
-        from fastapi import HTTPException
         raise HTTPException(404, "user not found")
     m_rows = (await db.execute(
         select(Membership, Organization)

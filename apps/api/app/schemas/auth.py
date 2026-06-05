@@ -1,11 +1,15 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class SwitchOrgRequest(BaseModel):
+    org_id: str = Field(..., description="要切换到的 org_id")
 
 
 class RegisterRequest(BaseModel):
