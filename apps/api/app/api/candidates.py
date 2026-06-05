@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.org_context import org_scoped_db
 from app.core.response import success, error
 from app.schemas.candidate import CandidateCreate, CandidateRead, CandidateUpdate
 from app.schemas.common import ListResponse
@@ -19,17 +20,19 @@ async def list_candidates(
     limit: int = 20,
     search: str | None = None,
     status: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
-    """分页查询候选人列表"""
+    """分页查询候选人列表 (RLS 自动隔离 org)。"""
+    org_ctx, db = od
     service = CandidateService(db)
     items, total = await service.list(skip=skip, limit=limit, search=search, status=status)
     return ListResponse(items=items, total=total, skip=skip, limit=limit)
 
 
 @router.get("/{candidate_id}")
-async def get_candidate(candidate_id: str, db: AsyncSession = Depends(get_db)):
-    """获取候选人详情"""
+async def get_candidate(candidate_id: str, od = Depends(org_scoped_db)):
+    """获取候选人详情 (RLS 自动隔离)。"""
+    org_ctx, db = od
     service = CandidateService(db)
     candidate = await service.get_by_id(candidate_id)
     if not candidate:
@@ -38,17 +41,19 @@ async def get_candidate(candidate_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-async def create_candidate(data: CandidateCreate, db: AsyncSession = Depends(get_db)):
-    """创建候选人"""
+async def create_candidate(data: CandidateCreate, od = Depends(org_scoped_db)):
+    """创建候选人 (org-scoped, 自动挂当前 org_id)。"""
+    org_ctx, db = od
     service = CandidateService(db)
-    return success(await service.create(data))
+    return success(await service.create(data, org_id=org_ctx.org_id))
 
 
 @router.put("/{candidate_id}")
 async def update_candidate(
-    candidate_id: str, data: CandidateUpdate, db: AsyncSession = Depends(get_db)
+    candidate_id: str, data: CandidateUpdate, od = Depends(org_scoped_db)
 ):
-    """更新候选人"""
+    """更新候选人 (RLS 自动隔离)。"""
+    org_ctx, db = od
     service = CandidateService(db)
     candidate = await service.update(candidate_id, data)
     if not candidate:
@@ -57,8 +62,9 @@ async def update_candidate(
 
 
 @router.delete("/{candidate_id}")
-async def delete_candidate(candidate_id: str, db: AsyncSession = Depends(get_db)):
-    """删除候选人"""
+async def delete_candidate(candidate_id: str, od = Depends(org_scoped_db)):
+    """删除候选人 (RLS 自动隔离)。"""
+    org_ctx, db = od
     service = CandidateService(db)
     ok = await service.delete(candidate_id)
     if not ok:
@@ -67,10 +73,11 @@ async def delete_candidate(candidate_id: str, db: AsyncSession = Depends(get_db)
 
 
 @router.get("/{candidate_id}/timeline")
-async def candidate_timeline(candidate_id: str, db: AsyncSession = Depends(get_db)):
+async def candidate_timeline(candidate_id: str, od = Depends(org_scoped_db)):
     """获取候选人全生命周期时间线。"""
     from datetime import datetime as dt_mod
 
+    org_ctx, db = od
     service = CandidateService(db)
     candidate = await service.get_by_id(candidate_id)
     if not candidate:

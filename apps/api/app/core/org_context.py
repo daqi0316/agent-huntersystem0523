@@ -83,3 +83,70 @@ async def apply_rls_context(db: AsyncSession, org_id: str) -> None:
         text("SELECT set_config('app.current_org_id', :oid, true)"),
         {"oid": org_id},
     )
+
+
+async def get_org_db(
+    request: Request,
+    db: AsyncSession = None,  # placeholder, 真实注入在下面
+) -> tuple[OrgContext, AsyncSession]:
+    """组合依赖: 解析 org_ctx + 应用 RLS。
+
+    用法:
+        @router.get("/candidates")
+        async def list(
+            org_and_db: tuple = Depends(get_org_db),
+        ):
+            org_ctx, db = org_and_db
+            ...
+    """
+    raise NotImplementedError("用 get_org_context + apply_rls_context 组合, 不要用这个")
+
+
+from fastapi import Depends as _Depends  # noqa: E402
+
+
+def org_scoped_db():
+    """P5-1 业务 endpoint 标准依赖: OrgContext + 应用 RLS + 返 (org, db)。"""
+    async def _dep(
+        request: Request,
+        db: AsyncSession = _Depends(__import__("app.core.database", fromlist=["get_db"]).get_db),
+    ):
+        from app.core.security import decode_access_token
+        from app.models import Membership, MembershipStatus
+
+        auth = request.headers.get("authorization", "")
+        if not auth.lower().startswith("bearer "):
+            from fastapi import HTTPException
+            raise HTTPException(401, "missing token")
+        token = auth.split(" ", 1)[1]
+        try:
+            payload = decode_access_token(token)
+        except Exception as e:
+            from fastapi import HTTPException
+            raise HTTPException(401, f"invalid token: {e}")
+        user_id = payload.get("sub")
+        org_id = payload.get("current_org_id") or payload.get("org_id")
+        if not user_id or not org_id:
+            from fastapi import HTTPException
+            raise HTTPException(401, "token missing sub or current_org_id")
+
+        from app.core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            r = await session.execute(
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.org_id == org_id,
+                    Membership.status == MembershipStatus.ACTIVE,
+                )
+            )
+            m = r.scalar_one_or_none()
+            if m is None:
+                from fastapi import HTTPException
+                raise HTTPException(403, "not a member of this org")
+            role = m.role.value if hasattr(m.role, "value") else str(m.role)
+
+        ctx = OrgContext(org_id=org_id, user_id=user_id, role=role)
+        await apply_rls_context(db, org_id)
+        return ctx, db
+
+    return _dep

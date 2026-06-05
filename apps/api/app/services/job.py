@@ -61,9 +61,12 @@ class JobService:
         )
         return result.scalar_one_or_none()
 
-    async def create(self, data: JobCreate) -> JobPosition:
-        """创建职位"""
-        job = JobPosition(**data.model_dump())
+    async def create(self, data: JobCreate, org_id: str | None = None) -> JobPosition:
+        """创建职位 (org-scoped, 自动挂 org_id)。"""
+        payload = data.model_dump()
+        if org_id is not None:
+            payload["org_id"] = org_id
+        job = JobPosition(**payload)
         self.db.add(job)
         await self.db.commit()
         await self.db.refresh(job)

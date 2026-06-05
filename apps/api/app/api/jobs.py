@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.org_context import org_scoped_db
 from app.core.response import success, error
 from app.schemas.job import JobCreate, JobRead, JobUpdate
 from app.schemas.common import ListResponse
@@ -18,17 +19,19 @@ async def list_jobs(
     limit: int = 20,
     search: str | None = None,
     status: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
-    """分页查询职位列表"""
+    """分页查询职位列表 (RLS 自动隔离 org)。"""
+    org_ctx, db = od
     service = JobService(db)
     items, total = await service.list(skip=skip, limit=limit, search=search, status=status)
     return ListResponse(items=items, total=total, skip=skip, limit=limit)
 
 
 @router.get("/{job_id}")
-async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
-    """获取职位详情"""
+async def get_job(job_id: str, od = Depends(org_scoped_db)):
+    """获取职位详情 (RLS 自动隔离)。"""
+    org_ctx, db = od
     service = JobService(db)
     job = await service.get_by_id(job_id)
     if not job:
@@ -37,15 +40,17 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-async def create_job(data: JobCreate, db: AsyncSession = Depends(get_db)):
-    """创建职位"""
+async def create_job(data: JobCreate, od = Depends(org_scoped_db)):
+    """创建职位 (org-scoped, 自动挂当前 org_id)。"""
+    org_ctx, db = od
     service = JobService(db)
-    return success(await service.create(data))
+    return success(await service.create(data, org_id=org_ctx.org_id))
 
 
 @router.put("/{job_id}")
-async def update_job(job_id: str, data: JobUpdate, db: AsyncSession = Depends(get_db)):
-    """更新职位"""
+async def update_job(job_id: str, data: JobUpdate, od = Depends(org_scoped_db)):
+    """更新职位 (RLS 自动隔离)。"""
+    org_ctx, db = od
     service = JobService(db)
     job = await service.update(job_id, data)
     if not job:
@@ -54,8 +59,9 @@ async def update_job(job_id: str, data: JobUpdate, db: AsyncSession = Depends(ge
 
 
 @router.delete("/{job_id}")
-async def delete_job(job_id: str, db: AsyncSession = Depends(get_db)):
-    """删除职位"""
+async def delete_job(job_id: str, od = Depends(org_scoped_db)):
+    """删除职位 (RLS 自动隔离)。"""
+    org_ctx, db = od
     service = JobService(db)
     ok = await service.delete(job_id)
     if not ok:

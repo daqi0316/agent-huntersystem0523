@@ -63,9 +63,12 @@ class CandidateService:
         )
         return result.scalar_one_or_none()
 
-    async def create(self, data: CandidateCreate) -> Candidate:
-        """创建候选人"""
-        candidate = Candidate(**data.model_dump())
+    async def create(self, data: CandidateCreate, org_id: str | None = None) -> Candidate:
+        """创建候选人 (org-scoped, 自动挂 org_id)。"""
+        payload = data.model_dump()
+        if org_id is not None:
+            payload["org_id"] = org_id
+        candidate = Candidate(**payload)
         self.db.add(candidate)
         await self.db.commit()
         await self.db.refresh(candidate)
