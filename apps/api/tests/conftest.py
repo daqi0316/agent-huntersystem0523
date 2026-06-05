@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 import pytest_asyncio
+from fastapi import Depends
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
@@ -30,8 +31,38 @@ def event_loop():
 async def client():
     """FastAPI test client. Disposes the engine after each test so the
     connection pool does not hold stale connections across event-loop
-    boundaries."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-    await engine.dispose()
+    boundaries.
+
+    Auth override: P5-1 改造后业务 endpoint 走 `org_scoped_db` dep
+    (读 JWT → 查 Membership → apply_rls_context)。 测试不需要真鉴权,
+    override `get_current_user_id` + `org_scoped_db` 返回固定 OrgContext +
+    真实 DB session, 让 endpoint 拿到 (org_ctx, db) 但跳过 JWT/Membership 流程。
+    """
+    from app.core.dependencies import get_current_user_id
+    from app.core.org_context import org_scoped_db, OrgContext
+    from app.core.database import get_db
+
+    async def _mock_user_id() -> str:
+        return "test-user-id"
+
+    async def _mock_org_scoped_db(db = Depends(get_db)):
+        """Yield (OrgContext, DB session) — skip JWT + Membership lookup.
+
+        Key: `db = Depends(get_db)` 让 FastAPI DI 解析 get_db,
+        这样 test 设的 `app.dependency_overrides[get_db]` 才生效。
+        之前直接调 `get_db()` 绕过 DI,拿到的是真 DB session。
+        """
+        org_ctx = OrgContext(org_id="test-org-id", user_id="test-user-id", role="hr")
+        yield org_ctx, db
+
+    app.dependency_overrides[get_current_user_id] = _mock_user_id
+    app.dependency_overrides[org_scoped_db] = _mock_org_scoped_db
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user_id, None)
+        app.dependency_overrides.pop(org_scoped_db, None)
+        await engine.dispose()
