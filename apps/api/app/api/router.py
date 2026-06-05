@@ -21,6 +21,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.applications import router as applications_router
 from app.api.settings import router as settings_router
 from app.api.interviews import router as interviews_router
+from app.api.invitations import router as invitations_router
 from app.api.evaluations import router as evaluations_router
 from app.api.dashboard_reports import router as dashboard_reports_router
 from app.api.resume import router as resume_router
@@ -96,6 +97,7 @@ api_router.include_router(settings_router, prefix="/settings", tags=["Settings"]
 
 # Interviews CRUD
 api_router.include_router(interviews_router, prefix="/interviews", tags=["Interviews"])
+api_router.include_router(invitations_router, prefix="/invitations", tags=["Invitations"])
 
 # Evaluations
 api_router.include_router(evaluations_router, prefix="/evaluations", tags=["Evaluations"])
