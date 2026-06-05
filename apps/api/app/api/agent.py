@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.core.dependencies import get_current_user, get_current_user_id, get_db
+from app.core.org_context import org_scoped_db
 from app.core.database import AsyncSession
 from app.commands import CommandContext, role_to_permissions
 from app.schemas.jd_generator import JDGenerateRequest, JDGenerateResponse
@@ -48,8 +49,9 @@ class AgentChatResponse(BaseModel):
 async def agent_chat(
     req: AgentChatRequest,
     current_user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     messages = list(req.history) + [{"role": "user", "content": req.message}]
     command_ctx = CommandContext(
         session_id=req.session_id or "",
