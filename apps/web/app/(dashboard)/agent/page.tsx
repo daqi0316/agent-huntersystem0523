@@ -85,6 +85,17 @@ export default function AgentChatPage() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // T4: ?prefill=<text> → ChatInput 填入文本
+  // 处理完用 router.replace 清 query，避免 user 编辑后再被覆盖
+  const prefillHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prefill = searchParams.get("prefill");
+    if (!prefill) return;
+    if (prefillHandledRef.current === prefill) return;
+    prefillHandledRef.current = prefill;
+    router.replace("/agent", { scroll: false });
+  }, [searchParams, router]);
+
   // T2 跨抽屉导航：?focus=<key> 触发 scrollIntoView + 1.5s 黄色高亮
   //  - key 通常是 message.id（来自 DataCard.messageId 或 message id）
   //  - 也可能前缀如 msg_candidate_xxx / msg_job_xxx（来自详情页"在助手中讨论"按钮）
@@ -342,6 +353,7 @@ export default function AgentChatPage() {
         loading={loading}
         onSend={sendMessage}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        prefill={searchParams.get("prefill") ?? undefined}
       />
 
       {/* Co-existing panels (NOT folded into context-bar) */}

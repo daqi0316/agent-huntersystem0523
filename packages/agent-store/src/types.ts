@@ -116,3 +116,32 @@ export interface SessionStats {
   usedTools: string[];
   startedAt: string | null;
 }
+
+export interface CandidateRead {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  summary: string | null;
+  skills: string[];
+  experience_years: number | null;
+  education: string | null;
+  current_company: string | null;
+  current_title: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobRead {
+  id: string;
+  title: string;
+  department: string | null;
+  description: string | null;
+  requirements: string | null;
+  location: string | null;
+  salary_range: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}

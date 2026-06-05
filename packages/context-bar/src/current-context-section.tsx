@@ -1,24 +1,19 @@
 "use client";
 
 /**
- * CurrentContextSection — 抽屉顶部的"当前讨论上下文"可视化
+ * CurrentContextSection — 抽屉内"当前讨论上下文" + 候选人/职位 ➕ 详情（T4）
  *
  * Phase 5 交付：把 agent-store.currentContext 从"数据"变成"看得见的信息"
- *
- * 渲染：
- *  - recentTopic 大字号
- *  - lastToolUsed 灰色标签
- *  - currentCandidateIds 绿色 chip
- *  - currentJobIds 蓝色 chip
- *  - 空态：完全隐藏
- *
- * 用途：用户切到 /candidates 详情页时，右上角抽屉显示
- *  "正在讨论 张三 / 高级前端工程师（job_001）"
+ * T4 增强：每个 chip 旁加 ➕ 按钮，点击展开详情卡片（抽屉内即时预览，
+ * 区别于 /candidates/{id} 详情页 — 详情页是"完整信息"，这里是"快速摘要"）
  */
 
-import { Briefcase, User, Wrench } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Briefcase, User, Wrench, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { cn } from "./utils";
+import { CandidateDetailCard } from "./candidate-detail-card";
+import { JobDetailCard } from "./job-detail-card";
 import type { ChatContext } from "@ai-recruitment/agent-store";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -49,6 +44,8 @@ interface CurrentContextSectionProps {
   context: ChatContext;
 }
 
+type ExpandedId = { kind: "candidate" | "job"; id: string } | null;
+
 export function CurrentContextSection({ context }: CurrentContextSectionProps) {
   const isEmpty =
     !context.recentTopic &&
@@ -56,6 +53,16 @@ export function CurrentContextSection({ context }: CurrentContextSectionProps) {
     context.currentCandidateIds.length === 0 &&
     context.currentJobIds.length === 0;
   if (isEmpty) return null;
+
+  const [expanded, setExpanded] = useState<ExpandedId>(null);
+
+  const toggleCandidate = useCallback((id: string) => {
+    setExpanded((cur) => (cur?.kind === "candidate" && cur.id === id ? null : { kind: "candidate", id }));
+  }, []);
+
+  const toggleJob = useCallback((id: string) => {
+    setExpanded((cur) => (cur?.kind === "job" && cur.id === id ? null : { kind: "job", id }));
+  }, []);
 
   return (
     <section
@@ -89,17 +96,29 @@ export function CurrentContextSection({ context }: CurrentContextSectionProps) {
           {context.currentCandidateIds.length > 0 && (
             <div className="flex items-start gap-1.5">
               <User className="h-3 w-3 text-muted-foreground shrink-0 mt-1" />
-              <div className="flex flex-wrap gap-1 min-w-0">
-                {context.currentCandidateIds.slice(0, 5).map((id) => (
-                  <Link
-                    key={id}
-                    href={`/candidates/${encodeURIComponent(id)}`}
-                    className="inline-flex items-center rounded-md bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 text-[11px] font-mono hover:bg-green-100 dark:hover:bg-green-950/50 transition-colors"
-                    title={`候选人 ${id}`}
-                  >
-                    {id}
-                  </Link>
-                ))}
+              <div className="flex-1 min-w-0 space-y-1">
+                {context.currentCandidateIds.slice(0, 5).map((id) => {
+                  const isExpanded = expanded?.kind === "candidate" && expanded.id === id;
+                  return (
+                    <div key={id} className="space-y-1">
+                      <div className="flex items-center gap-1">
+                        <Link
+                          href={`/candidates/${encodeURIComponent(id)}`}
+                          className="inline-flex items-center rounded-md bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 text-[11px] font-mono hover:bg-green-100 dark:hover:bg-green-950/50 transition-colors truncate max-w-[10rem]"
+                          title={`候选人 ${id}`}
+                        >
+                          {id}
+                        </Link>
+                        <ExpandToggle
+                          expanded={isExpanded}
+                          onClick={() => toggleCandidate(id)}
+                          label={isExpanded ? "收起" : "展开详情"}
+                        />
+                      </div>
+                      {isExpanded && <CandidateDetailCard candidateId={id} />}
+                    </div>
+                  );
+                })}
                 {context.currentCandidateIds.length > 5 && (
                   <span className="text-[10px] text-muted-foreground">
                     +{context.currentCandidateIds.length - 5}
@@ -111,21 +130,33 @@ export function CurrentContextSection({ context }: CurrentContextSectionProps) {
           {context.currentJobIds.length > 0 && (
             <div className="flex items-start gap-1.5">
               <Briefcase className="h-3 w-3 text-muted-foreground shrink-0 mt-1" />
-              <div className="flex flex-wrap gap-1 min-w-0">
-                {context.currentJobIds.slice(0, 5).map((id) => (
-                  <Link
-                    key={id}
-                    href={`/jobs/${encodeURIComponent(id)}`}
-                    className={cn(
-                      "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-mono",
-                      "bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300",
-                      "hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors"
-                    )}
-                    title={`职位 ${id}`}
-                  >
-                    {id}
-                  </Link>
-                ))}
+              <div className="flex-1 min-w-0 space-y-1">
+                {context.currentJobIds.slice(0, 5).map((id) => {
+                  const isExpanded = expanded?.kind === "job" && expanded.id === id;
+                  return (
+                    <div key={id} className="space-y-1">
+                      <div className="flex items-center gap-1">
+                        <Link
+                          href={`/jobs/${encodeURIComponent(id)}`}
+                          className={cn(
+                            "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-mono truncate max-w-[10rem]",
+                            "bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300",
+                            "hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors"
+                          )}
+                          title={`职位 ${id}`}
+                        >
+                          {id}
+                        </Link>
+                        <ExpandToggle
+                          expanded={isExpanded}
+                          onClick={() => toggleJob(id)}
+                          label={isExpanded ? "收起" : "展开详情"}
+                        />
+                      </div>
+                      {isExpanded && <JobDetailCard jobId={id} />}
+                    </div>
+                  );
+                })}
                 {context.currentJobIds.length > 5 && (
                   <span className="text-[10px] text-muted-foreground">
                     +{context.currentJobIds.length - 5}
@@ -137,5 +168,27 @@ export function CurrentContextSection({ context }: CurrentContextSectionProps) {
         </div>
       )}
     </section>
+  );
+}
+
+function ExpandToggle({
+  expanded,
+  onClick,
+  label,
+}: {
+  expanded: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-expanded={expanded}
+      className="inline-flex items-center justify-center h-4 w-4 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+    >
+      {expanded ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+    </button>
   );
 }

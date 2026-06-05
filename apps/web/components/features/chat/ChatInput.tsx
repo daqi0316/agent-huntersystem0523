@@ -6,7 +6,7 @@
  * 行为完全保留。
  */
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X, Paperclip, Send, FileText } from "lucide-react";
 import { ResumeUpload } from "./ResumeUpload";
 import type { UploadedFile } from "@/hooks/useResumeUpload";
@@ -15,13 +15,28 @@ export interface ChatInputProps {
   loading: boolean;
   onSend: (text: string, attachment: UploadedFile | null) => void;
   onOpenCommandPalette: () => void;
+  /** T4: 详情页"在助手中讨论"预填文本（mount 后填入一次；用户可编辑） */
+  prefill?: string;
 }
 
-export function ChatInput({ loading, onSend, onOpenCommandPalette }: ChatInputProps) {
-  const [input, setInput] = useState("");
+export function ChatInput({
+  loading,
+  onSend,
+  onOpenCommandPalette,
+  prefill,
+}: ChatInputProps) {
+  const [input, setInput] = useState(prefill ?? "");
   const [attachment, setAttachment] = useState<UploadedFile | null>(null);
   const [showUpload, setShowUpload] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // T4: prefill 变化时（如 ?prefill=xxx 路由切换）同步到 input 并 focus
+  useEffect(() => {
+    if (prefill) {
+      setInput(prefill);
+      inputRef.current?.focus();
+    }
+  }, [prefill]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "/" && input === "") {

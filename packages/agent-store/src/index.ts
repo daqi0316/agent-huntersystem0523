@@ -280,3 +280,14 @@ export type {
   NotificationKind,
   NotificationsStoreState,
 } from "./notifications";
+
+export {
+  getCachedCandidate,
+  setCachedCandidate,
+  invalidateCandidate,
+  getCachedJob,
+  setCachedJob,
+  invalidateJob,
+  clearAllDetailCache,
+} from "./detail-cache";
+export type { CachedCandidate, CachedJob } from "./detail-cache";
