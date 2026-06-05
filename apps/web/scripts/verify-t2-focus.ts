@@ -76,8 +76,9 @@ async function main() {
   const results: CheckResult[] = [];
 
   // Step 1: 加载 /agent 看到消息 + data-message-id 锚点
-  await page.goto(`${WEB_BASE}/agent`);
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.goto(`${WEB_BASE}/agent`, { waitUntil: "domcontentloaded" });
+  // 给 messages useState(loadMessages) 同步初始 + 首次 render 一点 buffer
+  await page.waitForTimeout(300);
 
   const anchorCheck = await page.evaluate((msgId) => {
     const el = document.querySelector(`[data-message-id="${msgId}"]`);
@@ -93,8 +94,10 @@ async function main() {
   });
 
   // Step 2: 跳到 /agent?focus=<msgId> 触发高亮
-  await page.goto(`${WEB_BASE}/agent?focus=${TEST_MSG_ID}`);
-  await page.waitForLoadState("networkidle").catch(() => {});
+  // 注意: dev mode 下 networkidle 永远不空闲 (HMR 心跳), 用 domcontentloaded + 等 useEffect 跑
+  await page.goto(`${WEB_BASE}/agent?focus=${TEST_MSG_ID}`, {
+    waitUntil: "domcontentloaded",
+  });
 
   // 等高亮属性出现（最多 2s）
   const highlightedAppeared = await page
