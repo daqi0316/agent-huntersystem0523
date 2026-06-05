@@ -3,13 +3,18 @@
 /**
  * useAgentEventStream — 订阅后端 SSE 事件，跨设备同步 agent-store
  *
- * Phase 4.1 交付：
+ * Phase 4.1 + T3 增强：
  *  - 连接 GET /api/v1/agent/events（SSE，自动重连）
+ *  - lastEventId 持久化（useEventSource 内置）：断线时把 lastEventId 拼到 URL
+ *  - 服务端 XRANGE 重放离线期间 events（T3 验收）
  *  - 监听事件：
- *      · data_card.created  → 写入本地 dataCards
- *      · context.updated    → 写入本地 currentContext
- *      · approval.requested → 写入本地 approval 队列（Phase 后续）
- *      · ping/connected     → 静默忽略
+ *      · data_card.created   → 写入本地 dataCards
+ *      · context.updated     → 写入本地 currentContext
+ *      · approval.requested  → 写入本地 approval 队列
+ *      · approval.resolved   → resetApproval
+ *      · chat_response        → 跨设备 chat 同步
+ *      · notification.fired   → 写入通知 store（T3 新增）
+ *      · ping/connected       → 静默忽略
  *  - 与 BroadcastChannel（Phase 4.2）协同：本地更新走 BC，跨设备走 SSE
  *
  * 用法（已接入 AgentProvider）：
@@ -23,6 +28,7 @@ import {
   type DataCard,
   type ChatContext,
 } from "@ai-recruitment/agent-store";
+import { useNotificationsStore } from "@ai-recruitment/agent-store";
 
 const ENDPOINT = "/agent/events";
 
@@ -40,14 +46,22 @@ interface DataCardCreatedPayload {
 
 interface ContextUpdatedPayload extends Partial<ChatContext> {}
 
+interface NotificationFiredPayload {
+  id: string;
+  user_id: string;
+  kind: string;
+  title: string;
+  body: string;
+  action_url?: string | null;
+  created_at: string;
+}
+
 let initialized = false;
 
 export function initAgentEventStream(): () => void {
   if (initialized) return () => undefined;
   initialized = true;
 
-  // EventSource 由 useEventSource hook 管理生命周期
-  // 这里只负责订阅 + 派发，cleanup 在 AgentProvider unmount 时统一处理
   return () => {
     initialized = false;
   };
@@ -159,12 +173,40 @@ export function AgentEventStreamBridge() {
       useAgentStore.getState().setCurrentContext(payload);
     });
 
+    // T3: notification.fired 业务通知
+    const unsubNotification = subscribe("notification.fired", (data) => {
+      const payload = data as NotificationFiredPayload;
+      if (!payload?.id) return;
+      // payload.kind 来自后端 SSE 字符串；前端 NotificationKind 是 union literal
+      // 容错：未知 kind 降级为 "system"，避免运行时 undefined
+      const allowedKinds = [
+        "candidate_status_changed",
+        "approval_requested",
+        "approval_resolved",
+        "system",
+      ] as const;
+      const kind = (allowedKinds as readonly string[]).includes(payload.kind)
+        ? (payload.kind as (typeof allowedKinds)[number])
+        : "system";
+      useNotificationsStore.getState().addNotification({
+        id: payload.id,
+        userId: payload.user_id,
+        kind,
+        title: payload.title,
+        body: payload.body,
+        actionUrl: payload.action_url ?? null,
+        createdAt: payload.created_at,
+        read: false,
+      });
+    });
+
     return () => {
       unsubCard();
       unsubContext();
       unsubChat();
       unsubApproval();
       unsubApprovalResolved();
+      unsubNotification();
     };
   }, [connected, subscribe]);
 

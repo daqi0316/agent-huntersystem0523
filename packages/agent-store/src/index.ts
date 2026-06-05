@@ -270,3 +270,13 @@ export const selectLatestCards =
   (limit: number) =>
   (s: AgentStoreState): DataCard[] =>
     s.dataCards.slice(0, limit);
+
+export {
+  useNotificationsStore,
+  selectUnreadNotificationCount,
+} from "./notifications";
+export type {
+  Notification,
+  NotificationKind,
+  NotificationsStoreState,
+} from "./notifications";

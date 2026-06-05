@@ -94,7 +94,7 @@ echo ""
 echo "=== Step 6/6: 端到端登录（Playwright 真实后端）==="
 if [ -x "$(command -v npx)" ]; then
   if [ -f "apps/web/scripts/verify-login-e2e.ts" ]; then
-    if npx tsx "apps/web/scripts/verify-login-e2e.ts" >/tmp/login-e2e.log 2>&1; then
+    if (cd apps/web && npx tsx "scripts/verify-login-e2e.ts") >/tmp/login-e2e.log 2>&1; then
       ok "verify-login-e2e.ts 通过"
     else
       fail "verify-login-e2e.ts 失败（看 /tmp/login-e2e.log）"

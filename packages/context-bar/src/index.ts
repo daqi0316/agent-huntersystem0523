@@ -25,11 +25,15 @@ export { RecentActivitySection } from "./recent-activity-section";
 export { SearchBar, filterCards, EMPTY_FILTERS } from "./search-bar";
 export { SessionStatsSection } from "./session-stats-section";
 export { useGlobalShortcut } from "./use-global-shortcut";
+export { NotificationsSection } from "./notifications/notifications-section";
+export { useBrowserNotification } from "./notifications/use-browser-notification";
 
 export {
   useAgentStore,
   selectUnreadCardCount,
   selectLatestCards,
+  useNotificationsStore,
+  selectUnreadNotificationCount,
 } from "@ai-recruitment/agent-store";
 export type {
   AgentStoreState,
@@ -45,6 +49,9 @@ export type {
   AgentActionInfo,
   AgentChatResponse,
   MemoryFact,
+  Notification,
+  NotificationKind,
+  NotificationsStoreState,
 } from "@ai-recruitment/agent-store";
 export { newMessage } from "@ai-recruitment/agent-store";
 

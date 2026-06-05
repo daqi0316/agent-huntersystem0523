@@ -23,6 +23,7 @@ export default defineBuildConfig({
     "lucide-react",
     "clsx",
     "tailwind-merge",
+    "sonner",
     "@ai-recruitment/agent-store",
   ],
 });

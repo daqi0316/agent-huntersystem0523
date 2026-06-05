@@ -38,6 +38,7 @@ import { RecentActivitySection } from "./recent-activity-section";
 import { PendingApprovalSection } from "./pending-approval-section";
 import { QuickActionsSection } from "./quick-actions-section";
 import { SearchBar, filterCards, EMPTY_FILTERS } from "./search-bar";
+import { NotificationsSection } from "./notifications/notifications-section";
 
 const TOOL_LABELS: Record<string, string> = {
   get_dashboard_stats: "看板数据",
@@ -218,6 +219,7 @@ export function ContextBar({
         }
       >
         <CurrentContextSection context={context} />
+        <NotificationsSection />
         <PendingApprovalSection
           onApprove={onApprovalApprove}
           onReject={onApprovalReject}
