@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { History, MessageSquare, Wrench, BarChart3 } from "lucide-react";
 import { useAgentStore } from "@/stores/agent-store";
 import { TOOL_LABELS, toolLabel } from "@/lib/chat/tool-labels";
@@ -36,17 +37,24 @@ interface ActivityItem {
   label: string;
   detail?: string;
   at: string;
+  focusKey?: string;
 }
 
 export function RecentActivitySection() {
   const cards = useAgentStore((s) => s.dataCards);
   const stats = useAgentStore((s) => s.sessionStats);
+  const router = useRouter();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  const handleItemClick = (item: ActivityItem) => {
+    if (!item.focusKey) return;
+    router.push(`/agent?focus=${encodeURIComponent(item.focusKey)}`);
+  };
 
   if (stats.messageCount === 0) return null;
 
@@ -59,6 +67,7 @@ export function RecentActivitySection() {
       label: c.title || "数据卡片",
       detail: c.toolName ? toolLabel(c.toolName) : undefined,
       at: c.createdAt,
+      focusKey: c.messageId || `card-${c.id}`,
     });
   }
 
@@ -85,38 +94,52 @@ export function RecentActivitySection() {
       </div>
 
       <ul className="space-y-1.5">
-        {display.map((item) => (
-          <li
-            key={item.id}
-            className="flex items-start gap-2 text-[11px]"
-            data-now={now}
-          >
-            <div className="mt-0.5 shrink-0">
-              {item.kind === "message" && (
-                <MessageSquare className="h-3 w-3 text-muted-foreground" />
-              )}
-              {item.kind === "tool" && (
-                <Wrench className="h-3 w-3 text-muted-foreground" />
-              )}
-              {item.kind === "card" && (
-                <BarChart3 className="h-3 w-3 text-primary" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
-              <div className="min-w-0 truncate">
-                <span className="text-foreground">{item.label}</span>
-                {item.detail && (
-                  <span className="text-muted-foreground ml-1">
-                    · {item.detail}
+        {display.map((item) => {
+          const clickable = Boolean(item.focusKey);
+          const ButtonTag = clickable ? "button" : "div";
+          return (
+            <li
+              key={item.id}
+              data-now={now}
+            >
+              <ButtonTag
+                type={clickable ? "button" : undefined}
+                onClick={clickable ? () => handleItemClick(item) : undefined}
+                aria-label={clickable ? `跳转到 ${item.label}` : item.label}
+                className={
+                  clickable
+                    ? "flex w-full items-start gap-2 rounded text-left text-[11px] px-1 py-0.5 hover:bg-muted/60 transition-colors"
+                    : "flex w-full items-start gap-2 text-[11px] px-1 py-0.5"
+                }
+              >
+                <div className="mt-0.5 shrink-0">
+                  {item.kind === "message" && (
+                    <MessageSquare className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  {item.kind === "tool" && (
+                    <Wrench className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  {item.kind === "card" && (
+                    <BarChart3 className="h-3 w-3 text-primary" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
+                  <div className="min-w-0 truncate">
+                    <span className="text-foreground">{item.label}</span>
+                    {item.detail && (
+                      <span className="text-muted-foreground ml-1">
+                        · {item.detail}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                    {formatRelative(item.at)}
                   </span>
-                )}
-              </div>
-              <span className="text-[10px] text-muted-foreground/70 shrink-0">
-                {formatRelative(item.at)}
-              </span>
-            </div>
-          </li>
-        ))}
+                </div>
+              </ButtonTag>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

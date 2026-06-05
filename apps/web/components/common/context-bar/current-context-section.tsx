@@ -17,6 +17,7 @@
  */
 
 import { Briefcase, User, Wrench } from "lucide-react";
+import Link from "next/link";
 import { cn } from "../../../lib/utils";
 import type { ChatContext } from "@/stores/agent-store";
 
@@ -90,13 +91,14 @@ export function CurrentContextSection({ context }: CurrentContextSectionProps) {
               <User className="h-3 w-3 text-muted-foreground shrink-0 mt-1" />
               <div className="flex flex-wrap gap-1 min-w-0">
                 {context.currentCandidateIds.slice(0, 5).map((id) => (
-                  <span
+                  <Link
                     key={id}
-                    className="inline-flex items-center rounded-md bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 text-[11px] font-mono"
+                    href={`/candidates/${encodeURIComponent(id)}`}
+                    className="inline-flex items-center rounded-md bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 text-[11px] font-mono hover:bg-green-100 dark:hover:bg-green-950/50 transition-colors"
                     title={`候选人 ${id}`}
                   >
                     {id}
-                  </span>
+                  </Link>
                 ))}
                 {context.currentCandidateIds.length > 5 && (
                   <span className="text-[10px] text-muted-foreground">
@@ -111,16 +113,18 @@ export function CurrentContextSection({ context }: CurrentContextSectionProps) {
               <Briefcase className="h-3 w-3 text-muted-foreground shrink-0 mt-1" />
               <div className="flex flex-wrap gap-1 min-w-0">
                 {context.currentJobIds.slice(0, 5).map((id) => (
-                  <span
+                  <Link
                     key={id}
+                    href={`/jobs/${encodeURIComponent(id)}`}
                     className={cn(
                       "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-mono",
-                      "bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300"
+                      "bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300",
+                      "hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors"
                     )}
                     title={`职位 ${id}`}
                   >
                     {id}
-                  </span>
+                  </Link>
                 ))}
                 {context.currentJobIds.length > 5 && (
                   <span className="text-[10px] text-muted-foreground">

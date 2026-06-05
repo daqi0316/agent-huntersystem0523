@@ -17,7 +17,8 @@
  * 三个 panel 全部保留为"内联在 /agent 页面"模式，不并入右上角缩略按钮。
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Send,
   Bot,
@@ -75,10 +76,43 @@ export default function AgentChatPage() {
 
   const [showMemory, setShowMemory] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const focusHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  // T2 跨抽屉导航：?focus=<key> 触发 scrollIntoView + 1.5s 黄色高亮
+  //  - key 通常是 message.id（来自 DataCard.messageId 或 message id）
+  //  - 也可能前缀如 msg_candidate_xxx / msg_job_xxx（来自详情页"在助手中讨论"按钮）
+  //  - 处理完用 router.replace 清除 query，避免刷新页面再次触发
+  useEffect(() => {
+    const focus = searchParams.get("focus");
+    if (!focus) return;
+    if (focusHandledRef.current === focus) return;
+    focusHandledRef.current = focus;
+
+    const tryScroll = (attempt: number) => {
+      const el = document.querySelector(`[data-message-id="${focus}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlightedId(focus);
+        window.setTimeout(() => {
+          setHighlightedId((cur) => (cur === focus ? null : cur));
+        }, 1500);
+        router.replace("/agent", { scroll: false });
+      } else if (attempt < 5) {
+        // 短消息列表场景：消息可能在 useChatMessages 异步 mount 之后才出现
+        window.setTimeout(() => tryScroll(attempt + 1), 100);
+      } else {
+        router.replace("/agent", { scroll: false });
+      }
+    };
+    tryScroll(0);
+  }, [searchParams, router, messages]);
 
   const handleSuggestion = useCallback(
     (text: string) => {
@@ -156,7 +190,14 @@ export default function AgentChatPage() {
         {messages.map((msg, i) => (
           <div
             key={i}
-            className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}
+            id={msg.id ? `message-${msg.id}` : undefined}
+            data-message-id={msg.id || undefined}
+            data-highlighted={highlightedId && msg.id === highlightedId ? "true" : undefined}
+            className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""} ${
+              highlightedId && msg.id === highlightedId
+                ? "rounded-lg ring-2 ring-amber-400 bg-amber-50 dark:bg-amber-950/20 transition-colors"
+                : ""
+            }`}
           >
             {msg.role === "assistant" && (
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 mt-0.5">
