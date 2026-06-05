@@ -22,12 +22,15 @@ async def get_or_create_default_org(user_id: str) -> str:
     async with AsyncSessionLocal() as session:
         async with session.begin():
             r = await session.execute(
-                select(Membership).where(
+                select(Membership)
+                .where(
                     Membership.user_id == user_id,
                     Membership.status == MembershipStatus.ACTIVE,
                 )
+                .order_by(Membership.joined_at.asc())
+                .limit(1)
             )
-            m = r.scalar_one_or_none()
+            m = r.scalar()
             if m is not None:
                 return m.org_id
 
