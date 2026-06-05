@@ -69,7 +69,7 @@ export function AgentEventStreamBridge() {
         summary: payload.summary || "",
         payload: payload.payload,
         toolName: payload.toolName,
-        messageId: payload.messageId,
+        messageId: payload.messageId ?? "",
         createdAt: payload.createdAt || new Date().toISOString(),
         isRead: payload.isRead ?? false,
       });

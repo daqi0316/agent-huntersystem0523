@@ -152,7 +152,10 @@ test("messageId 反映 msg.id", () => {
     "screen_resume"
   );
   const cards = parseDataCardsFromMessage(msg);
-  assert.match(cards[0].messageId, /^msg_test_.+_block_0$/);
+  assert.equal(cards.length, 1);
+  const card = cards[0];
+  assert.ok(card, "expected 1 card");
+  assert.match(card.messageId, /^msg_test_.+_block_0$/);
 });
 
 test("parseDataCardsFromMessages 批量解析", () => {

@@ -43,7 +43,7 @@ export interface DataCard {
   summary: string;
   payload: unknown;
   toolName?: string;
-  messageId?: string;
+  messageId: string;
   createdAt: string;
   isRead: boolean;
 }
