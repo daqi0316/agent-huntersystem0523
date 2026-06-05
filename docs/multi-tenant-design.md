@@ -135,7 +135,15 @@ ALTER TABLE job ENABLE ROW LEVEL SECURITY;
 
 -- 创建 policy
 CREATE POLICY org_isolation ON candidate
-  USING (org_id = current_setting('app.current_org_id', true)::uuid);
+  USING (
+    org_id = COALESCE(
+      NULLIF(current_setting('app.current_org_id', true), ''),
+      '00000000-0000-0000-0000-000000000000'
+    )::uuid
+  );
+-- ↑ P0-1 fix (Momus 校正): current_setting 第二参数 true = 缺失返 NULL,
+--   NULL::uuid 会 raise invalid input syntax → 任何忘 SET LOCAL 的 query 必 500。
+--   修法: COALESCE + NULLIF 兜底成 default org, 忘 SET LOCAL 看到 default org 数据 (仍隔离)。
 
 -- service role bypass (我们后台 admin 用)
 ALTER TABLE candidate FORCE ROW LEVEL SECURITY;
@@ -183,22 +191,208 @@ async def get_org_context(
     )
 ```
 
+**P0-2 详解** (Momus 校正): FastAPI `Depends(get_db)` 给一个 AsyncSession。`SET LOCAL` **只在当前 transaction 内有效**。如果 `get_org_context` 和后续 query 不在同一个 transaction,RLS 失效。
+
+**修法**:
+```python
+# apps/api/app/core/database.py
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def get_db_with_transaction() -> AsyncIterator[AsyncSession]:
+    async with async_session() as session:
+        async with session.begin():  # 强制开 transaction
+            yield session
+        # 离开时 transaction 关闭,SET LOCAL 自动失效
+
+# 业务 endpoint 改用
+async def list_candidates(
+    org_ctx: OrgContext = Depends(get_org_context),
+    db: AsyncSession = Depends(get_db_with_transaction),  # 改这个
+): ...
+```
+
+或更稳: 全部 query 走 `db.execute()` 隐式包 transaction, 不让 dev 写裸 query。
+
+**自动建 default org** (P0-5 修法, E2E 改造方案):
+```python
+async def get_or_create_default_org(user: User, db: AsyncSession) -> Organization:
+    """用户无任何 membership 时,自动建 default org + 加 owner"""
+    membership = await db.execute(
+        select(Membership).where(Membership.user_id == user.id, Membership.status == "active")
+    )
+    if membership.scalar_one_or_none():
+        return membership.scalar_one().org
+
+    # 自动建 (Phase 5 早期 E2E 友好,Phase 6 后关闭)
+    default_org = Organization(
+        slug=f"personal-{user.id.hex[:8]}",
+        name=f"{user.name} 的工作区",
+        plan="starter",
+        status="active",
+    )
+    db.add(default_org)
+    await db.flush()
+
+    db.add(Membership(
+        org_id=default_org.id,
+        user_id=user.id,
+        role="owner",
+        status="active",
+    ))
+    await db.commit()
+    return default_org
+```
+
+这个中间件让 E2E 不需要预先建 org,透明地"如果 user 没有 org 就给他一个"。
+
+**P0-3 详解** (Momus 校正): 25+ 张表加 `org_id` 列 + 索引,**大表 (audit_log/notification 上百万行) 锁表风险 P0**。
+
+**修法**:
+1. **PG 11+ 一次性加列**: `ALTER TABLE audit_log ADD COLUMN org_id UUID NOT NULL DEFAULT '00000000...'` (无 rewrite)
+2. **大表索引 CONCURRENTLY**: Alembic 默认在事务内,`CREATE INDEX CONCURRENTLY` 必须在事务外
+   ```python
+   # alembic/versions/xxxx_xxx_add_org_id.py
+   def upgrade():
+       # 1. 加列 (PG 11+ 无锁)
+       op.add_column("audit_log", sa.Column("org_id", UUID, nullable=False, server_default="00000000-0000-0000-0000-000000000000"))
+
+       # 2. 默认值 (后续改回 default org)
+       op.execute("UPDATE audit_log SET org_id = '00000000-0000-0000-0000-000000000000'")
+
+       # 3. 索引 CONCURRENTLY (事务外)
+       op.execute("COMMIT")  # 关闭当前事务
+       op.execute("CREATE INDEX CONCURRENTLY ix_audit_log_org_id ON audit_log(org_id)")
+   ```
+3. **生产部署分批**: 先小表 (job/candidate) → 中表 (application) → 大表 (audit_log/notification)
+4. **每个表独立 migration** (一个表一个 alembic 文件), 出问题只回滚一个表
+
+**P0-4 详解** (Momus 校正): `/auth/switch-org` 切换 JWT 流程没说清。
+
+**切换时序**:
+```
+1. Client → POST /auth/switch-org { org_id: "new-uuid" }
+           Header: Authorization: Bearer <OLD_JWT>
+2. Server:
+   a. 解析 OLD_JWT → user_id
+   b. 验证 user 真的 belong new org (membership check)
+   c. 签发 NEW_JWT (含 new current_org_id claim, 1h expiry)
+3. Server → Client: { access_token: <NEW_JWT>, expires_in: 3600 }
+4. Client: 存 NEW_JWT 到 localStorage + 替换所有 axios header
+5. Client → GET /candidates (用 NEW_JWT)
+6. Server: NEW_JWT 解析 → new org_id → RLS 谓词生效
+```
+
+**SSE 长连接特殊处理**:
+- 切换时**关闭**当前 SSE stream (`/agent/events/sse`)
+- 用 NEW_JWT 重新订阅
+- 服务端: EventSource 关闭时清理 last_event_id 缓存
+
+**E2E 测试要点** (P0-5):
+- E2E 注入的 token 仍按旧 org_id 签发 (向后兼容)
+- 默认行为: 用户无 membership → 自动建 default org + owner
+- 真实客户: 手动建 org + invite, 不走 auto-create
+
+**P0-6 详解** (Momus 校正): GDPR 真删的级联策略没说。
+
+**修法**:
+```sql
+-- 真删时 CASCADE
+ALTER TABLE membership
+  ADD CONSTRAINT fk_membership_org_id
+  FOREIGN KEY (org_id) REFERENCES organization(id) ON DELETE CASCADE;
+
+ALTER TABLE job
+  ADD CONSTRAINT fk_job_org_id
+  FOREIGN KEY (org_id) REFERENCES organization(id) ON DELETE CASCADE;
+-- ... 全部 25+ 表
+
+-- 真删前清理 MinIO 文件
+async def hard_delete_org(org_id: UUID, db: AsyncSession):
+    # 1. 列所有 resume 的 file_url
+    file_urls = await db.execute(
+        select(Resume.file_url).where(Resume.org_id == org_id)
+    )
+    urls = [r[0] for r in file_urls.fetchall() if r[0]]
+
+    # 2. 删 MinIO 文件
+    for url in urls:
+        await minio_client.remove_object(Bucket="resumes", Key=extract_key(url))
+
+    # 3. DB CASCADE 自动删 job/candidate/evaluation/...
+    await db.execute(delete(Organization).where(Organization.id == org_id))
+    await db.commit()
+```
+
+**P0-6 反例** (不要做):
+- ❌ `ON DELETE SET NULL` — 保留数据但脱钩,GDPR Art. 17 视为"未真删",违法
+- ❌ 软删但不真删 — 同样违法
+- ❌ 只删 DB 不删 MinIO — 文件泄漏,违法
+
 ### 3.3 RLS 边界
 
 | 场景 | RLS 行为 |
 |---|---|
 | 业务 query (走 `Depends(get_org_context)`) | SET LOCAL 已设,policy 生效,只能看自己 org |
-| Platform admin (我们) | `BYPASSRLS` role,绕 policy,看全部 |
+| Platform admin (我们) | `BYPASSRLS` role,绕 policy,看全部 (**P1-1 详见 §3.3.1**) |
 | Alembic migration | superuser 绕 RLS,正常 |
 | 跨 org aggregate (admin 后台) | 显式 `SET LOCAL app.bypass_rls = 'true'` |
 | 单元测试 fixture | 显式 SET,隔离 org A vs B |
+| 软删 org | policy 加 `AND status != 'deleted'` (**P1-6 详见 §3.3.2**) |
+
+#### 3.3.1 BYPASSRLS role 创建 (P1-1)
+
+```sql
+-- 1. 建 admin role
+CREATE ROLE airecruit_admin BYPASSRLS;
+
+-- 2. 授权
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO airecruit_admin;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO airecruit_admin;
+
+-- 3. 应用代码 admin 路径用这个 role 连接
+-- apps/api/app/core/admin_db.py
+from sqlalchemy.ext.asyncio import create_async_engine
+admin_engine = create_async_engine(
+    DATABASE_URL_ADMIN,  # postgres://airecruit_admin:xxx@host/db
+    pool_size=5,
+)
+```
+
+**反例 (不要做)**:
+- ❌ 业务代码用 BYPASSRLS role 连接 (绕过所有 RLS,致命)
+- ❌ 把 `airecruit_admin` 密码 commit 到 git (用 env var + secret manager)
+
+#### 3.3.2 软删 org 的 RLS 行为 (P1-6)
+
+```sql
+-- 默认: 软删 org 还能查到数据 (status 字段在 application 层过滤)
+-- 强化: RLS 层直接拒绝
+CREATE POLICY org_isolation_active ON candidate
+  USING (
+    org_id = COALESCE(
+      NULLIF(current_setting('app.current_org_id', true), ''),
+      '00000000-0000-0000-0000-000000000000'
+    )::uuid
+    AND EXISTS (
+      SELECT 1 FROM organization
+      WHERE id = candidate.org_id AND status != 'deleted'
+    )
+  );
+```
+
+**取舍**: 性能略降 (EXISTS 子查询),但更安全。Phase 5 早期用 application 层过滤,Phase 6 改 RLS。
 
 ### 3.4 RLS 已知坑 (Phase 5 必防)
 
-1. **Pool 连接复用**:SET LOCAL 必须在 transaction 内,async session 要 begin/commit
+1. **Pool 连接复用**:SET LOCAL 必须在 transaction 内,async session 要 begin/commit (**P0-2 详见 §3.2**)
 2. **N+1 query**: 每个 statement 都 SET LOCAL 一次 (p99 overhead 1-3ms,可接受)
-3. **Bypass 误用**: 永远不在业务代码用 BYPASSRLS,只在 admin path
-4. **Index 选择**: `org_id` 必须有索引,否则全表扫描 + 谓词过滤
+3. **Bypass 误用**: 永远不在业务代码用 BYPASSRLS,只在 admin path (**P1-1 详见 §3.3**)
+4. **Index 选择**: `org_id` 必须有索引,否则全表扫描 + 谓词过滤 (**P0-3 详见 §4.2**)
+5. **current_setting NULL cast** (**P0-1 详见 §3.1**)
+6. **大表 migration 锁表** (**P0-3 详见 §4.2**)
+7. **SSE 长连接 + org 切换** (**P0-4 详见 §7.2**)
+8. **GDPR 真删 cascade** (**P0-6 详见 §6.3**)
 
 ---
 
@@ -278,7 +472,12 @@ def upgrade():
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
         op.execute(f"""
             CREATE POLICY org_isolation ON {table}
-            USING (org_id = current_setting('app.current_org_id', true)::uuid)
+            USING (
+                org_id = COALESCE(
+                    NULLIF(current_setting('app.current_org_id', true), ''),
+                    '00000000-0000-0000-0000-000000000000'
+                )::uuid
+            )
         """)
 ```
 
@@ -518,54 +717,79 @@ CREATE UNIQUE INDEX uq_candidate_org_external_id ON candidate(org_id, external_i
 
 ---
 
-## 10. 验收 Checklist (P5-1 DoD)
+## 10. 验收 Checklist (P5-1 DoD, Momus 校正)
 
 ### 10.1 数据模型
 - [ ] `organization` / `membership` / `invitation` / `user` 表创建 + Alembic migration
-- [ ] 25+ 业务表加 `org_id` NOT NULL + 索引 + 外键
+- [ ] 25+ 业务表加 `org_id` NOT NULL + 索引 (含大表 CONCURRENTLY) + 外键 + ON DELETE CASCADE
 - [ ] `org_id` 默认 = default org (老数据迁移)
 
 ### 10.2 RLS
 - [ ] 25+ 表启用 RLS + FORCE
-- [ ] Policy 创建 (org_isolation)
-- [ ] `get_org_context` 中间件实现 + SET LOCAL
-- [ ] Platform admin BYPASSRLS 跑通
+- [ ] Policy 创建 (org_isolation, **P0-1 NULL cast 已修**)
+- [ ] `get_db_with_transaction` 包装 (**P0-2**)
+- [ ] `get_org_context` 中间件 + SET LOCAL
+- [ ] `airecruit_admin` BYPASSRLS role 跑通 (**P1-1**)
 - [ ] 单元测试 10/10 pass (跨租户 negative)
 
 ### 10.3 API
-- [ ] 所有业务 endpoint 走 `Depends(get_org_context)`
-- [ ] `/auth/switch-org` 新增
+- [ ] 所有业务 endpoint 走 `Depends(get_org_context)` + `Depends(get_db_with_transaction)`
+- [ ] `auto_create_default_org` 中间件, E2E 透明 (**P0-5**)
+- [ ] `/auth/switch-org` 新增, SSE 重连流程 (**P0-4**)
 - [ ] JWT 含 `current_org_id` claim
 - [ ] 前端 AuthContext 支持多 org 切换
 - [ ] 现有 25+ E2E 全部重跑 pass
 
-### 10.4 文档
+### 10.4 GDPR
+- [ ] 25+ 表 `ON DELETE CASCADE` 配齐 (**P0-6**)
+- [ ] `hard_delete_org` 流程: 列 MinIO files → batch delete → DB CASCADE
+- [ ] 30 天宽限期 (软删 `deleted_at` → 定时任务真删)
+
+### 10.5 性能
+- [ ] D1 前跑 baseline benchmark (P5-1 前测) (**P1-5**)
+- [ ] D12 跑迁移后 benchmark, 对比 p99 < 10% 增量
+- [ ] `org_id` 索引命中率 > 99% (EXPLAIN ANALYZE 抽样)
+
+### 10.6 文档
 - [ ] 本 spec 文档
 - [ ] 跨租户测试 SOP
 - [ ] 老数据迁移 runbook
+- [ ] GDPR 真删 runbook
+- [ ] 大表 migration 部署 SOP (CONCURRENTLY)
 
-### 10.5 验收
+### 10.7 验收
 - [ ] tsc 0 错 + backend pytest 全过
 - [ ] health-check 9/0
 - [ ] 跨租户 negative test 10/10
 - [ ] 老用户数据无损迁移 (无任何数据丢失)
 - [ ] 性能 p99 增加 < 10%
+- [ ] 1 个 SMB 客户跑通 onboarding (用 SaaS, 不用本地化)
 
 ---
 
-## 11. 工时拆解 (12d)
+## 11. 工时拆解 (12d, Momus 校正后 22d ≈ 4-5 周)
 
 | Day | 任务 |
 |---|---|
-| 1-2 | design review + Alembic migration 写 + 25 张表加列 |
-| 3-4 | RLS 启用 + policy + 单元测试 fixture |
-| 5-6 | `get_org_context` 中间件 + 业务 endpoint 改造 (10 个) |
-| 7 | 剩余 15+ endpoint 改造 |
-| 8 | 老数据迁移 (default org 自动建) |
-| 9 | `/auth/switch-org` + JWT claim |
-| 10 | 前端 AuthContext 多 org |
-| 11 | 跨租户 10/10 negative test |
-| 12 | E2E 全跑 + 性能 benchmark + 文档 |
+| 1-2 | design review + Alembic migration 写 + 25 张表加列 (含 `CONCURRENTLY` 大表) |
+| 3-4 | RLS 启用 + policy + `get_db_with_transaction` 包装 + 单元测试 fixture |
+| 5-7 | `get_org_context` 中间件 + `auto_create_default_org` + 业务 endpoint 改造 (25 个) |
+| 8 | 老数据迁移 (default org 自动建) + `airecruit_admin` BYPASSRLS role |
+| 9 | `/auth/switch-org` + JWT claim + SSE 长连接切换 |
+| 10 | 前端 AuthContext 多 org + JWT 切换 |
+| 11 | 跨租户 10/10 negative test + quota hook (P5-1 1 个示例) |
+| 12 | E2E 全跑 (含 P0-5 auto_create_default_org 改造) + 性能 benchmark + GDPR cascade runbook + 文档 |
+
+**工时校正对比** (Momus P1-1~P1-6):
+- P1-1 BYPASSRLS role: +0.5d
+- P1-2 quota hook: +0.5d (P5-1 阶段只 1 个示例,完整在 P5-8)
+- P1-3 transfer ownership: +1d
+- P1-4 multi-org user quota 规则: +0.5d
+- P1-5 perf baseline: +0.5d
+- P1-6 软删 RLS: +0.5d
+- **合计 +3.5d**
+
+**真实 P5-1 总工期**: 12 + 3.5 = **15.5d ≈ 3 周** (不是 12d ≈ 2.4 周)
 
 ---
 
