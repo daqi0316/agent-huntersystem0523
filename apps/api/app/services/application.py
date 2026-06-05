@@ -87,9 +87,12 @@ class ApplicationService:
         )
         return result.scalar_one_or_none()
 
-    async def create(self, data: ApplicationCreate) -> Application:
-        """创建申请。"""
-        application = Application(**data.model_dump())
+    async def create(self, data: ApplicationCreate, org_id: str | None = None) -> Application:
+        """创建申请 (org-scoped, 自动挂 org_id)。"""
+        payload = data.model_dump()
+        if org_id is not None:
+            payload["org_id"] = org_id
+        application = Application(**payload)
         self.db.add(application)
         await self.db.commit()
         await self.db.refresh(application)

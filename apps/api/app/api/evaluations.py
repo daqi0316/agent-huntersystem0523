@@ -2,12 +2,10 @@
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.core.database import get_db
+from app.core.org_context import org_scoped_db
 from app.models.application import Application
-from app.models.candidate import Candidate
 from app.core.response import success, error
 from app.schemas.common import ListResponse
 
@@ -21,16 +19,10 @@ async def list_evaluations(
     search: str | None = None,
     status: str | None = None,
     candidate_id: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
-    """评估记录列表 — 从申请记录聚合评估相关数据。
-
-    聚合的评估字段包括:
-    - overall_score: 来自 application.match_score
-    - status: 来自 application.status
-    - scores: 简化的维度分数列表
-    - summary: 来自 application.ai_summary
-    """
+    """评估记录列表 — RLS 自动隔离 org。"""
+    org_ctx, db = od
     query = select(Application).options(
         joinedload(Application.candidate),
         joinedload(Application.job),
@@ -96,9 +88,10 @@ async def list_evaluations(
 @router.get("/{candidate_id}")
 async def get_candidate_evaluation(
     candidate_id: str,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
-    """获取单个候选人的评估汇总信息"""
+    """获取单个候选人的评估汇总信息 (RLS 自动隔离)。"""
+    org_ctx, db = od
     result = await db.execute(
         select(Application)
         .options(joinedload(Application.candidate))

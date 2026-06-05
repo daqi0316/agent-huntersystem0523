@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.agent_events import emit_ai_notification
 from app.core.database import get_db
+from app.core.org_context import org_scoped_db
 from app.core.response import success, error
 from app.schemas.application import ApplicationCreate, ApplicationRead, ApplicationUpdate
 from app.schemas.common import ListResponse
@@ -24,9 +25,10 @@ async def list_applications(
     search: str | None = None,
     status: str | None = None,
     candidate_id: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
-    """分页查询申请列表"""
+    """分页查询申请列表 (RLS 自动隔离 org)。"""
+    org_ctx, db = od
     service = ApplicationService(db)
     items, total = await service.list(
         skip=skip, limit=limit, search=search, status=status, candidate_id=candidate_id
@@ -35,8 +37,9 @@ async def list_applications(
 
 
 @router.get("/{application_id}")
-async def get_application(application_id: str, db: AsyncSession = Depends(get_db)):
-    """获取申请详情"""
+async def get_application(application_id: str, od = Depends(org_scoped_db)):
+    """获取申请详情 (RLS 自动隔离)。"""
+    org_ctx, db = od
     service = ApplicationService(db)
     application = await service.get_by_id(application_id)
     if not application:
@@ -45,23 +48,24 @@ async def get_application(application_id: str, db: AsyncSession = Depends(get_db
 
 
 @router.post("", status_code=201)
-async def create_application(data: ApplicationCreate, db: AsyncSession = Depends(get_db)):
-    """创建申请"""
+async def create_application(data: ApplicationCreate, od = Depends(org_scoped_db)):
+    """创建申请 (org-scoped, 自动挂当前 org_id)。"""
+    org_ctx, db = od
     service = ApplicationService(db)
-    return success(await service.create(data))
+    return success(await service.create(data, org_id=org_ctx.org_id))
 
 
 @router.put("/{application_id}")
 async def update_application(
-    application_id: str, data: ApplicationUpdate, db: AsyncSession = Depends(get_db)
+    application_id: str, data: ApplicationUpdate, od = Depends(org_scoped_db)
 ):
-    """更新申请"""
+    """更新申请 (RLS 自动隔离)。"""
+    org_ctx, db = od
     service = ApplicationService(db)
     application = await service.update(application_id, data)
     if not application:
         return error("申请不存在", status_code=404)
 
-    # T3: 状态变更时 emit 业务通知（节流已内置，1s 内同类 ≤1）
     if data.status is not None:
         try:
             await emit_ai_notification(
@@ -78,8 +82,9 @@ async def update_application(
 
 
 @router.delete("/{application_id}")
-async def delete_application(application_id: str, db: AsyncSession = Depends(get_db)):
-    """删除申请"""
+async def delete_application(application_id: str, od = Depends(org_scoped_db)):
+    """删除申请 (RLS 自动隔离)。"""
+    org_ctx, db = od
     service = ApplicationService(db)
     ok = await service.delete(application_id)
     if not ok:

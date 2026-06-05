@@ -4,9 +4,8 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.org_context import org_scoped_db
 from app.core.response import success, error
 from app.schemas.application import ApplicationUpdate
 from app.schemas.common import ListResponse
@@ -58,8 +57,9 @@ async def list_interviews(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     status: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     """分页查询面试列表，可选 date_from/date_to 时间窗过滤。"""
     service = InterviewService(db)
     items, total = await service.list_all(
@@ -69,7 +69,8 @@ async def list_interviews(
 
 
 @router.get("/{interview_id}")
-async def get_interview(interview_id: str, db: AsyncSession = Depends(get_db)):
+async def get_interview(interview_id: str, od = Depends(org_scoped_db)):
+    org_ctx, db = od
     """获取面试详情"""
     service = InterviewService(db)
     interview = await service._get_by_id(interview_id)
@@ -88,8 +89,9 @@ async def create_interview(
     duration_minutes: int = Query(60, ge=15),
     location: str | None = Query(None),
     notes: str | None = Query(None),
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     """安排面试，含 slot 冲突检测"""
     service = InterviewService(db)
     slot = {
@@ -109,7 +111,8 @@ async def create_interview(
 
 
 @router.patch("/{interview_id}/confirm")
-async def confirm_interview(interview_id: str, db: AsyncSession = Depends(get_db)):
+async def confirm_interview(interview_id: str, od = Depends(org_scoped_db)):
+    org_ctx, db = od
     """确认面试"""
     service = InterviewService(db)
     result = await service.confirm(interview_id)
@@ -119,7 +122,8 @@ async def confirm_interview(interview_id: str, db: AsyncSession = Depends(get_db
 
 
 @router.patch("/{interview_id}/cancel")
-async def cancel_interview(interview_id: str, db: AsyncSession = Depends(get_db)):
+async def cancel_interview(interview_id: str, od = Depends(org_scoped_db)):
+    org_ctx, db = od
     """取消面试"""
     service = InterviewService(db)
     result = await service.cancel(interview_id)
@@ -132,8 +136,9 @@ async def cancel_interview(interview_id: str, db: AsyncSession = Depends(get_db)
 async def complete_interview(
     interview_id: str,
     feedback: str | None = Query(None),
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     """完成面试（附带反馈），自动流转候选人/申请状态机。
 
     闭环流程:
@@ -166,8 +171,9 @@ async def complete_interview(
 @router.post("/from-proposal", status_code=201)
 async def create_interview_from_proposal(
     body: InterviewFromProposalRequest,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     """从 HumanLoop 面试提案创建面试记录 + 状态流转 evaluated → in_interview。
 
     流程: HumanLoop 提案审批通过后调用此接口，
@@ -223,8 +229,9 @@ async def create_interview_from_proposal(
 @router.get("/candidates/{candidate_id}/evaluations")
 async def list_candidate_evaluations(
     candidate_id: str,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     service = InterviewService(db)
     evals = await service.list_evaluations_by_candidate(candidate_id)
     return success(evals)
@@ -233,8 +240,9 @@ async def list_candidate_evaluations(
 @router.get("/{interview_id}/evaluation")
 async def get_interview_evaluations(
     interview_id: str,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     service = InterviewService(db)
     evals = await service.list_evaluations_by_candidate(interview_id)
     return success(evals)
@@ -244,8 +252,9 @@ async def get_interview_evaluations(
 async def save_evaluation(
     interview_id: str,
     body: EvaluationSaveRequest,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     service = InterviewService(db)
     try:
         round_enum = InterviewRound(body.round) if body.round else InterviewRound.R1
@@ -274,8 +283,9 @@ async def save_evaluation(
 async def generate_evaluation_form(
     interview_id: str,
     body: EvaluationFormRequest,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     from app.agents.interview_agent import InterviewAgent
     agent = InterviewAgent()
     form = await agent.generate_evaluation_form(
@@ -290,8 +300,9 @@ async def generate_evaluation_form(
 async def summarize_feedback(
     interview_id: str,
     body: FeedbackSummaryRequest,
-    db: AsyncSession = Depends(get_db),
+    od = Depends(org_scoped_db),
 ):
+    org_ctx, db = od
     from app.agents.interview_agent import InterviewAgent
     agent = InterviewAgent()
     summary = await agent.summarize_feedback(
