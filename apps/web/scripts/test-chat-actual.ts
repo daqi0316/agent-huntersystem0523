@@ -1,6 +1,6 @@
 import { chromium } from "@playwright/test";
 
-const WEB_BASE = "http://localhost:3007";
+const WEB_BASE = process.env.WEB_BASE || "http://localhost:3000";
 const TEST_EMAIL = "e2e-tester@test.com";
 const TEST_PASSWORD = "E2ePass123!";
 

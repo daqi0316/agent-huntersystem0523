@@ -17,7 +17,8 @@ async function main() {
     (token: string) => localStorage.setItem("ai-recruitment-token", token),
     loginData.access_token
   );
-  await page.goto("http://localhost:3007/agent");
+  const WEB_BASE = process.env.WEB_BASE || "http://localhost:3000";
+  await page.goto(`${WEB_BASE}/agent`);
   await page.waitForLoadState("networkidle");
 
   // Check existing messages have id + createdAt

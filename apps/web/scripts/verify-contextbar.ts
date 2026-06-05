@@ -6,7 +6,7 @@
 import { chromium } from "@playwright/test";
 
 import { getE2eToken } from "./lib/auth";
-const BASE_URL = "http://localhost:3007";
+const BASE_URL = process.env.WEB_BASE || "http://localhost:3000";
 async function main() {
   const token = await getE2eToken();
   const browser = await chromium.launch({ headless: true });

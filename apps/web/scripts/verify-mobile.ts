@@ -15,7 +15,7 @@
 import { chromium, devices } from "@playwright/test";
 
 import { getE2eToken } from "./lib/auth";
-const WEB_BASE = "http://localhost:3007";
+const WEB_BASE = process.env.WEB_BASE || "http://localhost:3000";
 const API_BASE = "http://localhost:8000/api/v1";
 interface CheckResult {
   name: string;
