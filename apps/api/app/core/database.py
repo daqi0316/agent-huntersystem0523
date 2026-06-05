@@ -1,3 +1,6 @@
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
@@ -28,3 +31,14 @@ async def get_db() -> AsyncSession:
             yield session
         finally:
             await session.close()
+
+
+@asynccontextmanager
+async def get_db_with_transaction() -> AsyncIterator[AsyncSession]:
+    """P0-2 修法: 强制开 transaction,SET LOCAL 跨 query 持久。
+
+    业务 endpoint 用这个代替 get_db,确保 RLS 谓词生效。
+    """
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            yield session
