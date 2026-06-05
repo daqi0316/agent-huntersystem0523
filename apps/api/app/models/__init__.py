@@ -8,6 +8,7 @@ from app.models.organization import (
     OrganizationPlan,
     OrganizationStatus,
 )
+from app.models.audit_log import AuditLog, AuditLogAction
 from app.models.membership import (
     Membership,
     MembershipRole,

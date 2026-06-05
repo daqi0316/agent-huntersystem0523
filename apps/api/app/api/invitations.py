@@ -4,7 +4,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,6 +84,7 @@ class AcceptInvitationRequest(BaseModel):
 
 @router.post("/accept", status_code=200)
 async def accept_invitation(
+    request: Request,
     body: AcceptInvitationRequest,
     db: AsyncSession = Depends(get_db),
 ):
@@ -140,6 +141,17 @@ async def accept_invitation(
 
     inv.status = InvitationStatus.ACCEPTED
     inv.accepted_at = datetime.now(timezone.utc)
+    from app.api.audit_logs import log_audit
+    from app.models.audit_log import AuditLogAction
+    await log_audit(
+        db,
+        org_id=inv.org_id,
+        action=AuditLogAction.INVITE_ACCEPT,
+        actor_user_id=user.id,
+        target_user_id=user.id,
+        request=request,
+        metadata={"invitation_id": inv.id, "role": inv.role.value if hasattr(inv.role, "value") else str(inv.role)},
+    )
     await db.commit()
 
     token = create_access_token(

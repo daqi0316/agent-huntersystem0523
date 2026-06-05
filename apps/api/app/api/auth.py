@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +39,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/switch-org", response_model=TokenResponse)
 async def switch_org(
+    request: Request,
     body: SwitchOrgRequest,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
@@ -62,6 +63,17 @@ async def switch_org(
         raise HTTPException(404, "user not found")
     role = user.role.value if hasattr(user.role, "value") else str(user.role)
     token = create_access_token(user_id=user_id, role=role, current_org_id=body.org_id)
+    from app.api.audit_logs import log_audit
+    from app.models.audit_log import AuditLogAction
+    await log_audit(
+        db,
+        org_id=body.org_id,
+        action=AuditLogAction.ORG_SWITCH,
+        actor_user_id=user_id,
+        request=request,
+        metadata={"role": role},
+    )
+    await db.commit()
     return TokenResponse(access_token=token, token_type="bearer")
 
 
