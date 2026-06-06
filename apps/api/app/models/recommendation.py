@@ -7,8 +7,9 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, Integer, Boolean, ForeignKey
+from sqlalchemy import JSON, String, Text, DateTime, Integer, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -70,6 +71,17 @@ class Recommendation(Base):
     )
     read: Mapped[bool] = mapped_column(Boolean, default=False)
     dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    ai_score_source: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True,
+        comment="AI 评分来源: {llm, model_version, prompt_hash, generated_at}",
+    )
+    score_overridden: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false",
+    )
+    score_overridden_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    score_overridden_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    score_override_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(),

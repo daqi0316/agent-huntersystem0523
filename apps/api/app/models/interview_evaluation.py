@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
 import enum
+from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, Float
+from sqlalchemy import JSON, String, Text, DateTime, ForeignKey, Integer, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -45,6 +46,14 @@ class InterviewEvaluation(Base):
     key_observations: Mapped[str | None] = mapped_column(Text)
     red_flags: Mapped[str | None] = mapped_column(Text)
     feedback: Mapped[str | None] = mapped_column(Text)
+
+    ai_score_source: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True,
+    )
+    score_overridden: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(),
     )

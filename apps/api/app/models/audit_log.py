@@ -31,6 +31,9 @@ class AuditLogAction(str, enum.Enum):
     DATA_DELETE_CONFIRM = "data_delete_confirm"
     DATA_DELETE_CANCEL = "data_delete_cancel"
     DATA_DELETE_HARD = "data_delete_hard"
+    AI_OVERRIDE = "ai_score_override"
+    APPEAL_FILED = "appeal_filed"
+    APPEAL_RESOLVED = "appeal_resolved"
 
 
 class AuditLog(Base):

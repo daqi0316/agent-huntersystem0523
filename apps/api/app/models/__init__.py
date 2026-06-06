@@ -48,6 +48,11 @@ from app.models.privacy import (  # noqa: F401
     EXPORT_RETENTION_DAYS,
     EXPORT_DOWNLOAD_BASE,
 )
+from app.models.appeal import (  # noqa: F401
+    Appeal,
+    AppealStatus,
+    APPEAL_SLA_DAYS,
+)
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
@@ -64,4 +69,5 @@ __all__ = [
     "DataExportRequest", "DataExportStatus",
     "DataDeleteRequest", "DataDeleteStatus",
     "GRACE_PERIOD_DAYS", "EXPORT_RETENTION_DAYS", "EXPORT_DOWNLOAD_BASE",
+    "Appeal", "AppealStatus", "APPEAL_SLA_DAYS",
 ]
