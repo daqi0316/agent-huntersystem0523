@@ -50,6 +50,7 @@ from app.api.legal import router as legal_router
 from app.api.support import router as support_router
 from app.api.dingtalk_oauth import router as dingtalk_oauth_router
 from app.api.notification_sms import router as notification_sms_router
+from app.api.wechat_template import router as wechat_template_router
 from app.api.feishu_wecom_oauth import router as feishu_wecom_oauth_router
 
 api_router = APIRouter()
@@ -153,4 +154,5 @@ api_router.include_router(legal_router, tags=["Legal"])
 api_router.include_router(support_router, prefix="/support", tags=["Support"])
 api_router.include_router(dingtalk_oauth_router, prefix="/oauth", tags=["OAuth"])
 api_router.include_router(notification_sms_router, tags=["Notification"])
+api_router.include_router(wechat_template_router, tags=["Notification"])
 api_router.include_router(feishu_wecom_oauth_router, prefix="/oauth", tags=["OAuth"])

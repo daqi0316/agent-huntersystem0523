@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     wechat_oauth_redirect_uri: str = "http://localhost:3000/api/auth/wechat/callback"
     wechat_qrcode_expire_seconds: int = 600
     wechat_mock_mode: bool = True
+    wechat_template_id: str = ""
+    wechat_template_miniprogram_appid: str = ""
 
     dingtalk_corp_id: str = ""
     dingtalk_agent_id: str = ""
