@@ -78,6 +78,9 @@ class ProcessSupervisor:
         self,
         log_dir: str = "logs",
         shutdown_timeout: float = 5.0,
+        circuit_threshold: int = 5,
+        circuit_window_s: float = 60.0,
+        circuit_cooldown_s: float = 300.0,
     ) -> None:
         self._procs: dict[str, ServerProcess] = {}
         self._log_dir = Path(log_dir)
@@ -85,10 +88,34 @@ class ProcessSupervisor:
         self._shutdown_timeout = shutdown_timeout
         self._shutdown = asyncio.Event()
         self._on_restart: OnRestartCallback | None = None
+        self._circuit_threshold = circuit_threshold
+        self._circuit_window_s = circuit_window_s
+        self._circuit_cooldown_s = circuit_cooldown_s
+        self._restart_history: dict[str, list[float]] = {}
+        self._circuit_open_until: dict[str, float] = {}
 
     def set_on_restart(self, cb: OnRestartCallback) -> None:
         """host 启动后注册：server 重启时 host 重建 session。"""
         self._on_restart = cb
+
+    def _record_restart(self, server_id: str) -> None:
+        """记录一次重启，更新滑动窗口 + 触发条件判 circuit。"""
+        now = time.time()
+        history = self._restart_history.setdefault(server_id, [])
+        cutoff = now - self._circuit_window_s
+        history[:] = [t for t in history if t >= cutoff]
+        history.append(now)
+        if len(history) >= self._circuit_threshold:
+            self._circuit_open_until[server_id] = now + self._circuit_cooldown_s
+            logger.error(
+                "Circuit breaker TRIPPED for %s: %d restarts in %.0fs, paused %.0fs",
+                server_id, len(history), self._circuit_window_s, self._circuit_cooldown_s,
+            )
+
+    def _circuit_is_open(self, server_id: str) -> bool:
+        """circuit 是否仍开着（未到 cooldown）。"""
+        until = self._circuit_open_until.get(server_id, 0.0)
+        return time.time() < until
 
     # ── 拉起 / 重启 ─────────────────────────────────────────────
     async def spawn(self, cfg: ServerConfig) -> ServerProcess:
@@ -133,7 +160,7 @@ class ProcessSupervisor:
         return handle
 
     async def _watchdog(self, handle: ServerProcess) -> None:
-        """看门狗：进程退出 → 指数退避重启。"""
+        """看门狗：进程退出 → 指数退避重启，circuit breaker 抑制雪崩。"""
         while not self._shutdown.is_set():
             try:
                 rc = await handle.proc.wait()
@@ -142,7 +169,6 @@ class ProcessSupervisor:
                 logger.warning("MCP server %s exited rc=%d", handle.server_id, rc)
                 if self._shutdown.is_set():
                     break
-                # 按 restart 策略决定是否拉起
                 if handle.config.restart == "never":
                     logger.info("Server %s restart=never, won't respawn", handle.server_id)
                     break
@@ -152,18 +178,30 @@ class ProcessSupervisor:
                         handle.server_id, handle.config.max_restarts,
                     )
                     break
-                # 指数退避（封顶 30s）
+                if self._circuit_is_open(handle.server_id):
+                    until = self._circuit_open_until[handle.server_id]
+                    wait_s = max(0.0, until - time.time())
+                    logger.warning(
+                        "Circuit breaker OPEN for %s, waiting %.0fs before retry",
+                        handle.server_id, wait_s,
+                    )
+                    if wait_s > 0:
+                        try:
+                            await asyncio.wait_for(self._shutdown.wait(), timeout=wait_s)
+                        except asyncio.TimeoutError:
+                            pass
+                    if self._shutdown.is_set():
+                        break
                 backoff = min(2 ** handle.restart_count, 30)
                 handle.restart_count += 1
+                self._record_restart(handle.server_id)
                 logger.info(
                     "Restarting %s in %.1fs (attempt %d/%d)",
                     handle.server_id, backoff, handle.restart_count, handle.config.max_restarts,
                 )
                 await asyncio.sleep(backoff)
-                # 重新拉起
                 record_restart(handle.server_id, reason="crash")
                 new_handle = await self.spawn(handle.config)
-                # 通知 host 重建 session
                 if self._on_restart is not None:
                     try:
                         await self._on_restart(new_handle)

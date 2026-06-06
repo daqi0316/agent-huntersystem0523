@@ -66,9 +66,31 @@ v4 MCP 实施（PR-0~7）后，现状：
 
 **PR-8 验证**：F-3 故障注入必须在这条决策下通过。
 
-### D5 (P1): 退避 — **指数 + circuit breaker**（PR-8 数据后定）
+### D5 (P1): 退避 — **指数 + circuit breaker**（v0.4b 定）
 
-**暂定**: 1s → 2s → 4s → 8s → 30s cap；1 分钟内 > 5 次重启 → 暂停 5 分钟（circuit open）。
+**算法**（v0.4b 实现于 `apps/api/app/mcp/supervisor.py`）：
+
+1. **指数退避**：`min(2 ** restart_count, 30)` 秒 → 1s, 2s, 4s, 8s, 16s, 30s (capped)
+2. **max_restarts 硬限**：超过配置上限 → 放弃（不 respawn）
+3. **Circuit breaker（v0.4b 新增）**：
+   - 滑动窗口 `_circuit_window_s = 60s` 内重启次数 ≥ `_circuit_threshold = 5` → circuit 打开
+   - 打开后 cooldown `_circuit_cooldown_s = 300s`（5 min）不尝试 respawn
+   - Cooldown 后自动关闭，下一次重启重新计窗口
+   - **Per-server 隔离**：一个 server 的 circuit 触发不影响其他 server
+4. **可调参数**：`ProcessSupervisor.__init__(circuit_threshold, circuit_window_s, circuit_cooldown_s)`
+
+**v0.4b 验证**：5 个新测试（`tests/mcp/integration/test_supervisor_fault_injection.py`）
+- `test_circuit_breaker_opens_after_threshold` — 5 次 → 打开
+- `test_circuit_breaker_below_threshold_stays_closed` — 4 次 → 仍关闭
+- `test_circuit_breaker_window_slides` — 旧记录 11s 前被剔
+- `test_circuit_breaker_per_server_isolation` — A server 触发不影响 B
+- `test_circuit_breaker_closes_after_cooldown` — cooldown 后自动关
+
+**告警**：circuit 触发时 Sentry `record_server_up(server_id, False)` + 日志 ERROR 级
+
+**否决备选**：
+- B: 固定间隔 + 不限次数 → 失控雪崩风险
+- C: 无 circuit breaker，仅 max_restarts → 短时间反复崩溃仍会拖垮主进程
 
 **PR-8 跑出 F-1~F-4 数据后定**（本 ADR §后续工作）。
 
