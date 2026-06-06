@@ -22,7 +22,7 @@ ok()   { echo "  ✅ $1"; PASS=$((PASS+1)); }
 fail() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
 
 echo ""
-echo "=== Step 1/6: 基础设施（postgres/redis/qdrant/minio）==="
+echo "=== Step 1/7: 基础设施（postgres/redis/qdrant/minio）==="
 MISSING=()
 for port in 5432 6379 6333 9000; do
   if ! lsof -i:$port >/dev/null 2>&1; then
@@ -37,7 +37,7 @@ else
 fi
 
 echo ""
-echo "=== Step 2/6: 后端进程（uvicorn 8000）==="
+echo "=== Step 2/7: 后端进程（uvicorn 8000）==="
 if lsof -i:8000 >/dev/null 2>&1; then
   ok "uvicorn 8000 在跑"
 else
@@ -46,7 +46,7 @@ else
 fi
 
 echo ""
-echo "=== Step 3/6: 后端可登录（POST /auth/login）==="
+echo "=== Step 3/7: 后端可登录（POST /auth/login）==="
 LOGIN_RES=$(curl -sS -X POST "$API_BASE/auth/login" \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" 2>&1)
@@ -59,7 +59,7 @@ else
 fi
 
 echo ""
-echo "=== Step 4/6: 后端可验证（GET /auth/me）==="
+echo "=== Step 4/7: 后端可验证（GET /auth/me）==="
 if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
   ME_RES=$(curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/auth/me" 2>&1)
   EMAIL=$(echo "$ME_RES" | jq -r .email 2>/dev/null)
@@ -73,7 +73,7 @@ else
 fi
 
 echo ""
-echo "=== Step 5/6: 前端可达（HTML + _next 资源都必须 200）==="
+echo "=== Step 5/7: 前端可达（HTML + _next 资源都必须 200）==="
 for path in /login /agent; do
   CODE=$(curl -sS -o /dev/null -w "%{http_code}" "$WEB_BASE$path" 2>&1)
   if [ "$CODE" = "200" ]; then
@@ -93,7 +93,7 @@ for path in /login /agent; do
 done
 
 echo ""
-echo "=== Step 6/6: 端到端登录（Playwright 真实后端）==="
+echo "=== Step 6/7: 端到端登录（Playwright 真实后端）==="
 if [ -x "$(command -v npx)" ]; then
   if [ -f "apps/web/scripts/verify-login-e2e.ts" ]; then
     if (cd apps/web && npx tsx "scripts/verify-login-e2e.ts") >/tmp/login-e2e.log 2>&1; then
@@ -106,6 +106,37 @@ if [ -x "$(command -v npx)" ]; then
   fi
 else
   fail "npx 不可用"
+fi
+
+echo ""
+echo "=== Step 7/7: 微信扫码登录 (P5-2 mock 模式) ==="
+QR_RES=$(curl -sS "$API_BASE/auth/wechat/qrcode" 2>&1)
+QR_STATE=$(echo "$QR_RES" | jq -r .data.state 2>/dev/null)
+QR_MOCK=$(echo "$QR_RES" | jq -r .data.mock 2>/dev/null)
+if [ -n "$QR_STATE" ] && [ "$QR_STATE" != "null" ]; then
+  ok "GET /auth/wechat/qrcode → state=${QR_STATE:0:16}... mock=$QR_MOCK"
+else
+  fail "GET /auth/wechat/qrcode 失败: $QR_RES"
+fi
+
+if [ "$QR_MOCK" = "true" ]; then
+  LOGIN_RES=$(curl -sS -X POST "$API_BASE/auth/wechat/mock-login?code=mock_healthcheck" 2>&1)
+  WX_TOKEN=$(echo "$LOGIN_RES" | jq -r .data.access_token 2>/dev/null)
+  WX_ORG=$(echo "$LOGIN_RES" | jq -r .data.org_id 2>/dev/null)
+  if [ -n "$WX_TOKEN" ] && [ "$WX_TOKEN" != "null" ]; then
+    ok "POST /auth/wechat/mock-login → token=${WX_TOKEN:0:20}... org=$WX_ORG"
+    ME_RES=$(curl -sS -H "Authorization: Bearer $WX_TOKEN" "$API_BASE/auth/me" 2>&1)
+    ME_EMAIL=$(echo "$ME_RES" | jq -r .email 2>/dev/null)
+    if [ -n "$ME_EMAIL" ] && [ "$ME_EMAIL" != "null" ]; then
+      ok "  /auth/me 微信 user 验证通过: $ME_EMAIL"
+    else
+      fail "  /auth/me 微信登录后失败: $ME_RES"
+    fi
+  else
+    fail "POST /auth/wechat/mock-login 失败: $LOGIN_RES"
+  fi
+else
+  echo "  ⚠️  微信真模式 (WECHAT_MOCK_MODE=false), 跳过 mock-login 检查"
 fi
 
 echo ""

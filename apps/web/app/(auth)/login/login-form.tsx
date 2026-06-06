@@ -1,16 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
+import { WeChatQrcodeModal } from "@/components/auth/wechat-qrcode-modal";
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
 export function LoginForm() {
   const { login } = useAuth();
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [wechatOpen, setWechatOpen] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,40 +33,86 @@ export function LoginForm() {
     }
   };
 
+  const handleWechatToken = async (token: string) => {
+    try {
+      localStorage.setItem("ai-recruitment-token", token);
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setWechatOpen(false);
+        window.location.href = "/dashboard";
+      } else {
+        setError("微信登录后获取用户信息失败");
+      }
+    } catch {
+      setError("网络错误");
+    }
+  };
+
   return (
-    <form className="space-y-4" onSubmit={handleSubmit}>
-      <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="email">
-          邮箱
-        </label>
-        <Input
-          id="email"
-          type="email"
-          placeholder="name@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+    <div className="space-y-4">
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="email">
+            邮箱
+          </label>
+          <Input
+            id="email"
+            type="email"
+            placeholder="name@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="password">
+            密码
+          </label>
+          <Input
+            id="password"
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </div>
+        {error && (
+          <p className="text-sm text-destructive">{error}</p>
+        )}
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading ? "登录中..." : "登录"}
+        </Button>
+      </form>
+
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-background px-2 text-muted-foreground">
+            其他登录方式
+          </span>
+        </div>
       </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="password">
-          密码
-        </label>
-        <Input
-          id="password"
-          type="password"
-          placeholder="••••••••"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-      </div>
-      {error && (
-        <p className="text-sm text-destructive">{error}</p>
-      )}
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? "登录中..." : "登录"}
+
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full"
+        onClick={() => setWechatOpen(true)}
+      >
+        <span className="mr-2">💬</span>
+        企业微信扫码登录
       </Button>
-    </form>
+
+      <WeChatQrcodeModal
+        open={wechatOpen}
+        onClose={() => setWechatOpen(false)}
+        onSuccess={handleWechatToken}
+      />
+    </div>
   );
 }

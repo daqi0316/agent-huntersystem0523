@@ -62,6 +62,13 @@ class Settings(BaseSettings):
 
     use_orchestrator_graph: bool = False
 
+    wechat_corp_id: str = ""
+    wechat_corp_agent_id: str = ""
+    wechat_corp_secret: str = ""
+    wechat_oauth_redirect_uri: str = "http://localhost:3000/api/auth/wechat/callback"
+    wechat_qrcode_expire_seconds: int = 600
+    wechat_mock_mode: bool = True
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     def check_production_readiness(self) -> list[str]:

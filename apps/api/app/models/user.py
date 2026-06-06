@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum
+from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -18,6 +18,7 @@ class UserRole(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = ({"extend_existing": True},)
 
     id: Mapped[str] = mapped_column(
         String(36),
@@ -40,6 +41,13 @@ class User(Base):
     )
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    wechat_unionid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    wechat_openid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    wechat_nickname: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    wechat_avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    auth_source: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="email"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

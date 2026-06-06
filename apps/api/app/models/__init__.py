@@ -28,6 +28,7 @@ from app.models.recommendation import Recommendation, RecommendationType
 from app.models.command_audit_log import CommandAuditLog
 from app.models.approval import Approval, ApprovalStatus  # noqa: F401
 from app.models.operation_log import OperationLog, OperationStatus  # noqa: F401
+from app.models.wechat_oauth_state import WeChatOAuthState  # noqa: F401
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
@@ -38,4 +39,5 @@ __all__ = [
     "InterviewRound", "EvaluationVerdict", "ConversationSession", "ConversationMessage",
     "Recommendation", "RecommendationType", "CommandAuditLog",
     "Approval", "ApprovalStatus", "OperationLog", "OperationStatus",
+    "WeChatOAuthState",
 ]
