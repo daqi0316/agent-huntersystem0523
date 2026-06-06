@@ -26,6 +26,7 @@ import importlib
 import inspect
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -240,7 +241,10 @@ async def dynamic_check_hosts() -> list[str]:
 
     errors: list[str] = []
     try:
-        connected = await mcp_host.start(phases=["core"])
+        config_path = _API_ROOT / "app" / "mcp_servers" / "config.json"
+        connected = await mcp_host.start(
+            config_path=str(config_path), phases=["core"]
+        )
         if connected == 0:
             errors.append("MCPHost started 0 servers (config issue?)")
             return errors
@@ -336,10 +340,16 @@ def main() -> int:
 
     if not args.quick:
         print("\n[4/4] Dynamic check: start MCPHost + call each tool ...")
+        # config.json 里 command 是相对路径 (.venv/bin/python)，
+        # 需 chdir 到 _API_ROOT 让 subprocess 找到解释器。
+        prev_cwd = Path.cwd()
+        os.chdir(_API_ROOT)
         try:
             errs = asyncio.run(dynamic_check_hosts())
         except Exception as e:
             errs = [f"dynamic check crashed: {e}"]
+        finally:
+            os.chdir(prev_cwd)
         all_errors.extend(errs)
         if errs:
             for e in errs:
