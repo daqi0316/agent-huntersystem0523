@@ -180,6 +180,21 @@
       "extra_env": {
         "PYTHONUNBUFFERED": "1"
       }
+    },
+    {
+      "id": "mcp-skill-mgr",
+      "command": ".venv/bin/python",
+      "args": ["-m", "app.mcp_servers.builtin.skill_mgr_server"],
+      "startup_phase": "core",
+      "restart": "on-failure",
+      "max_restarts": 5,
+      "timeout": 30,
+      "capability": "admin",
+      "version": "1.0.0",
+      "env_keys": [],
+      "extra_env": {
+        "PYTHONUNBUFFERED": "1"
+      }
     }
   ]
 }
