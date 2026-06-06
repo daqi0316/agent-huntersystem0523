@@ -139,6 +139,29 @@ class InterviewService:
         await self.db.refresh(interview)
         return self._to_dict(interview)
 
+    async def reschedule(
+        self, interview_id: str, new_time: str = "", reason: str = ""
+    ) -> tuple[dict | None, str | None]:
+        """修改面试时间。返回 (dict, error_code) — dict=None 时 error_code 标识原因。"""
+        interview = await self._get_by_id(interview_id)
+        if not interview:
+            return (None, "NOT_FOUND")
+
+        if new_time:
+            try:
+                interview.scheduled_at = datetime.fromisoformat(
+                    new_time.replace("Z", "+00:00")
+                )
+            except (ValueError, AttributeError):
+                return (None, "INVALID_TIME")
+
+        if reason:
+            interview.notes = (interview.notes or "") + f"\n[改期原因] {reason}"
+
+        await self.db.commit()
+        await self.db.refresh(interview)
+        return (self._to_dict(interview), None)
+
     async def list_by_candidate(
         self, candidate_id: str
     ) -> list[dict]:

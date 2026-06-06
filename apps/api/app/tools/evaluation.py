@@ -23,7 +23,9 @@ async def _handle_save_evaluation(
     red_flags: str = "",
     feedback: str = "",
 ) -> dict[str, Any]:
-    """保存面试评估结果。"""
+    """保存面试评估结果。v0.3 §7.1 / inventory §4.3 code smell 修：改走 InterviewService.save_evaluation()。"""
+    from app.services.interview import InterviewService
+
     if not interview_id:
         return {"status": "failed", "error": {"code": "VALIDATION_ERROR", "message": "interview_id 不能为空"}}
 
@@ -38,20 +40,20 @@ async def _handle_save_evaluation(
         verdict_enum = EvaluationVerdict.CONSIDER
 
     async with AsyncSessionLocal() as db:
-        ev = InterviewEvaluation(
-            id=str(uuid.uuid4()),
-            interview_id=interview_id,
-            round=round_enum,
-            overall_score=overall_score,
-            verdict=verdict_enum,
-            dimensions=json.dumps(dimensions) if dimensions else None,
-            key_observations=key_observations or None,
-            red_flags=red_flags or None,
-            feedback=feedback or None,
-        )
-        db.add(ev)
-        await db.commit()
-        await db.refresh(ev)
+        svc = InterviewService(db)
+        try:
+            ev = await svc.save_evaluation(
+                interview_id=interview_id,
+                round=round_enum,
+                overall_score=overall_score,
+                verdict=verdict_enum,
+                dimensions=dimensions,
+                key_observations=key_observations or None,
+                red_flags=red_flags or None,
+                feedback=feedback or None,
+            )
+        except ValueError as e:
+            return {"status": "failed", "error": {"code": "NOT_FOUND", "message": str(e)}}
 
         return {
             "status": "success",

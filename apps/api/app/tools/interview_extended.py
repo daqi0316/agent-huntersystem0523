@@ -17,33 +17,23 @@ async def _handle_reschedule_interview(
     new_time: str = "",
     reason: str = "",
 ) -> dict[str, Any]:
-    """修改已安排面试的时间。"""
+    """修改已安排面试的时间。v0.3 §7.1 / inventory §4.3 code smell 修：改走 InterviewService.reschedule()。"""
     if not interview_id:
         return {"status": "failed", "error": {"code": "VALIDATION_ERROR", "message": "interview_id 不能为空"}}
 
     async with AsyncSessionLocal() as db:
         svc = InterviewService(db)
-        interview = await svc._get_by_id(interview_id)
-        if not interview:
+        result, err_code = await svc.reschedule(interview_id, new_time=new_time, reason=reason)
+        if err_code == "NOT_FOUND":
             return {"status": "failed", "error": {"code": "NOT_FOUND", "message": "面试不存在"}}
-
-        if new_time:
-            try:
-                interview.scheduled_at = datetime.fromisoformat(new_time.replace("Z", "+00:00"))
-            except (ValueError, AttributeError):
-                return {"status": "failed", "error": {"code": "INVALID_TIME", "message": "时间格式无效，请使用 ISO 8601 格式"}}
-
-        if reason:
-            interview.notes = (interview.notes or "") + f"\n[改期原因] {reason}"
-
-        await db.commit()
-        await db.refresh(interview)
+        if err_code == "INVALID_TIME":
+            return {"status": "failed", "error": {"code": "INVALID_TIME", "message": "时间格式无效，请使用 ISO 8601 格式"}}
         return {
             "status": "success",
             "data": {
-                "interview_id": interview.id,
-                "scheduled_at": interview.scheduled_at.isoformat() if interview.scheduled_at else None,
-                "status": interview.status.value if hasattr(interview.status, "value") else str(interview.status),
+                "interview_id": result["id"] if result else interview_id,
+                "scheduled_at": result.get("scheduled_at") if result else None,
+                "status": result.get("status") if result else None,
             },
         }
 

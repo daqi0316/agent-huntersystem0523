@@ -1,4 +1,8 @@
-"""Tests for app/tools/file_parser.py — download + temp file management."""
+"""Tests for app/tools/_file_parser_helpers.py — download + temp file management.
+
+v0.3 §15.1 / PR-7.5 rename: file_parser.py → _file_parser_helpers.py (helper 不是 tool,
+被 resume_parser 调)。本测试 import 路径同步更新。
+"""
 
 from __future__ import annotations
 
@@ -9,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.tools.file_parser import (
+from app.tools._file_parser_helpers import (
     ResumeDownloadError,
     cleanup_temp_file,
     download_and_save,

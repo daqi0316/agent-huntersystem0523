@@ -41,16 +41,34 @@ async def _handle_schedule_interview(candidate_id="", job_id="", scheduled_time=
 
 
 async def _handle_record_feedback(interview_id="", score=0, evaluation=""):
+    """v0.3 §7.1 / inventory §4.3 code smell 修：改走 InterviewService.save_evaluation()。
+
+    之前直 db.add + db.commit，绕过 service 层的 RLS + 业务校验。
+    现在所有 evaluation 写都集中到 service，未来加 RBAC / quota 一处改即可。
+    """
+    from app.services.interview import InterviewService
+
+    if not interview_id:
+        return {"status": "failed", "error": {"code": "VALIDATION_ERROR", "message": "interview_id 不能为空"}}
+
     async with AsyncSessionLocal() as db:
-        from app.models.interview_evaluation import InterviewEvaluation
-        import uuid
-        ev = InterviewEvaluation(
-            id=str(uuid.uuid4()), interview_id=interview_id,
-            overall_score=score, verdict="",
-        )
-        db.add(ev)
-        await db.commit()
-        return {"id": ev.id, "status": "recorded"}
+        svc = InterviewService(db)
+        try:
+            ev = await svc.save_evaluation(
+                interview_id=interview_id,
+                overall_score=float(score) if score else None,
+                feedback=evaluation or None,
+            )
+            return {
+                "status": "success",
+                "data": {
+                    "id": ev.id,
+                    "interview_id": ev.interview_id,
+                    "score": ev.overall_score,
+                },
+            }
+        except ValueError as e:
+            return {"status": "failed", "error": {"code": "NOT_FOUND", "message": str(e)}}
 
 
 tools = [
