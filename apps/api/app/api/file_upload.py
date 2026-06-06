@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, UploadFile, File
 
 from app.core.response import error
-from app.tools.file_parser import save_temp_file, ResumeDownloadError
+from app.tools._file_parser_helpers import save_temp_file, ResumeDownloadError
 
 logger = logging.getLogger(__name__)
 

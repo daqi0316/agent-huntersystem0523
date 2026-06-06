@@ -74,10 +74,14 @@ fi
 
 echo ""
 echo "=== Step 5/7: 前端可达（HTML + _next 资源都必须 200）==="
+# /login 应直接 200（公开页）；/agent 未登录应 307 重定向到 /login（这是预期行为，不是 fail）
 for path in /login /agent; do
   CODE=$(curl -sS -o /dev/null -w "%{http_code}" "$WEB_BASE$path" 2>&1)
   if [ "$CODE" = "200" ]; then
     ok "GET $path → 200"
+  elif [ "$CODE" = "307" ] && [ "$path" = "/agent" ]; then
+    # /agent 重定向是预期（dev 行为：未登录跳 /login）；CI 上是 dev 模式
+    ok "GET $path → 307（未登录重定向，预期）"
   else
     fail "GET $path → $CODE"
   fi
@@ -167,6 +171,24 @@ if [ -x "$(command -v xargs)" ]; then
     ok "限流中间件工作正常 (${SEEN_200} 非 429)"
 else
     fail "xargs 不可用"
+fi
+
+echo ""
+echo "=== Step 9/9: MCP 工具系统 CI 守门（v4 PR-5）==="
+# 跑 check_mcp_servers.py --quick（静态检查，不启动 host）
+# 验证 tools / skills / config 完整性
+# 注：必须用 venv python（项目依赖 asyncpg / openai / qdrant_client 等）
+# 用 bash -c 保证主 shell 的 ok/fail 函数可见（子 shell ( ) 不继承函数）
+if [ -f "scripts/check_mcp_servers.py" ] && [ -d "apps/api" ] && [ -x "apps/api/.venv/bin/python" ]; then
+    if bash -c "cd apps/api && .venv/bin/python ../../scripts/check_mcp_servers.py --quick" >/tmp/mcp-check.log 2>&1; then
+        ok "MCP CI 守门通过（tools / skills / config）"
+    else
+        fail "MCP CI 守门失败（看 /tmp/mcp-check.log）"
+        # 打印前 10 行错误摘要（不全是，避免日志爆炸）
+        head -10 /tmp/mcp-check.log | sed 's/^/    /'
+    fi
+else
+    echo "  ⚠️  scripts/check_mcp_servers.py 或 apps/api/.venv 不存在（PR-4 未实施？跳过）"
 fi
 
 echo ""

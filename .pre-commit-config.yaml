@@ -27,3 +27,17 @@ repos:
         language: system
         pass_filenames: false
         types_or: [python]
+
+  # MCP 工具系统 CI 守门（v4 V-4）
+  # 检查：tool schema / handler / capability / config / skill 完整性
+  # 用 venv python（项目依赖 asyncpg / openai / qdrant_client 等）
+  - repo: local
+    hooks:
+      - id: check-mcp-servers
+        name: Check MCP servers (schema/handler/capability/config consistency, v4 V-4)
+        entry: bash -c 'cd apps/api && ../../apps/api/.venv/bin/python ../../scripts/check_mcp_servers.py --quick'
+        language: system
+        pass_filenames: false
+        types_or: [python, json]
+        # 不阻断 commit（CI 抓出问题但不挡 dev 流程）；CI 上跑 strict 模式
+        stages: [manual]

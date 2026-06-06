@@ -26,7 +26,10 @@
 
 | 文档 | 简介 |
 |---|---|
-| [AI_招聘系统_MCP_工具系统设计文档_v2.md](../AI_招聘系统_MCP_工具系统设计文档_v2.md) | MCP 工具系统设计（**实施以 Phase T 为准**）|
+| [**`ai 招聘agent MCP服务器架构 v4 实际实现.md`**](../ai%20招聘agent%20MCP服务器架构%20v4%20实际实现（PR-0~7%20累计完成）.md) | ⭐ **MCP v4 当前权威** — 三轨道（A/B/C）+ 统一调度 + A/B 灰度 + 7 PR 累计 |
+| [`docs/mcp-v4-impl-report.md`](mcp-v4-impl-report.md) | MCP v4 实施报告 — PR-0~7 累计 + 关键调试发现 + 工程化教训 |
+| [`.omo/plans/mcp-dual-track-refactor.md`](../.omo/plans/mcp-dual-track-refactor.md) | v4 完整规划（含 v3 设计稿 → v4 实际演进 + ADR 摘要）|
+| [`ai 招聘agent MCP服务器架构 v3 设计稿（已废，参考 v4 实施）.md`](../ai%20招聘agent%20MCP服务器架构%20v3%20设计稿（已废，参考%20v4%20实施）.md) | v3 设计稿（已废，与 v4 冲突时以 v4 实际实现为准）|
 | [LangGraph任务快照.md](../LangGraph任务快照.md) | LangGraph 任务快照与编排示例（**实施以 Phase S 为准**）|
 | [architecture-diagrams.md](architecture-diagrams.md) | **14 张 Mermaid 图** — 系统架构、6 层分层、Orchestrator 单意图/多阶段 DAG、ResumeParser 7 步、3 张时序图、15 表 ER、前后端地图、Background loops、设计模式 |
 

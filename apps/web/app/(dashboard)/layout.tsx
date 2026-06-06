@@ -5,7 +5,9 @@ import { Header } from "@/components/common/header";
 import { AuthGuard } from "@/components/common/auth-guard";
 import { ErrorBoundary } from "@/components/common/error-boundary";
 import { TelemetryBoot } from "@/components/common/telemetry-boot";
-import { SentryBoot } from "@/components/common/sentry-boot";
+// PR-7 修：SentryBoot 暂禁用（@sentry/nextjs 未装；编译期 import 解析失败导致 500）
+// 等项目装包后恢复：import { SentryBoot } from "@/components/common/sentry-boot";
+// 并加 <SentryBoot />
 import { AgentProvider } from "@/hooks/chat/agent-context";
 import { CookieConsent } from "@/components/common/cookie-consent";
 import { RateLimitToast } from "@/components/common/rate-limit-toast";
@@ -18,7 +20,7 @@ export default function DashboardLayout({
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TelemetryBoot />
-      <SentryBoot />
+      {/* <SentryBoot /> 暂禁用（见上注释）*/}
       <AuthGuard>
         <AgentProvider>
           <div className="flex h-screen overflow-hidden">
