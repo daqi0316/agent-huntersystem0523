@@ -71,16 +71,17 @@ async def _handle_get_evaluations(candidate_id="", limit=5):
 
 
 tools = [
-    {"type": "function", "function": {"name": "search_candidates", "description": "搜索/查询候选人。支持按姓名、邮箱、技能、工作经验等条件筛选。", "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "搜索关键词"}, "skill": {"type": "string", "description": "按技能筛选"}, "experience_min": {"type": "integer", "description": "最低工作经验年数"}, "limit": {"type": "integer", "description": "返回数量上限", "default": 10}}}}},
-    {"type": "function", "function": {"name": "get_candidate", "description": "获取某个候选人的详细信息，包括技能、经验、联系方式等。", "parameters": {"type": "object", "properties": {"candidate_id": {"type": "string", "description": "候选人 ID"}}, "required": ["candidate_id"]}}},
     {"type": "function", "function": {"name": "screen_resume", "description": "对候选人进行 AI 简历初筛，评估与某个职位的匹配度。", "parameters": {"type": "object", "properties": {"candidate_id": {"type": "string", "description": "候选人 ID"}, "job_id": {"type": "string", "description": "职位 ID"}}, "required": ["candidate_id", "job_id"]}}},
     {"type": "function", "function": {"name": "list_jobs", "description": "查看当前招聘中的职位列表。", "parameters": {"type": "object", "properties": {"status": {"type": "string", "enum": ["active", "closed", "draft"], "description": "按状态筛选"}, "limit": {"type": "integer", "description": "返回数量上限", "default": 10}}}}},
     {"type": "function", "function": {"name": "get_evaluations", "description": "查看候选人的评估报告。", "parameters": {"type": "object", "properties": {"candidate_id": {"type": "string", "description": "候选人 ID"}, "limit": {"type": "integer", "description": "返回数量上限", "default": 5}}}}},
 ]
 
+# v0.3 §4.2 / inventory §4.2 重名合并：search_candidates / get_candidate 删
+# 完整版（聚合 interviews + applications）见 candidate_search.py：
+#   - candidate_search.search_candidates（含 skill / experience_min 过滤）
+#   - candidate_search.get_candidate_detail（含 timeline + applications）
+
 handlers = {
-    "search_candidates": _handle_search_candidates,
-    "get_candidate": _handle_get_candidate,
     "screen_resume": _handle_screen_resume,
     "list_jobs": _handle_list_jobs,
     "get_evaluations": _handle_get_evaluations,
