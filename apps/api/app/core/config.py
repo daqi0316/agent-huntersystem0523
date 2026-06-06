@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     rate_limit_rollout_pct: int = 100
     quota_alert_threshold_pct: int = 80
 
+    aliyun_access_key_id: str = ""
+    aliyun_access_key_secret: str = ""
+    aliyun_sms_sign_name: str = "AI Recruitment"
+    aliyun_sms_template_code: str = "SMS_000000001"
+    aliyun_sms_region: str = "cn-hangzhou"
+    sms_mock_mode: bool = True
+    invite_max_per_ip_24h: int = 3
+    invite_max_per_device_24h: int = 5
+    llm_circuit_breaker_enabled: bool = True
+
     wechat_pay_merchant_id: str = ""
     wechat_pay_api_key: str = ""
     wechat_pay_cert_path: str = ""

@@ -34,6 +34,8 @@ class AuditLogAction(str, enum.Enum):
     AI_OVERRIDE = "ai_score_override"
     APPEAL_FILED = "appeal_filed"
     APPEAL_RESOLVED = "appeal_resolved"
+    PHONE_BOUND = "phone_bound"
+    LLM_CIRCUIT_BREAKER = "llm_circuit_breaker"
 
 
 class AuditLog(Base):

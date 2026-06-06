@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -48,6 +49,13 @@ class User(Base):
     wechat_avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     auth_source: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="email"
+    )
+    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    phone_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    phone_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

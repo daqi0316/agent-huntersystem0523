@@ -53,6 +53,14 @@ from app.models.appeal import (  # noqa: F401
     AppealStatus,
     APPEAL_SLA_DAYS,
 )
+from app.models.anti_abuse import (  # noqa: F401
+    SmsVerification,
+    SmsPurpose,
+    SMS_CODE_LENGTH,
+    SMS_CODE_TTL_MINUTES,
+    SMS_MAX_ATTEMPTS,
+    DeviceFingerprint,
+)
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
