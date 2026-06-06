@@ -26,6 +26,11 @@ class AuditLogAction(str, enum.Enum):
     PAYMENT_REFUND = "payment_refund"
     PAYMENT_UPGRADE = "payment_upgrade"
     PAYMENT_DOWNGRADE = "payment_downgrade"
+    DATA_EXPORT_REQUEST = "data_export_request"
+    DATA_DELETE_REQUEST = "data_delete_request"
+    DATA_DELETE_CONFIRM = "data_delete_confirm"
+    DATA_DELETE_CANCEL = "data_delete_cancel"
+    DATA_DELETE_HARD = "data_delete_hard"
 
 
 class AuditLog(Base):

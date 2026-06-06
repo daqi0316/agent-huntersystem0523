@@ -6,6 +6,7 @@ import { AuthGuard } from "@/components/common/auth-guard";
 import { ErrorBoundary } from "@/components/common/error-boundary";
 import { TelemetryBoot } from "@/components/common/telemetry-boot";
 import { AgentProvider } from "@/hooks/chat/agent-context";
+import { CookieConsent } from "@/components/common/cookie-consent";
 
 export default function DashboardLayout({
   children,
@@ -34,6 +35,7 @@ export default function DashboardLayout({
         closeButton
         toastOptions={{ duration: 4000 }}
       />
+      <CookieConsent />
     </ThemeProvider>
   );
 }

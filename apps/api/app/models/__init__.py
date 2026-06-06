@@ -39,6 +39,15 @@ from app.models.payment import (  # noqa: F401
     PLAN_PRICING_CENTS,
     PLAN_QUOTAS,
 )
+from app.models.privacy import (  # noqa: F401
+    DataExportRequest,
+    DataExportStatus,
+    DataDeleteRequest,
+    DataDeleteStatus,
+    GRACE_PERIOD_DAYS,
+    EXPORT_RETENTION_DAYS,
+    EXPORT_DOWNLOAD_BASE,
+)
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
@@ -52,4 +61,7 @@ __all__ = [
     "WeChatOAuthState",
     "PaymentOrder", "PaymentPlan", "PaymentStatus", "PaymentChannel",
     "Subscription", "SubscriptionStatus", "PLAN_PRICING_CENTS", "PLAN_QUOTAS",
+    "DataExportRequest", "DataExportStatus",
+    "DataDeleteRequest", "DataDeleteStatus",
+    "GRACE_PERIOD_DAYS", "EXPORT_RETENTION_DAYS", "EXPORT_DOWNLOAD_BASE",
 ]
