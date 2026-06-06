@@ -184,7 +184,7 @@
     {
       "id": "mcp-skill-mgr",
       "command": ".venv/bin/python",
-      "args": ["-m", "app.mcp_servers.builtin.skillmgr_server"],
+      "args": ["-m", "app.mcp_servers.builtin.skill_mgr_server"],
       "startup_phase": "secondary",
       "restart": "on-failure",
       "max_restarts": 5,
