@@ -243,7 +243,7 @@ async def dynamic_check_hosts() -> list[str]:
     try:
         config_path = _API_ROOT / "app" / "mcp_servers" / "config.json"
         connected = await mcp_host.start(
-            config_path=str(config_path), phases=["core"]
+            config_path=str(config_path), phases=["core", "secondary"]
         )
         if connected == 0:
             errors.append("MCPHost started 0 servers (config issue?)")

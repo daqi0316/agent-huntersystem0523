@@ -1,5 +1,5 @@
 {
-  "$comment": "MCP server 注册表（V-4 修复：分层配置 + 启动阶段 + 密钥注入）。PR-9b 加 5 server 拆 Type B 业务服务。",
+  "$comment": "MCP server 注册表（V-4 修复：分层配置 + 启动阶段 + 密钥注入）。v0.4c 改 phase 重排：core=5 高频（utils/weather/search/screening/knowledge），secondary=9 低频（业务服务 + 调度 + admin）。",
   "servers": [
     {
       "id": "mcp-utils",
@@ -32,76 +32,16 @@
       }
     },
     {
-      "id": "mcp-candidate",
+      "id": "mcp-search",
       "command": ".venv/bin/python",
-      "args": ["-m", "app.mcp_servers.builtin.candidate_server"],
+      "args": ["-m", "app.mcp_servers.builtin.search_server"],
       "startup_phase": "core",
       "restart": "on-failure",
       "max_restarts": 5,
       "timeout": 30,
-      "capability": "write",
+      "capability": "read",
       "version": "1.0.0",
-      "env_keys": [],
-      "extra_env": {
-        "PYTHONUNBUFFERED": "1"
-      }
-    },
-    {
-      "id": "mcp-job",
-      "command": ".venv/bin/python",
-      "args": ["-m", "app.mcp_servers.builtin.job_server"],
-      "startup_phase": "core",
-      "restart": "on-failure",
-      "max_restarts": 5,
-      "timeout": 30,
-      "capability": "write",
-      "version": "1.0.0",
-      "env_keys": [],
-      "extra_env": {
-        "PYTHONUNBUFFERED": "1"
-      }
-    },
-    {
-      "id": "mcp-application",
-      "command": ".venv/bin/python",
-      "args": ["-m", "app.mcp_servers.builtin.application_server"],
-      "startup_phase": "core",
-      "restart": "on-failure",
-      "max_restarts": 5,
-      "timeout": 30,
-      "capability": "write",
-      "version": "1.0.0",
-      "env_keys": [],
-      "extra_env": {
-        "PYTHONUNBUFFERED": "1"
-      }
-    },
-    {
-      "id": "mcp-interview",
-      "command": ".venv/bin/python",
-      "args": ["-m", "app.mcp_servers.builtin.interview_server"],
-      "startup_phase": "core",
-      "restart": "on-failure",
-      "max_restarts": 5,
-      "timeout": 30,
-      "capability": "write",
-      "version": "1.0.0",
-      "env_keys": [],
-      "extra_env": {
-        "PYTHONUNBUFFERED": "1"
-      }
-    },
-    {
-      "id": "mcp-evaluation",
-      "command": ".venv/bin/python",
-      "args": ["-m", "app.mcp_servers.builtin.evaluation_server"],
-      "startup_phase": "core",
-      "restart": "on-failure",
-      "max_restarts": 5,
-      "timeout": 30,
-      "capability": "write",
-      "version": "1.0.0",
-      "env_keys": [],
+      "env_keys": ["TAVILY_API_KEY"],
       "extra_env": {
         "PYTHONUNBUFFERED": "1"
       }
@@ -137,10 +77,85 @@
       }
     },
     {
+      "id": "mcp-candidate",
+      "command": ".venv/bin/python",
+      "args": ["-m", "app.mcp_servers.builtin.candidate_server"],
+      "startup_phase": "secondary",
+      "restart": "on-failure",
+      "max_restarts": 5,
+      "timeout": 30,
+      "capability": "write",
+      "version": "1.0.0",
+      "env_keys": [],
+      "extra_env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
+      "id": "mcp-job",
+      "command": ".venv/bin/python",
+      "args": ["-m", "app.mcp_servers.builtin.job_server"],
+      "startup_phase": "secondary",
+      "restart": "on-failure",
+      "max_restarts": 5,
+      "timeout": 30,
+      "capability": "write",
+      "version": "1.0.0",
+      "env_keys": [],
+      "extra_env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
+      "id": "mcp-application",
+      "command": ".venv/bin/python",
+      "args": ["-m", "app.mcp_servers.builtin.application_server"],
+      "startup_phase": "secondary",
+      "restart": "on-failure",
+      "max_restarts": 5,
+      "timeout": 30,
+      "capability": "write",
+      "version": "1.0.0",
+      "env_keys": [],
+      "extra_env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
+      "id": "mcp-interview",
+      "command": ".venv/bin/python",
+      "args": ["-m", "app.mcp_servers.builtin.interview_server"],
+      "startup_phase": "secondary",
+      "restart": "on-failure",
+      "max_restarts": 5,
+      "timeout": 30,
+      "capability": "write",
+      "version": "1.0.0",
+      "env_keys": [],
+      "extra_env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
+      "id": "mcp-evaluation",
+      "command": ".venv/bin/python",
+      "args": ["-m", "app.mcp_servers.builtin.evaluation_server"],
+      "startup_phase": "secondary",
+      "restart": "on-failure",
+      "max_restarts": 5,
+      "timeout": 30,
+      "capability": "write",
+      "version": "1.0.0",
+      "env_keys": [],
+      "extra_env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
       "id": "mcp-jd",
       "command": ".venv/bin/python",
       "args": ["-m", "app.mcp_servers.builtin.jd_server"],
-      "startup_phase": "core",
+      "startup_phase": "secondary",
       "restart": "on-failure",
       "max_restarts": 5,
       "timeout": 30,
@@ -155,7 +170,7 @@
       "id": "mcp-resume",
       "command": ".venv/bin/python",
       "args": ["-m", "app.mcp_servers.builtin.resume_server"],
-      "startup_phase": "core",
+      "startup_phase": "secondary",
       "restart": "on-failure",
       "max_restarts": 5,
       "timeout": 30,
@@ -167,25 +182,10 @@
       }
     },
     {
-      "id": "mcp-search",
-      "command": ".venv/bin/python",
-      "args": ["-m", "app.mcp_servers.builtin.search_server"],
-      "startup_phase": "core",
-      "restart": "on-failure",
-      "max_restarts": 5,
-      "timeout": 30,
-      "capability": "read",
-      "version": "1.0.0",
-      "env_keys": ["TAVILY_API_KEY"],
-      "extra_env": {
-        "PYTHONUNBUFFERED": "1"
-      }
-    },
-    {
       "id": "mcp-skill-mgr",
       "command": ".venv/bin/python",
-      "args": ["-m", "app.mcp_servers.builtin.skill_mgr_server"],
-      "startup_phase": "core",
+      "args": ["-m", "app.mcp_servers.builtin.skillmgr_server"],
+      "startup_phase": "secondary",
       "restart": "on-failure",
       "max_restarts": 5,
       "timeout": 30,
@@ -200,7 +200,7 @@
       "id": "mcp-dashboard",
       "command": ".venv/bin/python",
       "args": ["-m", "app.mcp_servers.builtin.dashboard_server"],
-      "startup_phase": "core",
+      "startup_phase": "secondary",
       "restart": "on-failure",
       "max_restarts": 5,
       "timeout": 30,
