@@ -1,0 +1,173 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/**'
+      - 'docker-assets/**'
+      - 'docker-compose.prod.yml'
+      - 'apps/api/Dockerfile'
+      - 'apps/web/Dockerfile'
+      - '.github/workflows/cd.yml'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deploy target'
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - production
+      image_tag:
+        description: 'Image tag (defaults to git SHA)'
+        required: false
+        type: string
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      api_tag: ${{ steps.meta.outputs.sha }}
+      web_tag: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate image tag
+        id: meta
+        run: echo "sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/api
+          file: ./apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/api:${{ steps.meta.outputs.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Build and push Web image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:${{ steps.meta.outputs.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:latest
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL || 'https://staging.airecruit.com' }}
+            NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL || 'wss://staging.airecruit.com' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+  deploy-staging:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://staging.airecruit.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+
+      - name: Add staging host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Pull and restart on staging
+        run: |
+          ssh ${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }} << EOF
+            set -e
+            cd /opt/ai-recruitment
+            echo "${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/api:${{ needs.build-and-push.outputs.api_tag }}" > .api_tag
+            echo "${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:${{ needs.build-and-push.outputs.web_tag }}" > .web_tag
+            docker compose -f docker-compose.prod.yml pull api web nginx
+            docker compose -f docker-compose.prod.yml up -d --no-deps --remove-orphans api web nginx
+            sleep 10
+            curl -fsS https://staging.airecruit.com/health || (echo "Health check failed" && exit 1)
+          EOF
+
+  deploy-production:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'production'
+    environment:
+      name: production
+      url: https://app.airecruit.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm deployment
+        run: |
+          echo "Deploying image ${{ inputs.image_tag || needs.build-and-push.outputs.api_tag }} to production"
+          echo "Manual approval required in GitHub Environment"
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PRODUCTION_SSH_KEY }}
+
+      - name: Blue-green deploy to production
+        run: |
+          ssh ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }} << EOF
+            set -e
+            cd /opt/ai-recruitment
+            # Tag new image
+            NEW_TAG="${{ inputs.image_tag || needs.build-and-push.outputs.api_tag }}"
+            echo "Deploying \$NEW_TAG to production"
+
+            # Save current tag for rollback
+            docker inspect ai-recruitment/api-prod --format '{{ index .Config.Labels "com.ai-recruitment.version" }}' > .previous_tag 2>/dev/null || echo "none" > .previous_tag
+            echo "Previous tag: \$(cat .previous_tag)"
+
+            # Pull new images
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/api:\$NEW_TAG
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:\$NEW_TAG
+
+            # Run migrations before rolling (use old api container, new code via env)
+            docker compose -f docker-compose.prod.yml run --rm -e DATABASE_URL=\$DATABASE_URL api alembic upgrade head
+
+            # Restart with new images
+            API_IMAGE_TAG=\$NEW_TAG WEB_IMAGE_TAG=\$NEW_TAG docker compose -f docker-compose.prod.yml up -d --no-deps --remove-orphans api web nginx
+            sleep 15
+
+            # Health check
+            curl -fsS https://app.airecruit.com/health || (echo "Health check failed - rolling back" && bash scripts/rollback.sh && exit 1)
+            echo "\$NEW_TAG" > .current_tag
+            echo "Production deployed successfully: \$NEW_TAG"
+          EOF

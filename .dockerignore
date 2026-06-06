@@ -1,0 +1,44 @@
+# Repo-level .dockerignore (root context builds)
+node_modules/
+.next/
+.turbo/
+dist/
+build/
+
+# All env files
+.env
+.env.*
+!.env.example
+
+# Secrets / keys
+*.pem
+*.key
+*.crt
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Test outputs
+test-results/
+playwright-report/
+coverage/
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Local infra compose overrides
+docker-compose.override.yml
