@@ -36,6 +36,7 @@ from app.api.tasks import router as tasks_router
 from app.api.file_upload import router as file_upload_router
 from app.api.users import router as users_router
 from app.api.health import router as health_router
+from app.api.payment import router as payment_router
 
 api_router = APIRouter()
 
@@ -124,3 +125,4 @@ api_router.include_router(tasks_router, prefix="/tasks", tags=["Tasks"])
 api_router.include_router(file_upload_router, prefix="/file", tags=["File"])
 api_router.include_router(users_router, prefix="/users", tags=["Users"])
 api_router.include_router(health_router, prefix="", tags=["Health"])
+api_router.include_router(payment_router, prefix="/payment", tags=["Payment"])

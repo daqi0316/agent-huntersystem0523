@@ -20,9 +20,12 @@ class AuditLogAction(str, enum.Enum):
     MEMBERSHIP_ADD = "membership_add"
     MEMBERSHIP_REMOVE = "membership_remove"
     MEMBERSHIP_ROLE_CHANGE = "membership_role_change"
-    # P5-2 微信登录相关
     WECHAT_LOGIN = "wechat_login"
     WECHAT_BIND = "wechat_bind"
+    PAYMENT_PAID = "payment_paid"
+    PAYMENT_REFUND = "payment_refund"
+    PAYMENT_UPGRADE = "payment_upgrade"
+    PAYMENT_DOWNGRADE = "payment_downgrade"
 
 
 class AuditLog(Base):

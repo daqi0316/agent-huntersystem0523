@@ -69,6 +69,17 @@ class Settings(BaseSettings):
     wechat_qrcode_expire_seconds: int = 600
     wechat_mock_mode: bool = True
 
+    wechat_pay_merchant_id: str = ""
+    wechat_pay_api_key: str = ""
+    wechat_pay_cert_path: str = ""
+    wechat_pay_key_path: str = ""
+    alipay_app_id: str = ""
+    alipay_private_key_path: str = ""
+    alipay_public_key_path: str = ""
+    payment_notify_base_url: str = "https://api.airecruit.com"
+    payment_order_expire_minutes: int = 30
+    payment_mock_mode: bool = True
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     def check_production_readiness(self) -> list[str]:
