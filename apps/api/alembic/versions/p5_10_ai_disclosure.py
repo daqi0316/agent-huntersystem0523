@@ -64,24 +64,27 @@ def upgrade() -> None:
         ),
     )
 
-    op.add_column(
-        "interview_evaluations",
-        sa.Column(
-            "ai_score_source",
-            sa.JSON(),
-            nullable=True,
-            comment="AI 评估来源: {llm, model_version, prompt_hash, generated_at}",
-        ),
-    )
-    op.add_column(
-        "interview_evaluations",
-        sa.Column(
-            "score_overridden",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.text("false"),
-        ),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "interview_evaluations" in inspector.get_table_names():
+        op.add_column(
+            "interview_evaluations",
+            sa.Column(
+                "ai_score_source",
+                sa.JSON(),
+                nullable=True,
+                comment="AI 评估来源: {llm, model_version, prompt_hash, generated_at}",
+            ),
+        )
+        op.add_column(
+            "interview_evaluations",
+            sa.Column(
+                "score_overridden",
+                sa.Boolean(),
+                nullable=False,
+                server_default=sa.text("false"),
+            ),
+        )
 
     op.create_table(
         "appeal",
