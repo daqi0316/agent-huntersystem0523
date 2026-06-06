@@ -15,6 +15,7 @@
 | **商用化** | 5% | 单租户 + 单用户,无 team/org,无支付,无合规 |
 | **文档** | 80% | README + 4 份 plan + 4 份工程文档 + lessons-learned |
 | **测试** | 75% | 后端 pytest 10/10 agent_events,前端 25 单测 + 26 E2E,但**无 cross-package 集成 e2e** |
+| **MCP v4 架构** | 90% | **PR-8 ship (2026-06-06)** — dual-track supervisor pilot 2 工具跑通,5/5 性能预算,4/4 故障注入,git tag mcp-v4-pr8-pre。PR-9 38 工具 scale 待启动 (9.5d) |
 
 **关键风险**:不上 Phase 4 → 产品永远 demo 阶段,签不下 B2B 合同 (无多租户 = 数据隔离隐患)。
 
@@ -244,7 +245,7 @@
 
 | 月份 | 里程碑 |
 |---|---|
-| 2026-07 | Phase 5 启动:多租户 model + 微信支付 sandbox + 个保法数据导出 + ICP 备案 |
+| 2026-07 | Phase 5 启动:多租户 model + 微信支付 sandbox + 个保法数据导出 + ICP 备案 + **MCP v4 PR-9 scale 38 工具 (9.5d,2026-06 已 ship PR-8 pilot)** |
 | 2026-08 | Phase 5 中:国内支付跑通 + staging 上线 + AI 监管合规上线 (8 月法规生效) |
 | 2026-09 | Phase 5 完成:3-5 个试用客户 onboard + 第 1 个付费客户 |
 | 2026-10 | Phase 6 启动:marketing 站 + onboarding 流 + 钉钉/飞书集成 |
