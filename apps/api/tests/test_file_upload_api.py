@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.file_upload import router as upload_router
-from app.tools.file_parser import cleanup_temp_file
+from app.tools._file_parser_helpers import cleanup_temp_file
 
 
 @pytest.fixture
@@ -115,7 +115,7 @@ class TestUploadSuccess:
 
     def test_save_failure_returns_500(self, client: TestClient) -> None:
         """save_temp_file 抛异常 → 500."""
-        from app.tools.file_parser import ResumeDownloadError
+        from app.tools._file_parser_helpers import ResumeDownloadError
 
         with patch(
             "app.api.file_upload.save_temp_file",

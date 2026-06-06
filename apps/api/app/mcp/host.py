@@ -289,18 +289,36 @@ class MCPHost:
             }
 
     async def _inprocess_call(self, name: str, arguments: dict) -> Any:
-        """Fallback 路径：直接调 in-process handler（PR-9 完善 agent_service 集成）。
+        """Fallback 路径：调 agent_service._get_handlers() 拿 in-process handler。
 
-        v0.3 §3.3 dual-track — PR-8 pilot 阶段 stub。
-        §3.5 pytest 会 mock 此方法，不依赖真实实现。
+        v0.4a 完成：之前 PR-8 pilot 的 stub 现在真正走 agent_service
+        旧 handler 池（_BUILTIN_HANDLERS / skills / gallery / mcp_manager）。
         """
-        return {
-            "status": "failed",
-            "error": {
-                "code": "INPROCESS_NOT_IMPLEMENTED",
-                "message": f"In-process fallback for {name} not yet implemented (PR-9 TODO)",
-            },
-        }
+        from app.services.agent_service import _get_handlers
+
+        try:
+            handlers = _get_handlers()
+            handler = handlers.get(name)
+            if handler is None:
+                return {
+                    "status": "failed",
+                    "error": {
+                        "code": "NO_INPROCESS_HANDLER",
+                        "message": f"No in-process handler for {name}",
+                    },
+                }
+            result = handler(**arguments)
+            if asyncio.iscoroutine(result):
+                result = await result
+            if isinstance(result, dict) and "status" in result:
+                return result
+            return {"status": "success", "data": result}
+        except Exception as e:
+            logger.exception("_inprocess_call %s failed: %s", name, e)
+            return {
+                "status": "failed",
+                "error": {"code": "INPROCESS_ERROR", "message": str(e)},
+            }
 
     def _should_reconnect_on_error(self, e: Exception) -> bool:
         msg = str(e).lower()

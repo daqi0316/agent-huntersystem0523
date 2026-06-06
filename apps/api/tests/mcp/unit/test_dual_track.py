@@ -84,3 +84,99 @@ async def test_other_exceptions_not_caught_by_dual_track():
                 await host.call_tool("calculate", {"expression": "2*3"})
 
     mock_fb.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_inprocess_call_dispatches_to_real_handler():
+    """v0.4a: _inprocess_call 真正调 agent_service._get_handlers()。
+
+    之前 PR-8 是 stub，PR-9 验证结构，现在接 agent_service 兜底。
+    mock _get_handlers 返回一个 async handler，验证 _inprocess_call
+    调它并 wrap result。
+    """
+    from app.mcp.host import MCPHost
+
+    host = MCPHost()
+
+    async def fake_handler(**kwargs):
+        return {"computed": 2 * int(kwargs["n"])}
+
+    with patch("app.services.agent_service._get_handlers") as mock_get:
+        mock_get.return_value = {"compute": fake_handler}
+
+        result = await host._inprocess_call("compute", {"n": 21})
+
+    assert result == {"status": "success", "data": {"computed": 42}}
+    mock_get.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_inprocess_call_handles_sync_handler():
+    """v0.4a: handler 是 sync 函数时也支持（用 asyncio.iscoroutine 区分）。"""
+    from app.mcp.host import MCPHost
+
+    host = MCPHost()
+
+    def sync_handler(**kwargs):
+        return {"synced": True, "input": kwargs}
+
+    with patch("app.services.agent_service._get_handlers") as mock_get:
+        mock_get.return_value = {"sync_op": sync_handler}
+
+        result = await host._inprocess_call("sync_op", {"x": 1})
+
+    assert result == {"status": "success", "data": {"synced": True, "input": {"x": 1}}}
+
+
+@pytest.mark.asyncio
+async def test_inprocess_call_returns_error_when_no_handler():
+    """v0.4a: tool 不在 _get_handlers 字典时返 NO_INPROCESS_HANDLER。"""
+    from app.mcp.host import MCPHost
+
+    host = MCPHost()
+
+    with patch("app.services.agent_service._get_handlers") as mock_get:
+        mock_get.return_value = {}  # 没有任何 handler
+
+        result = await host._inprocess_call("nonexistent", {})
+
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "NO_INPROCESS_HANDLER"
+
+
+@pytest.mark.asyncio
+async def test_inprocess_call_wraps_already_formatted_result():
+    """v0.4a: handler 已返 {"status": ..., "data": ...} 时直接透传，不重复 wrap。"""
+    from app.mcp.host import MCPHost
+
+    host = MCPHost()
+
+    async def formatted_handler(**kwargs):
+        return {"status": "success", "data": "already-formatted"}
+
+    with patch("app.services.agent_service._get_handlers") as mock_get:
+        mock_get.return_value = {"fmt_op": formatted_handler}
+
+        result = await host._inprocess_call("fmt_op", {})
+
+    assert result == {"status": "success", "data": "already-formatted"}
+
+
+@pytest.mark.asyncio
+async def test_inprocess_call_catches_handler_exceptions():
+    """v0.4a: handler 抛异常时返 INPROCESS_ERROR，不向上传。"""
+    from app.mcp.host import MCPHost
+
+    host = MCPHost()
+
+    async def broken_handler(**kwargs):
+        raise RuntimeError("handler crashed")
+
+    with patch("app.services.agent_service._get_handlers") as mock_get:
+        mock_get.return_value = {"broken": broken_handler}
+
+        result = await host._inprocess_call("broken", {})
+
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "INPROCESS_ERROR"
+    assert "handler crashed" in result["error"]["message"]
