@@ -83,6 +83,14 @@ from app.models.experiment import (  # noqa: F401
     assign_variant,
     z_test_two_proportions,
 )
+from app.models.csm import (  # noqa: F401
+    CSMTask,
+    CSMTaskType,
+    CSMTaskStatus,
+    CSMTaskSeverity,
+    CHURN_DAYS_NO_LOGIN,
+    LOW_HEALTH_THRESHOLD,
+)
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
