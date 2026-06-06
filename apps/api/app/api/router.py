@@ -41,6 +41,8 @@ from app.api.privacy import router as privacy_router
 from app.api.ai_compliance import router as ai_compliance_router
 from app.api.anti_abuse import router as anti_abuse_router
 from app.api.onboarding import router as onboarding_router
+from app.api.growth import router as growth_router
+from app.api.dashboard_growth import router as dashboard_growth_router
 
 api_router = APIRouter()
 
@@ -134,3 +136,5 @@ api_router.include_router(privacy_router, prefix="/privacy", tags=["Privacy"])
 api_router.include_router(ai_compliance_router, prefix="/ai-compliance", tags=["AI Compliance"])
 api_router.include_router(anti_abuse_router, tags=["Anti-Abuse"])
 api_router.include_router(onboarding_router, tags=["Onboarding"])
+api_router.include_router(growth_router, tags=["Growth"])
+api_router.include_router(dashboard_growth_router, tags=["Growth Dashboard"])

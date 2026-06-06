@@ -82,6 +82,41 @@ async def run():
         logger.info("report:\n%s", report)
         await send_feishu(report)
 
+        from app.api.dashboard_growth import (
+            _cac_by_channel, _churn_30d, _customer_count, _ltv_by_plan,
+            _nps_score, _referral_summary,
+        )
+        cac = await _cac_by_channel(db)
+        churn = await _churn_30d(db)
+        ltv = await _ltv_by_plan(db)
+        nps = await _nps_score(db)
+        referral = await _referral_summary(db)
+        customers = await _customer_count(db)
+        growth_report = format_growth_report(customers, cac, ltv, churn, nps, referral)
+        logger.info("growth report:\n%s", growth_report)
+        await send_feishu(growth_report)
+
+
+def format_growth_report(customers, cac, ltv, churn, nps, referral) -> str:
+    lines = ["📈 增长周报 (内部)", ""]
+    lines.append(f"👥 客户总数: {customers['total']}")
+    lines.append(f"  by_status: {customers['by_status']}")
+    lines.append(f"  by_plan: {customers['by_plan']}")
+    lines.append("")
+    lines.append(f"🔄 30d churn: {churn['churned_30d']} 个 ({churn['churn_rate_pct']}%)")
+    lines.append("")
+    lines.append("💰 30d LTV by plan:")
+    for plan, data in ltv.items():
+        lines.append(f"  • {plan}: ¥{data.get('revenue_cents', 0) / 100:.2f} ({data.get('order_count', 0)} 单)")
+    lines.append("")
+    lines.append("👥 老带新:")
+    lines.append(f"  codes={referral['total_codes']} uses={referral['total_uses']} 转化率={referral['conversion_rate_pct']}%")
+    lines.append("")
+    lines.append("📊 CAC by channel (mock P6-1/6-8 真实接入后):")
+    for ch, data in cac.items():
+        lines.append(f"  • {ch}: ¥{data['cost_cny']} / {data['new_customers']} 客")
+    return "\n".join(lines)
+
 
 if __name__ == "__main__":
     asyncio.run(run())

@@ -68,6 +68,10 @@ from app.models.onboarding import (  # noqa: F401
     RiskLevel,
     RISK_THRESHOLDS,
 )
+from app.models.referral import (  # noqa: F401
+    ReferralCode,
+    ReferralUse,
+)
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
