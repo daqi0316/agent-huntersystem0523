@@ -1,4 +1,15 @@
-"""Skill management tools for AI recruitment assistant."""
+"""Skill management tools for AI recruitment assistant.
+
+提供:
+  - install_skill_from_url: 从 GitHub URL 装 skill（git clone + 校验 skill.py）
+  - install_skill: 从 name/description/tool_name/tool_description/handler_code 装 skill
+  - list_skills: 列出已装 skill
+  - install_gallery_skill: 从 GitHub URL 或本地路径装 gallery skill
+  - list_gallery_skills: 列出已装 gallery skill
+
+PR-1c 注释：这些工具不通过 pkgutil 自动发现（被 agent_service._register_builtins()
+显式注册到 _BUILTIN_HANDLERS），但仍需导出 tools 列表以供 _get_tools() 聚合。
+"""
 import subprocess
 from pathlib import Path
 
@@ -45,3 +56,32 @@ def handle_install_skill_from_url(url: str) -> dict:
         return {"success": False, "result": "未找到 git 命令"}
     except Exception as e:
         return {"success": False, "result": f"安装异常: {str(e)}"}
+
+
+# ── Tools（PR-5 补：原本只有 handler，CI 守门要求 tools 列表）──
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "install_skill_from_url",
+            "description": (
+                "从 GitHub URL 克隆一个 skill 仓库到 app/skills/ 目录。"
+                "clone 完后会检查是否存在 skill.py；存在则视为有效 skill。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "GitHub 仓库 URL，如 https://github.com/eze-is/web-access",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
+]
+
+handlers = {
+    "install_skill_from_url": handle_install_skill_from_url,
+}

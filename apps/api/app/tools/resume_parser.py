@@ -33,7 +33,7 @@ async def _handle_parse_resume(
 
     # ── 文件下载：file_url → 临时文件 → 解析 ────────────────────────
     if file_url and not content:
-        from app.tools.file_parser import download_and_save, cleanup_temp_file
+        from app.tools._file_parser_helpers import download_and_save, cleanup_temp_file
         from app.services.resume_parser import parse_resume as _parse_resume_file, ResumeParseError
 
         tmp_path = None

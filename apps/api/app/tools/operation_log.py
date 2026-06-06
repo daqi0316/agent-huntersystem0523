@@ -1,15 +1,33 @@
-"""Operation logging tool — 统一记录 Agent 和人工操作到 operation_logs 表。"""
+"""Operation logging tool — 记录 Agent 和人工操作到 operation_logs 表（v4 加 Pydantic InputModel）。"""
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal, Optional
 
-from app.core.database import AsyncSessionLocal
-from app.services.operation_service import OperationService
-from app.models.operation_log import OperationStatus, ErrorCategory
+from pydantic import BaseModel, Field
+
+from app.tools.metadata import Capability, register_tool
 
 logger = logging.getLogger(__name__)
+
+
+class LogOperationInput(BaseModel):
+    """log_operation tool 输入。"""
+
+    action: str = Field(..., min_length=1, description="操作名称，如 create_candidate")
+    status: Literal["pending", "running", "completed", "failed", "cancelled"] = Field(
+        ..., description="操作状态"
+    )
+    agent_name: str = Field(default="agent", description="来源：agent / human")
+    user_id: Optional[str] = Field(default=None, description="用户 ID（人工操作时填写）")
+    input_summary: Optional[str] = Field(default=None, description="输入摘要")
+    output_summary: Optional[str] = Field(default=None, description="输出摘要")
+    error_message: Optional[str] = Field(default=None, description="错误信息")
+    error_category: Optional[Literal["system", "user", "business"]] = Field(
+        default=None, description="错误分类"
+    )
+    metadata: Optional[dict[str, Any]] = Field(default=None, description="额外元数据")
 
 
 async def _handle_log_operation(
@@ -23,6 +41,10 @@ async def _handle_log_operation(
     error_category: str = "",
     metadata: dict | None = None,
 ) -> dict[str, Any]:
+    from app.core.database import AsyncSessionLocal
+    from app.services.operation_service import OperationService
+    from app.models.operation_log import OperationStatus, ErrorCategory
+
     try:
         op_status = OperationStatus(status)
     except ValueError:
@@ -56,11 +78,22 @@ async def _handle_log_operation(
             "data": {
                 "operation_id": op.id,
                 "action": op.action,
-                "status": op.status.value if hasattr(op.status, 'value') else op.status,
+                "status": op.status.value if hasattr(op.status, "value") else op.status,
                 "created_at": op.created_at.isoformat() if op.created_at else "",
             },
         }
 
+
+register_tool(
+    "log_operation",
+    retryable=False,
+    max_retries=0,
+    capability=Capability.WRITE,  # 写审计日志
+    input_model=LogOperationInput,
+    description="记录操作到统一的审计日志（operation_logs 表）。",
+    version="1.0.0",
+    handler=_handle_log_operation,
+)
 
 tools = [
     {

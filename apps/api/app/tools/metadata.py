@@ -1,11 +1,24 @@
-"""Tool metadata registry — retry policy, escalation strategy per tool."""
+"""Tool metadata registry — retry policy, escalation, capability, Pydantic input per tool.
 
+向后兼容：旧 register_tool() 调用照常工作。
+新功能（v4 V-3 Pydantic 强校验）：
+  - register_tool() 加 input_model / capability / requires_role / version / rate_limit
+  - get_input_model() 查 Pydantic BaseModel
+  - get_capability() 查 read/write/destructive/admin
+"""
 from __future__ import annotations
 
 import enum
 import functools
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Optional, Type
+
+try:
+    from pydantic import BaseModel
+    PYDANTIC_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    PYDANTIC_AVAILABLE = False
+    BaseModel = None  # type: ignore
 
 
 class EscalationMode(str, enum.Enum):
@@ -14,12 +27,29 @@ class EscalationMode(str, enum.Enum):
     REQUIRES_APPROVAL = "requires_approval"
 
 
+class Capability(str, enum.Enum):
+    """工具能力分级（V-3 RBAC 依据）。"""
+
+    READ = "read"               # 读操作（get_*, list_*, search_*）
+    WRITE = "write"             # 写操作（create_*, update_*）
+    DESTRUCTIVE = "destructive" # 破坏性（delete_*, archive_*, cancel_*）
+    ADMIN = "admin"             # 管理（install_skill, drop_cache）
+
+
 @dataclass
 class ToolMetadata:
     retryable: bool = False
     max_retries: int = 0
     escalation: EscalationMode = EscalationMode.NONE
     description: str = ""
+    # ── v4 新增字段（V-3/V-4 修复）──
+    input_model: Optional[Type] = None  # Pydantic BaseModel，call_tool 前强校验
+    capability: Capability = Capability.READ
+    requires_role: Optional[str] = None  # hr / admin / recruiter
+    rate_limit: int = 0  # 每用户每小时最多 N 次（0 = 不限）
+    version: str = "1.0.0"
+    deprecated: bool = False
+    replacement: Optional[str] = None
 
 
 TOOL_METADATA: dict[str, ToolMetadata] = {}
@@ -27,19 +57,65 @@ TOOL_METADATA: dict[str, ToolMetadata] = {}
 
 def register_tool(
     name: str,
+    *,
     retryable: bool = False,
     max_retries: int = 0,
     escalation: EscalationMode = EscalationMode.NONE,
     description: str = "",
+    # v4 新增（全部可选，向后兼容）
+    input_model: Optional[Type] = None,
+    capability: Capability | str = Capability.READ,
+    requires_role: Optional[str] = None,
+    rate_limit: int = 0,
+    version: str = "1.0.0",
+    deprecated: bool = False,
+    replacement: Optional[str] = None,
+    # ── 双用法支持：handler 显式传入时立即注册（v4 V-3 修复）──
+    handler: Optional[Callable] = None,
 ) -> Callable:
-    def decorator(fn: Callable) -> Callable:
+    """注册 tool metadata。两种用法：
+
+    1. 装饰器（向后兼容）：
+        @register_tool("calc", retryable=True, input_model=CalculateInput)
+        def calc_handler(...): ...
+
+    2. 直接调用（用于已存在的 _handle_xxx 函数，v4 修复 register_tool 当函数调用的 bug）：
+        register_tool("calc", handler=_handle_calc, input_model=CalculateInput, retryable=True)
+    """
+    # 接受 str 或 enum
+    if isinstance(capability, str):
+        try:
+            cap = Capability(capability)
+        except ValueError:
+            cap = Capability.READ
+    else:
+        cap = capability
+
+    def _build_entry(fn: Optional[Callable] = None) -> None:
         TOOL_METADATA[name] = ToolMetadata(
             retryable=retryable,
             max_retries=max_retries,
             escalation=escalation,
             description=description,
+            input_model=input_model,
+            capability=cap,
+            requires_role=requires_role,
+            rate_limit=rate_limit,
+            version=version,
+            deprecated=deprecated,
+            replacement=replacement,
         )
+
+    if handler is not None:
+        # 用法 2：直接调用，立即注册
+        _build_entry()
+        return handler
+
+    # 用法 1：装饰器
+    def decorator(fn: Callable) -> Callable:
+        _build_entry()
         return fn
+
     return decorator
 
 
@@ -58,6 +134,30 @@ def get_max_retries(tool_name: str) -> int:
 
 def should_escalate(tool_name: str) -> EscalationMode:
     return get_metadata(tool_name).escalation
+
+
+# ── v4 新增查询 API ──────────────────────────────────────────────────────
+def get_input_model(tool_name: str) -> Optional[Type]:
+    return get_metadata(tool_name).input_model
+
+
+def get_capability(tool_name: str) -> Capability:
+    return get_metadata(tool_name).capability
+
+
+def get_requires_role(tool_name: str) -> Optional[str]:
+    return get_metadata(tool_name).requires_role
+
+
+def is_deprecated(tool_name: str) -> bool:
+    return get_metadata(tool_name).deprecated
+
+
+def deprecate_tool(name: str, replacement: Optional[str] = None) -> None:
+    """标 deprecated（V-4 schema 演进）。"""
+    if name in TOOL_METADATA:
+        TOOL_METADATA[name].deprecated = True
+        TOOL_METADATA[name].replacement = replacement
 
 
 # ── Tool metadata registration ──────────────────────────────────────────────

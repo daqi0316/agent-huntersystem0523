@@ -220,13 +220,29 @@ async def _register_builtins():
 
 
 def _get_tools() -> list[dict]:
-    tools = _BUILTIN_TOOLS + _BUILTIN_INSTALL_TOOLS + all_skill_tools() + get_gallery_tools() + mcp_manager.get_all_tools()
+    """聚合所有 tool schemas（PR-1c：移除 mcp_manager 旧路径）。
+
+    顺序：
+      1. builtin tools（24 个 Python 函数）
+      2. 远程 MCP servers 的 tools（MCPManager 保留做 HTTP/SSE 远程）
+      3. skills（外部 SkillLoader）
+      4. gallery skills
+      5. 按需的 load_skill 元工具
+    """
+    tools = _BUILTIN_TOOLS + mcp_manager.get_all_tools() + all_skill_tools() + get_gallery_tools()
     if SKILLS_ENABLED:
         tools = tools + _get_skill_tool_schemas()
     return tools
 
 
 def _get_handlers() -> dict[str, callable]:
+    """PR-1c：优先 MCPHost 走 new path，失败 fallback 旧 handler。
+
+    策略：
+      1. 收集所有 old handler（_BUILTIN_HANDLERS / skills / gallery / mcp_manager）
+      2. 对每个 handler，如果 MCPHost 里有同名 tool，AB wrap（new=host, old=原 handler）
+      3. MCPHost 没有 → 保留 old handler（不 wrap）
+    """
     handlers = dict(_BUILTIN_HANDLERS)
     handlers.update(all_skill_handlers())
     handlers.update(get_gallery_handlers())
@@ -241,7 +257,42 @@ def _get_handlers() -> dict[str, callable]:
                 handlers[name] = make_handler(sid, name)
     if SKILLS_ENABLED:
         handlers.update(_get_skill_tool_handlers())
+
+    # ── PR-1c: 所有工具都走 AB wrap（不再有白名单）──
+    # 哪些工具 AB wrap：MCPHost 已 registered 的所有工具（最大 24+）
+    # 不在 host 的：保留原 handler（不 wrap）
+    for tool_name in list(handlers.keys()):
+        new_handler = _make_mcp_host_handler(tool_name)
+        if new_handler is None:
+            continue
+        old_handler = handlers[tool_name]
+        handlers[tool_name] = _ab_wrap(tool_name, old_handler, new_handler)
     return handlers
+
+
+def _make_mcp_host_handler(tool_name: str):
+    """构造走 MCPHost.call_tool 的 handler（如果 host 已 connected）。"""
+    from app.mcp.host import mcp_host
+
+    async def _new_handler(**kwargs):
+        return await mcp_host.call_tool(tool_name, kwargs)
+    # host 已 started 且 tool 在 registry 里才能 wrap（registry 检查 server 是不是连了）
+    if not getattr(mcp_host, "_started", False):
+        return None
+    if not mcp_host.registry.has(tool_name):
+        return None
+    return _new_handler
+
+
+def _ab_wrap(tool_name: str, old_handler, new_handler):
+    """按 A/B config 包装 handler（PR-1b 灰度 → PR-1c 全量）。"""
+    from app.mcp.ab_router import ab_wrap_handler
+
+    return ab_wrap_handler(
+        tool=tool_name,
+        old_handler=old_handler,
+        new_handler=new_handler,
+    )
 
 
 async def _load_and_merge_history(

@@ -38,6 +38,8 @@ from app.api.users import router as users_router
 from app.api.health import router as health_router
 from app.api.payment import router as payment_router
 from app.api.privacy import router as privacy_router
+from app.api.mcp_tools import router as mcp_tools_router  # PR-1a: MCP host endpoints
+from app.api.mcp_ab import router as mcp_ab_router  # PR-1b: A/B routing admin
 from app.api.ai_compliance import router as ai_compliance_router
 from app.api.anti_abuse import router as anti_abuse_router
 from app.api.onboarding import router as onboarding_router
@@ -156,3 +158,4 @@ api_router.include_router(dingtalk_oauth_router, prefix="/oauth", tags=["OAuth"]
 api_router.include_router(notification_sms_router, tags=["Notification"])
 api_router.include_router(wechat_template_router, tags=["Notification"])
 api_router.include_router(feishu_wecom_oauth_router, prefix="/oauth", tags=["OAuth"])
+api_router.include_router(mcp_ab_router)  # PR-1b: /api/v1/mcp/ab/*

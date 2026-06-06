@@ -1,0 +1,128 @@
+# MCP CI workflow（v4 PR-5）
+# 跑：check_mcp_servers.py + pytest + health-check
+# 任何一步失败 → CI 红色
+
+name: MCP CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "apps/api/app/mcp/**"
+      - "apps/api/app/mcp_servers/**"
+      - "apps/api/app/tools/**"
+      - "apps/api/app/skills/**"
+      - "apps/api/app/core/mcp_alerts.py"
+      - "scripts/check_mcp_servers.py"
+      - "scripts/health-check.sh"
+      - ".pre-commit-config.yaml"
+      - ".github/workflows/mcp-ci.yml"
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  static-check:
+    name: Static check (MCP tool schema, skills, config)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install dependencies
+        working-directory: apps/api
+        run: |
+          python -m pip install uv
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -r requirements.txt
+      - name: Run check_mcp_servers.py
+        working-directory: apps/api
+        run: |
+          source .venv/bin/activate
+          python ../scripts/check_mcp_servers.py --quick
+
+  unit-tests:
+    name: Unit + Integration tests (MCP)
+    runs-on: ubuntu-latest
+    needs: static-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install dependencies
+        working-directory: apps/api
+        run: |
+          python -m pip install uv
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -r requirements.txt
+      - name: Run pytest
+        working-directory: apps/api
+        run: |
+          source .venv/bin/activate
+          .venv/bin/python -m pytest tests/mcp/ -v --tb=short
+
+  health-check:
+    name: System health check (6 steps + MCP server)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports: ["6333:6333"]
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: minio123
+        ports: ["9000:9000"]
+        options: --health-cmd "curl -f http://localhost:9000/minio/health/ready" --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install dependencies
+        working-directory: apps/api
+        run: |
+          python -m pip install uv
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -r requirements.txt
+      - name: Run migrations
+        working-directory: apps/api
+        run: |
+          source .venv/bin/activate
+          alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+      - name: Start API
+        working-directory: apps/api
+        run: |
+          source .venv/bin/activate
+          nohup .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 >/tmp/api.log 2>&1 &
+          sleep 10  # 等启动
+      - name: Health check
+        run: |
+          chmod +x scripts/health-check.sh
+          bash scripts/health-check.sh
