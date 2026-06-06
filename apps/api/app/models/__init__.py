@@ -61,6 +61,13 @@ from app.models.anti_abuse import (  # noqa: F401
     SMS_MAX_ATTEMPTS,
     DeviceFingerprint,
 )
+from app.models.onboarding import (  # noqa: F401
+    BatchImportRequest,
+    BatchImportStatus,
+    CustomerHealthScore,
+    RiskLevel,
+    RISK_THRESHOLDS,
+)
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",

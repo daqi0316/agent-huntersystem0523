@@ -40,6 +40,7 @@ from app.api.payment import router as payment_router
 from app.api.privacy import router as privacy_router
 from app.api.ai_compliance import router as ai_compliance_router
 from app.api.anti_abuse import router as anti_abuse_router
+from app.api.onboarding import router as onboarding_router
 
 api_router = APIRouter()
 
@@ -132,3 +133,4 @@ api_router.include_router(payment_router, prefix="/payment", tags=["Payment"])
 api_router.include_router(privacy_router, prefix="/privacy", tags=["Privacy"])
 api_router.include_router(ai_compliance_router, prefix="/ai-compliance", tags=["AI Compliance"])
 api_router.include_router(anti_abuse_router, tags=["Anti-Abuse"])
+api_router.include_router(onboarding_router, tags=["Onboarding"])
