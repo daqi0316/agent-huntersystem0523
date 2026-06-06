@@ -91,6 +91,10 @@ from app.models.csm import (  # noqa: F401
     CHURN_DAYS_NO_LOGIN,
     LOW_HEALTH_THRESHOLD,
 )
+from app.models.notification import (  # noqa: F401
+    Notification,
+    NotificationType,
+)
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
