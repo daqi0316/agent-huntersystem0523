@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     wechat_qrcode_expire_seconds: int = 600
     wechat_mock_mode: bool = True
 
+    rate_limit_org_per_min: int = 100
+    rate_limit_user_per_min: int = 60
+    rate_limit_ip_per_min: int = 30
+    rate_limit_rollout_pct: int = 100
+    quota_alert_threshold_pct: int = 80
+
     wechat_pay_merchant_id: str = ""
     wechat_pay_api_key: str = ""
     wechat_pay_cert_path: str = ""

@@ -8,6 +8,7 @@ import { TelemetryBoot } from "@/components/common/telemetry-boot";
 import { SentryBoot } from "@/components/common/sentry-boot";
 import { AgentProvider } from "@/hooks/chat/agent-context";
 import { CookieConsent } from "@/components/common/cookie-consent";
+import { RateLimitToast } from "@/components/common/rate-limit-toast";
 
 export default function DashboardLayout({
   children,
@@ -38,6 +39,7 @@ export default function DashboardLayout({
         toastOptions={{ duration: 4000 }}
       />
       <CookieConsent />
+      <RateLimitToast />
     </ThemeProvider>
   );
 }

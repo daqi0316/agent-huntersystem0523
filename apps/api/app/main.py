@@ -173,7 +173,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.middleware("http")(create_rate_limit_middleware(limit=100, window=60))
+app.middleware("http")(create_rate_limit_middleware(
+    limit=100,
+    window=60,
+    rollout_pct=int(os.getenv("RATELIMIT_ROLLOUT_PCT", "100")),
+))
 
 
 # ── Unified error response ────────────────────────────────────────────

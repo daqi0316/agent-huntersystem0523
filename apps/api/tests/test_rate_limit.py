@@ -134,7 +134,9 @@ class TestRateLimitMiddleware:
         async def health():
             return {"status": "ok"}
 
-        app.middleware("http")(create_rate_limit_middleware(limit=3, window=60))
+        app.middleware("http")(create_rate_limit_middleware(
+            limits={"ip": (3, 60), "user": (3, 60), "org": (3, 60)},
+        ))
 
         return app
 
@@ -158,6 +160,7 @@ class TestRateLimitMiddleware:
         assert data["success"] is False
         assert "error" in data
         assert "Retry-After" in resp.headers
+        assert "X-RateLimit-Key" in resp.headers
 
     def test_excluded_paths_are_not_limited(self, client):
         for i in range(10):
