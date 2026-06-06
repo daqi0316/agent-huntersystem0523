@@ -72,6 +72,17 @@ from app.models.referral import (  # noqa: F401
     ReferralCode,
     ReferralUse,
 )
+from app.models.experiment import (  # noqa: F401
+    Experiment,
+    ExperimentAssignment,
+    ExperimentEvent_,
+    ExperimentStatus,
+    ExperimentEvent,
+    MIN_SAMPLE_SIZE,
+    SIGNIFICANCE_Z,
+    assign_variant,
+    z_test_two_proportions,
+)
 
 __all__ = [
     "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
