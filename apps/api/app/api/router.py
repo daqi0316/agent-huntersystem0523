@@ -46,6 +46,7 @@ from app.api.dashboard_growth import router as dashboard_growth_router
 from app.api.experiment import router as experiment_router
 from app.api.csm import router as csm_router
 from app.api.notification import router as notification_router
+from app.api.legal import router as legal_router
 
 api_router = APIRouter()
 
@@ -144,3 +145,4 @@ api_router.include_router(dashboard_growth_router, tags=["Growth Dashboard"])
 api_router.include_router(experiment_router, tags=["Experiment"])
 api_router.include_router(csm_router, tags=["CSM"])
 api_router.include_router(notification_router, tags=["Notification"])
+api_router.include_router(legal_router, tags=["Legal"])

@@ -36,6 +36,7 @@ class AuditLogAction(str, enum.Enum):
     APPEAL_RESOLVED = "appeal_resolved"
     PHONE_BOUND = "phone_bound"
     LLM_CIRCUIT_BREAKER = "llm_circuit_breaker"
+    LEGAL_ACCEPTANCE = "legal_acceptance"
 
 
 class AuditLog(Base):
