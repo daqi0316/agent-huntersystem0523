@@ -5,6 +5,7 @@ import { Header } from "@/components/common/header";
 import { AuthGuard } from "@/components/common/auth-guard";
 import { ErrorBoundary } from "@/components/common/error-boundary";
 import { TelemetryBoot } from "@/components/common/telemetry-boot";
+import { SentryBoot } from "@/components/common/sentry-boot";
 import { AgentProvider } from "@/hooks/chat/agent-context";
 import { CookieConsent } from "@/components/common/cookie-consent";
 
@@ -16,6 +17,7 @@ export default function DashboardLayout({
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TelemetryBoot />
+      <SentryBoot />
       <AuthGuard>
         <AgentProvider>
           <div className="flex h-screen overflow-hidden">

@@ -16,7 +16,8 @@ from app.core.config import settings
 from app.core.rate_limit import create_rate_limit_middleware
 from app.core.redis import close_redis
 from app.core.qdrant import close_qdrant
-from app.core.telemetry import api_request_total, render_prometheus
+from app.core.sentry_setup import init_sentry
+from app.core.telemetry import api_request_total, record_http_request, render_prometheus
 from app.api.router import api_router
 from app.agents.bootstrap import init_agents
 from app.services.recommendation_scheduler import recommendation_scheduler_loop
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s v0.1.0", settings.app_name)
+
+    # P5-7: Sentry 启动 (无 DSN 则跳过)
+    init_sentry()
 
     # ── Schema 审计（防止 model enum/UUID 与 DB 不一致时静默 500）──
     # L2 启动期护栏：L1 编译期（pre-commit）+ 测试期（集成测试）失效时的兜底
@@ -123,27 +127,42 @@ app = FastAPI(
 async def request_logging_middleware(request: Request, call_next):
     """Log each request method, path, status, and duration; count via Prometheus."""
     start = time.monotonic()
-    response = await call_next(request)
-    elapsed = time.monotonic() - start
-    # T6: 用 matched route template 作为 label（防 UUID 爆 cardinality）
-    route = request.scope.get("route")
-    path_label = getattr(route, "path", request.url.path)
+    status_code = 500
     try:
-        api_request_total.labels(
-            method=request.method,
-            path=path_label,
-            status=str(response.status_code),
-        ).inc()
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
     except Exception:
-        pass
-    logger.info(
-        "%s %s → %s (%.0fms)",
-        request.method,
-        request.url.path,
-        response.status_code,
-        elapsed * 1000,
-    )
-    return response
+        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+        raise
+    finally:
+        elapsed = time.monotonic() - start
+        route = request.scope.get("route")
+        path_label = getattr(route, "path", request.url.path)
+        try:
+            api_request_total.labels(
+                method=request.method,
+                path=path_label,
+                status=str(status_code),
+            ).inc()
+        except Exception:
+            pass
+        try:
+            record_http_request(
+                method=request.method,
+                path=path_label,
+                status=status_code,
+                duration_seconds=elapsed,
+            )
+        except Exception:
+            pass
+        logger.info(
+            "%s %s → %s (%.0fms)",
+            request.method,
+            request.url.path,
+            status_code,
+            elapsed * 1000,
+        )
 
 
 app.add_middleware(
