@@ -6,6 +6,11 @@
   - session 生命周期 = AsyncExitStack 生命周期
   - 进程死了：用 psutil 检测 → reconnect（清旧 + 重新 enter）
   - shutdown：close exit_stack（自动清理所有子进程）
+
+PR-8 增量（v0.3 §3.4 dual-track supervisor）：
+  - self._supervisor: ProcessSupervisor 实例（spawn/watchdog/restart）
+  - call_tool 拆 _subprocess_call + _inprocess_call
+  - subprocess 失败 → fallback 到 in-process handler（PR-9 完善）
 """
 from __future__ import annotations
 
@@ -28,9 +33,18 @@ from app.mcp.metrics import (
     record_validation_error,
 )
 from app.mcp.registry import ToolEntry, ToolRegistry
+from app.mcp.supervisor import ProcessSupervisor
 from app.tools.metadata import get_input_model
 
 logger = logging.getLogger(__name__)
+
+
+class SubprocessDown(Exception):
+    """subprocess 路径抛此异常 → fallback 到 in-process。"""
+
+
+class CallTimeout(Exception):
+    """call 超时（v0.3 §3.2 F-3 网络卡死场景）→ fallback 到 in-process。"""
 
 
 class MCPHost:
@@ -52,6 +66,7 @@ class MCPHost:
         self._start_lock = False  # 简单 flag 防并发 start
         self._shutdown = False  # 简单 flag（coroutine safe 因为只写一次）
         self._started = False
+        self._supervisor = ProcessSupervisor()
 
     async def start(
         self,
@@ -196,6 +211,7 @@ class MCPHost:
             task.cancel()
         await asyncio.gather(*self._watch_tasks.values(), return_exceptions=True)
         self._watch_tasks.clear()
+        await self._supervisor.shutdown()
         if self._exit_stack is not None:
             try:
                 await asyncio.wait_for(self._exit_stack.aclose(), timeout=10.0)
@@ -213,6 +229,16 @@ class MCPHost:
         logger.info("MCPHost shutdown complete")
 
     async def call_tool(
+        self, name: str, arguments: dict, *, user_id: str | None = None
+    ) -> Any:
+        """v0.3 §3.3 dual-track: subprocess 失败 → fallback in-process。"""
+        try:
+            return await self._subprocess_call(name, arguments, user_id=user_id)
+        except (SubprocessDown, CallTimeout) as e:
+            logger.warning("subprocess fallback to in-process: %s", e)
+            return await self._inprocess_call(name, arguments)
+
+    async def _subprocess_call(
         self, name: str, arguments: dict, *, user_id: str | None = None
     ) -> Any:
         entry = self.registry.get(name)
@@ -237,10 +263,7 @@ class MCPHost:
         session = self._sessions.get(entry.server_id)
         if session is None:
             record_call(name, entry.server_id, "server_down", 0.0)
-            return {
-                "status": "failed",
-                "error": {"code": "SERVER_DOWN", "message": f"Server {entry.server_id} not connected"},
-            }
+            raise SubprocessDown(f"Server {entry.server_id} not connected")
 
         start = time.time()
         try:
@@ -259,10 +282,25 @@ class MCPHost:
             record_call(name, entry.server_id, "handler_error", duration)
             if self._should_reconnect_on_error(e):
                 await self._handle_session_dead(self._configs[entry.server_id])
+                raise SubprocessDown(f"Server {entry.server_id} died") from e
             return {
                 "status": "failed",
                 "error": {"code": "HANDLER_ERROR", "message": str(e)},
             }
+
+    async def _inprocess_call(self, name: str, arguments: dict) -> Any:
+        """Fallback 路径：直接调 in-process handler（PR-9 完善 agent_service 集成）。
+
+        v0.3 §3.3 dual-track — PR-8 pilot 阶段 stub。
+        §3.5 pytest 会 mock 此方法，不依赖真实实现。
+        """
+        return {
+            "status": "failed",
+            "error": {
+                "code": "INPROCESS_NOT_IMPLEMENTED",
+                "message": f"In-process fallback for {name} not yet implemented (PR-9 TODO)",
+            },
+        }
 
     def _should_reconnect_on_error(self, e: Exception) -> bool:
         msg = str(e).lower()
