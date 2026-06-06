@@ -13,6 +13,7 @@ from typing import Any
 from app.core.database import AsyncSessionLocal
 from app.llm import get_llm_client
 from app.agents.pii_filter import mask_pii
+from app.models.raw_resume import RawResume, RawResumeStatus, new_raw_resume_id
 from app.services.resume_extractor import extract_from_text
 from app.services.candidate import CandidateService
 
@@ -27,7 +28,14 @@ async def _handle_parse_resume(
     target_job_id: str = "",
     auto_create: bool = True,
 ) -> dict[str, Any]:
-    """Parse a single resume: extract structured data, assess quality, detect duplicates."""
+    """Parse a single resume: extract structured data, assess quality, detect duplicates.
+
+    v0.4d 事务边界：
+    1. 文件解析成功 → raw_text 立刻落 raw_resumes 表 (status=processing)
+    2. LLM extract
+    3. 成功 → 创建候选人 + 更新 raw_resumes (status=parsed, candidate_id=xxx)
+    4. 失败 → 更新 raw_resumes (status=failed, error_message=xxx)，raw_text 保留供 retry
+    """
     if not content and not file_url:
         return {"status": "failed", "error": {"code": "INVALID_INPUT", "message": "content or file_url required"}}
 
@@ -38,7 +46,6 @@ async def _handle_parse_resume(
 
         tmp_path = None
         try:
-            # 生成临时文件名（保留扩展名）
             ext = file_type or (filename.rsplit(".", 1)[-1].lower() if filename else "pdf")
             resolved_filename = filename or f"resume.{ext}"
             tmp_path = await download_and_save(file_url, resolved_filename)
@@ -54,6 +61,20 @@ async def _handle_parse_resume(
             if tmp_path:
                 cleanup_temp_file(tmp_path)
 
+    raw_resume_id = new_raw_resume_id()
+    async with AsyncSessionLocal() as db:
+        raw_resume = RawResume(
+            id=raw_resume_id,
+            raw_text=content,
+            file_url=file_url or None,
+            file_type=file_type or None,
+            filename=filename or None,
+            target_job_id=target_job_id or None,
+            status=RawResumeStatus.PROCESSING,
+        )
+        db.add(raw_resume)
+        await db.commit()
+
     candidate = None
     try:
         candidate = await extract_from_text(content)
@@ -62,10 +83,16 @@ async def _handle_parse_resume(
         candidate = None
 
     if candidate is None or not candidate.email:
+        async with AsyncSessionLocal() as db:
+            rr = await db.get(RawResume, raw_resume_id)
+            if rr is not None:
+                rr.status = RawResumeStatus.FAILED
+                rr.error_message = "low_confidence_or_extraction_error"
+                await db.commit()
         return {
             "status": "failed",
             "error": {"code": "LOW_CONFIDENCE", "message": "解析置信度过低，无法提取有效信息", "retryable": True},
-            "data": {"raw_text_snippet": content[:500]},
+            "data": {"raw_resume_id": raw_resume_id, "raw_text_snippet": content[:500]},
         }
 
     candidate_id = ""
@@ -89,6 +116,22 @@ async def _handle_parse_resume(
                 logger.info("Auto-created candidate %s from resume parse", candidate_id)
         except Exception as e:
             logger.warning("Auto-create candidate failed (non-blocking): %s", e)
+    else:
+        return {
+            "status": "success",
+            "data": {
+                "raw_resume_id": raw_resume_id,
+                "candidate_id": "",
+                "auto_create_skipped": True,
+            },
+        }
+
+    async with AsyncSessionLocal() as db:
+        rr = await db.get(RawResume, raw_resume_id)
+        if rr is not None:
+            rr.status = RawResumeStatus.PARSED
+            rr.candidate_id = candidate_id or None
+            await db.commit()
 
     skills = list(candidate.skills or [])
     result = {
