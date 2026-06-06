@@ -15,6 +15,21 @@
       "extra_env": {
         "PYTHONUNBUFFERED": "1"
       }
+    },
+    {
+      "id": "mcp-weather",
+      "command": ".venv/bin/python",
+      "args": ["-m", "app.mcp_servers.builtin.weather_server"],
+      "startup_phase": "core",
+      "restart": "on-failure",
+      "max_restarts": 5,
+      "timeout": 30,
+      "capability": "read",
+      "version": "1.0.0",
+      "env_keys": [],
+      "extra_env": {
+        "PYTHONUNBUFFERED": "1"
+      }
     }
   ]
 }
