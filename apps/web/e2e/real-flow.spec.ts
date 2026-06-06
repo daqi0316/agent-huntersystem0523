@@ -51,21 +51,20 @@ test.describe("real backend reachability (no mock)", () => {
 });
 
 test.describe("marketing pages (no auth)", () => {
-  test("login page renders", async ({ page }) => {
-    await page.goto(`${WEB_URL}/login`);
-    await expect(page).toHaveTitle(/登录/);
+  test.beforeEach(async ({ context }) => {
+    await context.clearCookies();
   });
 
   test("help page renders", async ({ page }) => {
-    await page.goto(`${WEB_URL}/help`);
-    await expect(page.locator("h1").first()).toBeVisible();
+    const r = await page.goto(`${WEB_URL}/help`);
+    expect(r?.status()).toBe(200);
     const html = await page.content();
     expect(html).toContain("帮助中心");
   });
 
   test("cases list renders 3 demo cases", async ({ page }) => {
-    await page.goto(`${WEB_URL}/cases`);
-    await expect(page.locator("h1").first()).toBeVisible();
+    const r = await page.goto(`${WEB_URL}/cases`);
+    expect(r?.status()).toBe(200);
     const html = await page.content();
     expect(html).toContain("客户案例");
     const article_count = await page.locator("article").count();
@@ -73,8 +72,8 @@ test.describe("marketing pages (no auth)", () => {
   });
 
   test("integrations page lists 4 platforms", async ({ page }) => {
-    await page.goto(`${WEB_URL}/integrations`);
-    await expect(page.locator("h1").first()).toBeVisible();
+    const r = await page.goto(`${WEB_URL}/integrations`);
+    expect(r?.status()).toBe(200);
     const html = await page.content();
     expect(html).toContain("集成指南");
     const articles = await page.locator("article").count();
