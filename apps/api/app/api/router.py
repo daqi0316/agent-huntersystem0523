@@ -48,6 +48,7 @@ from app.api.csm import router as csm_router
 from app.api.notification import router as notification_router
 from app.api.legal import router as legal_router
 from app.api.support import router as support_router
+from app.api.dingtalk_oauth import router as dingtalk_oauth_router
 
 api_router = APIRouter()
 
@@ -148,3 +149,4 @@ api_router.include_router(csm_router, tags=["CSM"])
 api_router.include_router(notification_router, tags=["Notification"])
 api_router.include_router(legal_router, tags=["Legal"])
 api_router.include_router(support_router, prefix="/support", tags=["Support"])
+api_router.include_router(dingtalk_oauth_router, prefix="/oauth", tags=["OAuth"])

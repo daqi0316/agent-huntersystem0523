@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     wechat_qrcode_expire_seconds: int = 600
     wechat_mock_mode: bool = True
 
+    dingtalk_corp_id: str = ""
+    dingtalk_agent_id: str = ""
+    dingtalk_app_secret: str = ""
+    dingtalk_oauth_redirect_uri: str = "http://localhost:3000/api/auth/dingtalk/callback"
+    dingtalk_qrcode_expire_seconds: int = 600
+    dingtalk_mock_mode: bool = True
+
     rate_limit_org_per_min: int = 100
     rate_limit_user_per_min: int = 60
     rate_limit_ip_per_min: int = 30
