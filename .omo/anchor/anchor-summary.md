@@ -1,12 +1,14 @@
 # Anchored Summary
 
 ## SHORT VERSION
-**Phase V ✅ COMPLETE (4 of 4 PRs shipped)**. PR-V.1: `orchestrator_graph.py` multi-stage DAG support — `7bf5d57`. PR-V.2: `human_loop /resume` migrated to `graph.update_state` + `ainvoke(None, config)` with legacy fallback — `c2119e3`. PR-V.3: `chat_with_tools` Step 1 migrated from `OrchestratorAgent().run()/route_single()` to `create_orchestrator_graph().ainvoke()` + `_adapt_graph_result_to_legacy()` — `6f4898c`. **PR-V.4: legacy files deleted + 5 OrchestratorAgent methods inlined into orchestrator_graph** — `ae5a49e` (feat) + `c6e283d` (docs). Combined: 70 new tests (PR-V.1+2+3) + 19 file deletions (PR-V.4) + 1140 net additional regression tests = 1320 pass / 4 skip / 24 xfail / 2 xpass / **0 fail**. Phase V exit criteria: 6/7 met (only `/legacy/analyze` 1-week traffic monitoring + Redis `OrchestratorSession` key drain remain — both automated via TTL).
+**Phase V ✅ COMPLETE (4 of 4 PRs shipped)** + **MCP v4 Layer ✅ COMPLETE (PR-8 + PR-9 + v0.4, 7 commits + 2 docs + 1 re-plan)**. MCP v4 拆 38 工具到 14 server，加 dual-track supervisor + circuit breaker + 14 server phase 重排 + resume_parser 事务边界。Tests: 1320 pass / 0 fail (Phase V) + 5/5 (`_inprocess_call`) + 5/5 (circuit breaker) + 10/10 (cold start) + 3/3 (resume_parser 事务) + 14/14 (14 server e2e lifecycle) = **~1357+ pass / 0 fail**。Health-check 14/14。`mcp-v4-v0.4-shipped` tag 落地。**Next: v0.5a (refactor + 恢复 v0.4d LLM 成功测) — 0.5d, 1 commit**。
 
 ## WHAT WE ARE BUILDING
 AI Recruitment System — FastAPI + Next.js 14 monorepo with 6 Agent patterns (Pipeline, Router, Orchestrator with DAG, Aggregator, GenEvalLoop, HumanLoop), dual LLM support, PostgreSQL/Redis/Qdrant storage, and RAG-powered candidate screening.
 
 Phase V is the sunset-migration plan: retire legacy `orchestrator.py` + `OrchestratorSession` + `OrchestratorAgent` in favor of the new LangGraph-based `orchestrator_graph.py` (file added in commit `a8b0212`). **All 4 PRs done** — the legacy `OrchestratorAgent` and `OrchestratorSession` classes no longer exist in the codebase.
+
+**MCP v4 Layer** is a NEW track (not in 2026-06-01 consolidated-next-plan.md): 38 工具 → 14 stdio MCP server, dual-track supervisor (in-process + stdio), circuit breaker, cold start phase 重排 (14 → 5 core), resume_parser 事务边界（raw_resumes 表），14 server 端到端 e2e lifecycle 验证。**PR-8 + PR-9 + v0.4 全部 ship**（`mcp-v4-v0.4-shipped` tag）。
 
 ## CURRENT STATE
 All 4 Phase V PRs complete and committed. The full flow is now:
@@ -32,6 +34,17 @@ All 4 Phase V PRs complete and committed. The full flow is now:
 - Branch: `main`, ahead of `origin/main`, 1 untracked file `AI招聘Agent内置命令规划.md` (unrelated)
 
 ## RECENT CHANGES
+- **MCP v4 layer ship** (2026-06-06~07, 7 commits + 2 docs + 1 re-plan):
+  - PR-8 (dual-track supervisor pilot): `c25ba02` host.py dual-track + `b1906eb` check_mcp_servers fix + `9cd3391` F-1~F-4 pytest + `2b864c5` weather_server + 5 perf budgets
+  - PR-9 (38 工具 → 14 server, 7 commits): `8ddc4b9` code smell 修 + `fe7a29a` 5 业务服务 + `845023e` 4 LLM + `bdbcd27` mcp-search + `a3908d7` mcp-skill-mgr + `344fbb0` mcp-dashboard + `bcdea15` 重名合并
+  - v0.4a (`5e09a76`): `_inprocess_call` 接 `agent_service._get_handlers()` 真兜底 + 5 测试
+  - v0.4b (`f6d79dd`): supervisor circuit breaker (5/min → 300s, per-server 隔离) + 5 测试 + ADR 0007 D5 改具体算法
+  - v0.4c (`3626577`): phase 重排 core 14→5 server，冷启动 P95 4.8s→973ms (§5 预算 49%)
+  - v0.4d (`1549b43`): resume_parser 事务边界 — raw_text 落 raw_resumes 表 (status 状态机) + migration + 3 测试
+  - v0.4e (`8c03132`): 14 server 端到端 e2e lifecycle 测 + 修 config skillmgr_server → skill_mgr_server module typo
+  - Docs: `7ed0afd` v0.4 ship report, `0932fdd` PR-8 ship report, `99f2b6b` PR-9 ship report
+  - Re-plan: `3b8925e` + `5323cd9` v0.5 re-plan (Momus review 6 fixes)
+  - Tags: `mcp-v4-pr8-pre/shipped` + `mcp-v4-pr9-pre` + `mcp-v4-v0.4-pre/shipped`
 - **PR-V.4 legacy sunset + graph inlining** (`ae5a49e`):
   - `app/agents/orchestrator_agent.py` (622 lines) — DELETED
   - `app/agents/orchestrator_session.py` (165 lines) — DELETED
@@ -69,12 +82,29 @@ All 4 Phase V PRs complete and committed. The full flow is now:
 - **PR-V.1 multi-stage DAG** (`7bf5d57`): Extended `OrchestratorState` with 7 fields, added 3 nodes, conditional edge, checkpointer state preservation
 
 ## NEXT STEPS
-**Phase V is complete.** No further work required for sunset migration. Phase V exit criteria 6/7 met; remaining 2 are automated:
+**MCP v4 layer is complete (PR-8 + PR-9 + v0.4 全部 ship, `mcp-v4-v0.4-shipped` tag).** v0.5 已重规划（Momus 6 修正项）。**Next session 启动 v0.5a**：
+1. **v0.5a** (0.5d, 1 commit) — refactor 抽 `_do_extract_and_link(raw_resume_id, content)` 公共函数 + 恢复 v0.4d LLM 成功完整测（当前被简化为"不崩溃"）
+2. **v0.5b** (1d, 2 commit: feat + docs) — `retry_raw_resume` 工具 + 5 测试 + e2e 集成 + ship report
+3. 估时 1.5d 共 3 commit，2 tag (`mcp-v4-v0.5a-pre/shipped` + `mcp-v4-v0.5b-pre/shipped`)
+
+详细见 `.omo/plans/v0.5-replan.md` §4（v0.5a/5b 任务拆解）+ §7（rollback 计划）+ §8（Momus 审查 6 项）。
+
+Phase V is complete. No further work required for sunset migration. Phase V exit criteria 6/7 met; remaining 2 are automated:
 1. `/legacy/analyze` 1-week traffic monitoring — N/A (endpoint deleted in PR-V.4)
 2. Redis `orch:session:*` key drain — automated via 24h TTL; manual `redis-cli SCAN` + `DEL` if any orphans persist
 
 Optional cleanup items (not Phase V scope):
 - Clean up 3 pre-existing `pytestmark` warnings in `test_mcp_servers_api.py` (cosmetic)
+
+Phase C 状态（partial — from 2026-05-29 anchored-summary, not re-verified in this session）:
+- C.1 Rate limiting ✅（health-check step 8 验证 60 并发 33 个 429）
+- C.2 LLM retry ❓
+- C.3 .env consolidation ❓
+- C.4 Docker Python 3.14 ❓
+- C.5 Deprecation cleanup (`datetime.utcnow()`) ❓
+- C.6 Docker healthchecks ❓
+- Phase D (live API E2E) ❓ — Playwright suite 有，未在 dev 栈全跑
+- Phase E (CI/CD 强化) ❓ — 未启动
 
 ## CRITICAL CONTEXT
 - `OrchestratorState` (in `orchestrator_graph.py`) is NOT `TaskState` (in `app/core/state.py`) — different TypedDicts, different fields, different factories

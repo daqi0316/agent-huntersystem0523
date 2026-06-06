@@ -1,7 +1,9 @@
-# Overall Progress: ~80%
+# Overall Progress: ~85%
 
 ## What We've Built
 AI Recruitment System — full-stack hiring platform with agent orchestration, multi-dimensional evaluation, interview scheduling, and RAG-powered knowledge base.
+
+**MCP v4 Layer (new since 2026-05-29)**: 38 工具 → 14 stdio MCP server, dual-track supervisor, circuit breaker, cold start phase 重排 (14 → 5 core, P95 4.8s→973ms), resume_parser 事务边界, 14 server 端到端 e2e lifecycle. PR-8 + PR-9 + v0.4 全部 ship (`mcp-v4-v0.4-shipped` tag). v0.5 re-plan 落地，待 v0.5a 启动。
 
 | Layer | Stack | Status |
 |-------|-------|--------|
