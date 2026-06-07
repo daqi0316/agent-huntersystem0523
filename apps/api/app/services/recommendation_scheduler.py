@@ -50,7 +50,11 @@ async def run_recommendation_scan() -> None:
 
 
 async def recommendation_scheduler_loop() -> None:
-    """后台循环: 按间隔执行推荐扫描。"""
+    """后台循环: 按间隔执行推荐扫描。
+
+    A5+Fix-1: scan 失败时 sleep 5min (transient) 避免死循环疯狂重试饿死 uvicorn worker,
+    导致 HTTP 请求 hang (curl 短连接幸运命中, httpx connection pool 死等)。
+    """
     logger.info(
         "Recommendation scheduler started (interval=%d min)",
         RECOMMENDATION_SCAN_INTERVAL_MINUTES,
@@ -59,6 +63,10 @@ async def recommendation_scheduler_loop() -> None:
         try:
             await run_recommendation_scan()
         except Exception as e:
-            logger.error("Recommendation scan failed: %s", e)
+            logger.warning(
+                "Recommendation scan failed (transient, retry in 5min): %s", e,
+            )
+            await asyncio.sleep(300)  # 5 分钟防疯狂重试
+            continue
 
         await asyncio.sleep(RECOMMENDATION_SCAN_INTERVAL_MINUTES * 60)

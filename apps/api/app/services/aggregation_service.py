@@ -156,7 +156,10 @@ async def aggregation_loop() -> None:
 
     启动时先 audit 目标表存在性：表缺失则 log + 立即 return，
     不进入 while 循环，避免每 5 分钟抛 UndefinedTableError 累积连接泄漏。
+
+    A5+Fix-1: aggregation 失败时 sleep 5min (transient) 避免死循环疯狂重试饿死 uvicorn worker.
     """
+    import asyncio
     logger.info("Aggregation loop starting (interval=%d min)", AGGREGATION_INTERVAL_MINUTES)
     if not await _ensure_target_table_exists():
         logger.warning(
@@ -169,6 +172,10 @@ async def aggregation_loop() -> None:
         try:
             await run_aggregation()
         except Exception as e:
-            logger.error("Aggregation failed: %s", e)
-        import asyncio
+            logger.warning(
+                "Aggregation failed (transient, retry in 5min): %s", e,
+            )
+            await asyncio.sleep(300)  # 5 分钟防疯狂重试
+            continue
+
         await asyncio.sleep(AGGREGATION_INTERVAL_MINUTES * 60)
