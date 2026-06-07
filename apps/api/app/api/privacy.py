@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -60,7 +60,7 @@ def _serialize_delete(req: DataDeleteRequest) -> dict:
         "cancelled_at": req.cancelled_at.isoformat() if req.cancelled_at else None,
         "placeholder_uuid": req.placeholder_uuid,
         "grace_period_days_left": (
-            max(0, (req.scheduled_hard_delete_at - datetime.utcnow().replace(tzinfo=req.scheduled_hard_delete_at.tzinfo)).days)
+            max(0, (req.scheduled_hard_delete_at - datetime.now(UTC)).days)
             if req.scheduled_hard_delete_at and req.status == DataDeleteStatus.GRACE_PERIOD else None
         ),
     }
@@ -134,7 +134,7 @@ async def download_export(
         raise HTTPException(404, "export request not found")
     if req.status != DataExportStatus.COMPLETED:
         raise HTTPException(400, f"export not ready, status={req.status.value}")
-    if req.expires_at and req.expires_at < datetime.utcnow().replace(tzinfo=req.expires_at.tzinfo):
+    if req.expires_at and req.expires_at < datetime.now(UTC):
         raise HTTPException(410, "export download expired (7d retention)")
 
     from app.core.config import settings as cfg

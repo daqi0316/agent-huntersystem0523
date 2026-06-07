@@ -76,8 +76,8 @@ async def resolve_task(
         task.resolution_note = body.resolution_note
     if body.assigned_to:
         task.assigned_to = body.assigned_to
-    from datetime import datetime
-    task.updated_at = datetime.utcnow()
+    from datetime import UTC, datetime
+    task.updated_at = datetime.now(UTC)
     await db.commit()
     return success({"id": task.id, "status": task.status.value})
 

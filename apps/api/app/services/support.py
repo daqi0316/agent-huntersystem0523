@@ -1,7 +1,7 @@
 """P6-6: 工单 service — 创建/回复/分配/关闭。"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from sqlalchemy import select
@@ -79,7 +79,7 @@ async def add_message(
         body=body.strip(),
     )
     db.add(msg)
-    t.updated_at = datetime.utcnow()
+    t.updated_at = datetime.now(UTC)
     if sender_type == SenderType.CUSTOMER:
         t.status = TicketStatus.PENDING_INTERNAL
     elif sender_type == SenderType.STAFF:
@@ -95,7 +95,7 @@ async def assign_ticket(db: AsyncSession, ticket_id: str, assignee_id: str) -> S
     if t is None:
         raise TicketError("ticket not found")
     t.assigned_to = assignee_id
-    t.updated_at = datetime.utcnow()
+    t.updated_at = datetime.now(UTC)
     await db.flush()
     return t
 
@@ -107,8 +107,8 @@ async def resolve_ticket(db: AsyncSession, ticket_id: str) -> SupportTicket:
     if t is None:
         raise TicketError("ticket not found")
     t.status = TicketStatus.RESOLVED
-    t.resolved_at = datetime.utcnow()
-    t.updated_at = datetime.utcnow()
+    t.resolved_at = datetime.now(UTC)
+    t.updated_at = datetime.now(UTC)
     await db.flush()
     return t
 
@@ -120,8 +120,8 @@ async def close_ticket(db: AsyncSession, ticket_id: str) -> SupportTicket:
     if t is None:
         raise TicketError("ticket not found")
     t.status = TicketStatus.CLOSED
-    t.closed_at = datetime.utcnow()
-    t.updated_at = datetime.utcnow()
+    t.closed_at = datetime.now(UTC)
+    t.updated_at = datetime.now(UTC)
     await db.flush()
     return t
 

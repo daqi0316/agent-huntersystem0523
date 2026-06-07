@@ -146,7 +146,7 @@ class QuotaTracker:
 
     def _key(self, org_id: str) -> str:
         import datetime
-        year_month = datetime.datetime.utcnow().strftime("%Y-%m")
+        year_month = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
         return f"quota:llm_tokens:{org_id}:{year_month}"
 
     async def used(self, org_id: str) -> int:
