@@ -1,23 +1,38 @@
-"""v0.7.1: Skill admin CLI.
+"""v0.7.2: Skill admin CLI — per-host pre-shared key 鉴权 + jsonl 审计.
 
-补全 v0.7 工具的真实使用路径 (Momus §0.2 预警). 调用方不必自己写代码调
-handle_enable_skill 等 handler, 直接命令行:
+补全 v0.7 工具的真实使用路径 (Momus §0.2 预警).
 
+用法:
   python -m app.scripts.skill_cli list
   python -m app.scripts.skill_cli list enabled
   python -m app.scripts.skill_cli get weather
   python -m app.scripts.skill_cli enable weather
   python -m app.scripts.skill_cli disable web_search
 
-admin 鉴权: 本地 CLI 假定操作者有 admin 权限 (per-host state, 修自己机器).
-JWT 鉴权只对 HTTP 入口 (MCP tools / API) 适用, CLI 跳鉴权.
+鉴权 (Momus §4.1 决策 2 选项 C):
+  - 启用鉴权: 配 SKILL_CLI_REQUIRE_ADMIN=1 + 创建 ~/.skill_admin_key 文件 (per-host pre-shared)
+  - 跳过鉴权: 默认 (SKILL_CLI_REQUIRE_ADMIN=0), 假定本地操作者有 admin 权限
+  - 提 key 方式: SKILL_CLI_ADMIN_KEY env 或 --admin-key 命令行参数
+
+审计 (Momus §4.2 修正版 6 字段):
+  - 文件: .omo/skill_cli_audit.jsonl (gitignored, per-host)
+  - 字段: ts / action (enable/disable) / skill_name / user / before (True/False) / after
+  - 单进程写 (CLI 本来单进程, 无并发锁)
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
+import hashlib
 import json
+import os
 import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+
+_AUDIT_PATH = Path(__file__).resolve().parents[3] / ".omo" / "skill_cli_audit.jsonl"
 
 
 def _print(obj) -> None:
@@ -25,6 +40,58 @@ def _print(obj) -> None:
         print(json.dumps(obj, indent=2, ensure_ascii=False))
     else:
         print(obj)
+
+
+def _admin_key_path() -> Path:
+    return Path.home() / ".skill_admin_key"
+
+
+def _require_admin() -> None:
+    """Momus §4.1 决策 2 选项 C: 读 ~/.skill_admin_key, 校验输入 key."""
+    if os.environ.get("SKILL_CLI_REQUIRE_ADMIN", "0") != "1":
+        return  # 鉴权 bypass (默认)
+
+    key_file = _admin_key_path()
+    if not key_file.exists():
+        sys.exit(
+            f"admin key file not found: {key_file}\n"
+            f"创建方式: openssl rand -hex 32 > {key_file} && chmod 600 {key_file}\n"
+            f"或设 SKILL_CLI_REQUIRE_ADMIN=0 跳过鉴权 (本地 dev)"
+        )
+    expected = key_file.read_text().strip()
+
+    provided = os.environ.get("SKILL_CLI_ADMIN_KEY")
+    if not provided:
+        provided = getpass.getpass("admin key: ")
+    if not provided or not _constant_time_eq(provided, expected):
+        sys.exit("invalid admin key")
+
+
+def _constant_time_eq(a: str, b: str) -> bool:
+    import hmac
+
+    return hmac.compare_digest(
+        hashlib.sha256(a.encode()).digest(),
+        hashlib.sha256(b.encode()).digest(),
+    )
+
+
+def _audit(action: str, skill_name: str, before: bool | None, after: bool) -> None:
+    """Momus §4.2: 6 字段审计, 单进程写 (CLI 本来单进程)."""
+    try:
+        _AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _AUDIT_PATH.open("a", encoding="utf-8") as f:
+            entry = {
+                "ts": datetime.now(UTC).isoformat(),
+                "action": action,
+                "skill_name": skill_name,
+                "user": os.environ.get("USER") or getpass.getuser(),
+                "before": before,
+                "after": after,
+            }
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # 审计写失败不阻塞 CLI 操作
 
 
 async def cmd_list(args) -> int:
@@ -44,17 +111,25 @@ async def cmd_get(args) -> int:
 
 
 async def cmd_enable(args) -> int:
+    from app.skills._state import is_enabled
     from app.tools.skill_tool import handle_enable_skill
 
+    before = is_enabled(args.name)
     result = handle_enable_skill(name=args.name)
+    if result.get("success"):
+        _audit("enable", args.name, before=before, after=True)
     _print(result)
     return 0 if result.get("success") else 1
 
 
 async def cmd_disable(args) -> int:
+    from app.skills._state import is_enabled
     from app.tools.skill_tool import handle_disable_skill
 
+    before = is_enabled(args.name)
     result = handle_disable_skill(name=args.name)
+    if result.get("success"):
+        _audit("disable", args.name, before=before, after=False)
     _print(result)
     return 0 if result.get("success") else 1
 
@@ -62,7 +137,7 @@ async def cmd_disable(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skill_cli",
-        description="v0.7.1: Skill admin CLI (list/get/enable/disable)",
+        description="v0.7.2: Skill admin CLI (per-host pre-shared key 鉴权 + jsonl 审计)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -86,6 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    _require_admin()  # Momus §4.1: per-host pre-shared key 鉴权
     parser = build_parser()
     args = parser.parse_args()
     return asyncio.run(args.func(args))
