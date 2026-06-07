@@ -1,6 +1,7 @@
 # 系统健康检查 SOP
 
 > 创建：2026-06-04
+> 最近更新: 2026-06-07 (A1 拆 2 脚本 + admin reset)
 > 触发原因：之前的改动只验 tsc + e2e mock 登录，导致用户浏览器登录失败（"Failed to fetch"）的问题被忽略
 > 适用范围：**任何代码改动后**，无论大小
 
@@ -100,7 +101,33 @@ npx tsx scripts/verify-login-e2e.ts
 
 ## 一键检查脚本
 
-未来可写 `scripts/health-check.sh` 把以上 6 步串起来：
+**A1 (2026-06-07) 拆分**：原单脚本 9 步拆为 2 个脚本，理由：
+
+1. **Step 8 限流验证**用 60 并发打 `/auth/login`，**会留下限流污染**（429 状态）
+2. 真实用户跑完 health-check 后再访问 `/auth/login` 会撞 429
+3. 拆 2 脚本：日常只跑 `health-check.sh`，负载验证单独跑 `health-check-load.sh`
+4. 负载脚本跑前/跑后**自动 reset 限流**（A1 加的 admin 端点）
+
+### 7 步核心检查 — `scripts/health-check.sh`
+
+```bash
+./scripts/health-check.sh
+```
+
+覆盖 Step 1-7：基础设施 → 后端进程 → 登录 → /auth/me → 前端可达 → 端到端 Playwright → 微信登录。
+**日常开发用这个**，< 30s 跑完，不留限流污染。
+
+### 2 步负载验证 — `scripts/health-check-load.sh`
+
+```bash
+./scripts/health-check-load.sh
+```
+
+覆盖 Step 8-9：限流验证 → MCP 守门。
+**A1 增强**：跑前 admin reset + 跑后 admin reset，**保证真实用户不撞 429**。
+
+### 旧版单脚本 (已归档)
+
 ```bash
 #!/bin/bash
 set -e
@@ -142,19 +169,26 @@ echo "=== 全部通过 ==="
 > ✅ tsc 0 错误
 > ✅ 14/14 单元测试
 > ✅ 16/16 e2e（mock）
-> ✅ **系统健康检查 6/6**（基础设施 + 后端 + 前端 + 真实登录全过）
+> ✅ **系统健康检查 7/7 + 2/2**（健康 + 负载验证全过，**A1 拆 2 脚本**）
 > ✅ 浏览器手测 /agent → ContextBar 缩略按钮可见
 
 **缺少"真实后端登录验证"的报告 = 不算改完**。
 
 ## 待办
 
-- [ ] 写 `scripts/health-check.sh` 串起 6 步
+- [x] ~~写 `scripts/health-check.sh` 串起 6 步~~ (A1 完成: 拆 2 脚本)
+- [x] ~~A1 admin reset 端点~~ (完成: `POST /api/v1/admin/rate-limit/reset`)
 - [ ] 写 `scripts/verify-login-e2e.ts` 真实端到端登录（区别于 `verify-contextbar.ts` 的 mock）
 - [ ] 在 `CLAUDE.md` 加引用此文档
 - [ ] 清理 `auth-context.tsx` 的"降级登录"代码（这是临时糊的，不是真修复）
+- [ ] A5: 性能 baseline 报告 (Phase A 后续 PR)
+- [ ] A6: ship report 模板化 (Phase A 后续 PR)
 
 ## 关联
 
 - 教训来源：2026-06-04 用户反馈"每次改完系统就登入不进去，有没有做好全盘考虑"
 - 与 e2e mock 的区别：`verify-contextbar.ts` 用 `page.addInitScript` 注入 mock token，**不验证真实后端可达性**。本 SOP 强制走真实路径。
+- A1 拆分依据: `.omo/plans/2026-06-07-roadmap-corrected.md` §1.4 (Momus 选 (b) 拆脚本)
+- 限流 audit 文档: `docs/rate-limit-audit.md`
+- Admin 端点: `app/api/admin.py`
+- 限流核心: `app/core/rate_limit.py` (P5-8 + A1 改造)
