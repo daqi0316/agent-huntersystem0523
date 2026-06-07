@@ -208,11 +208,19 @@ async def _handle_batch_parse(
     }
 
 
-async def _handle_retry_raw_resume(raw_resume_id: str = "") -> dict[str, Any]:
+async def _handle_retry_raw_resume(
+    raw_resume_id: str = "",
+    force: bool = False,
+) -> dict[str, Any]:
     """v0.5b: 重试解析失败的简历。raw_text 在 v0.4d 已落库，无需重新传文件。
 
+    v0.6c: 加 force 参数 (方案 A: 清空 candidate_id + 重建)
+      - force=False (默认): v0.5b 行为, rr.candidate_id 保留旧值, _do_extract_and_link 创建新候选人并覆盖
+      - force=True: 先清空 rr.candidate_id = None, _do_extract_and_link 创建新候选人
+        旧候选人**不**自动删 (user 可手动 archive)
+
     状态校验：只接受 failed（processing/parsed 返 CONFLICT，不存在返 NOT_FOUND）。
-    状态机：failed → processing → parsed/failed（与 parse_resume 走同一条 transition）。
+    状态机：failed → processing → parsed/failed。
     """
     if not raw_resume_id:
         return {"status": "failed", "error": {"code": "INVALID_INPUT", "message": "raw_resume_id required"}}
@@ -227,6 +235,13 @@ async def _handle_retry_raw_resume(raw_resume_id: str = "") -> dict[str, Any]:
             return {"status": "failed", "error": {"code": "CONFLICT", "message": "raw_resume 已解析成功，无需 retry"}}
         if rr.status != RawResumeStatus.FAILED:
             return {"status": "failed", "error": {"code": "CONFLICT", "message": f"无法 retry status={rr.status.value}"}}
+        old_candidate_id = rr.candidate_id
+        if force:
+            rr.candidate_id = None
+            logger.info(
+                "retry force=True: cleared candidate_id=%s for raw_resume=%s (旧候选人留存待手动 archive)",
+                old_candidate_id, raw_resume_id,
+            )
         rr.status = RawResumeStatus.PROCESSING
         rr.error_message = None
         raw_text = rr.raw_text
@@ -462,11 +477,12 @@ tools = [
         "type": "function",
         "function": {
             "name": "retry_raw_resume",
-            "description": "重试解析失败的简历。raw_text 在 v0.4d 事务边界已落库，无需重新传文件。状态机：failed → processing → parsed/failed。",
+            "description": "重试解析失败的简历。raw_text 在 v0.4d 事务边界已落库，无需重新传文件。状态机：failed → processing → parsed/failed。v0.6c 加 force 参数: True 时清空 raw_resumes.candidate_id 后重建（方案 A），False 时保留 v0.5b 默认行为。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "raw_resume_id": {"type": "string", "description": "raw_resumes 表的 ID（v0.4d parse_resume 返回的 raw_resume_id）"},
+                    "force": {"type": "boolean", "description": "v0.6c: True 时先清空 candidate_id 再重建（方案 A，旧候选人留待手动 archive）。默认 False。", "default": False},
                 },
                 "required": ["raw_resume_id"],
             },
