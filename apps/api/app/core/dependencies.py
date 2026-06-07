@@ -72,4 +72,23 @@ async def get_optional_user_id(
     return payload.get("sub")
 
 
-__all__ = ["get_db", "get_current_user_id", "get_optional_user_id"]
+async def require_admin_user_id(
+    user: dict = Depends(get_current_user),
+) -> str:
+    """v0.7: 校验 JWT role 字段 == "admin", 否则 403。
+
+    依赖 get_current_user (已解 JWT 拿 role), 仅做 role 校验,
+    不调 auth_service. JWT 是 role 唯一真值源 (per user 一次性签发).
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+    return user["user_id"]
+
+
+__all__ = [
+    "get_db", "get_current_user_id", "get_current_user", "get_optional_user_id",
+    "require_admin_user_id", "get_user_id_sse",
+]

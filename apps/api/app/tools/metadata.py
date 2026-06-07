@@ -336,6 +336,35 @@ register_tool(
     escalation=EscalationMode.NONE,
     description="轮询异步解析任务状态 — 用户主动调用",
 )
+# v0.7: skill_mgr 4 新工具
+register_tool(
+    "list_skills",
+    retryable=False,
+    max_retries=0,
+    escalation=EscalationMode.NONE,
+    description="列出已装 skill — 读操作无需 admin",
+)
+register_tool(
+    "get_skill_info",
+    retryable=False,
+    max_retries=0,
+    escalation=EscalationMode.NONE,
+    description="查 skill 详情 — 读操作无需 admin",
+)
+register_tool(
+    "enable_skill",
+    retryable=False,
+    max_retries=0,
+    escalation=EscalationMode.REQUIRES_HUMAN,
+    description="启用 skill — admin only (requires_role=admin)",
+)
+register_tool(
+    "disable_skill",
+    retryable=False,
+    max_retries=0,
+    escalation=EscalationMode.REQUIRES_HUMAN,
+    description="禁用 skill — admin only (requires_role=admin)",
+)
 register_tool(
     "parse_file",
     retryable=True,

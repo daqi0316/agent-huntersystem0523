@@ -93,3 +93,29 @@ def all_handlers() -> dict[str, Callable]:
     for name, skill in discover_skills().items():
         handlers.update(skill.get_handlers())
     return handlers
+
+
+def get_enabled_skills() -> dict[str, "Skill"]:
+    """v0.7: 返 enabled 的 skill 子集 (按 .omo/skill_state.json 过滤)."""
+    from app.skills._state import is_enabled
+    return {n: s for n, s in discover_skills().items() if is_enabled(n)}
+
+
+def enabled_tools() -> list[dict]:
+    """v0.7: 返 enabled skill 的 tool schemas."""
+    from app.skills._state import is_enabled
+    tools = []
+    for name, skill in discover_skills().items():
+        if is_enabled(name):
+            tools.extend(skill.get_tools())
+    return tools
+
+
+def enabled_handlers() -> dict[str, Callable]:
+    """v0.7: 返 enabled skill 的 handler 映射."""
+    from app.skills._state import is_enabled
+    handlers = {}
+    for name, skill in discover_skills().items():
+        if is_enabled(name):
+            handlers.update(skill.get_handlers())
+    return handlers

@@ -1,14 +1,15 @@
 """Skill management tools for AI recruitment assistant.
 
-提供:
-  - install_skill_from_url: 从 GitHub URL 装 skill（git clone + 校验 skill.py）
-  - install_skill: 从 name/description/tool_name/tool_description/handler_code 装 skill
-  - list_skills: 列出已装 skill
-  - install_gallery_skill: 从 GitHub URL 或本地路径装 gallery skill
-  - list_gallery_skills: 列出已装 gallery skill
+v0.7: 5 工具 (1 已有 + 4 新):
+  - install_skill_from_url: 从 GitHub URL 装 skill (git clone)
+  - list_skills: 列已装 skill (含 enabled/disabled 状态)
+  - get_skill_info: 查 skill 详情 (name / description / tools / enabled)
+  - enable_skill: 启用 skill (admin only)
+  - disable_skill: 禁用 skill (admin only, runtime_tools 不杀进程, 只下次 spawn 不返回)
 
-PR-1c 注释：这些工具不通过 pkgutil 自动发现（被 agent_service._register_builtins()
+PR-1c 注释：install_skill_from_url 不通过 pkgutil 自动发现（被 agent_service._register_builtins()
 显式注册到 _BUILTIN_HANDLERS），但仍需导出 tools 列表以供 _get_tools() 聚合。
+v0.7 新 4 工具通过 _get_handlers() 动态返回 (registry enabled_skills 过滤)。
 """
 import subprocess
 from pathlib import Path
@@ -38,7 +39,6 @@ def handle_install_skill_from_url(url: str) -> dict:
             timeout=120,
         )
         if result.returncode == 0:
-            # 检查是否有效 skill（需要 skill.py）
             has_skill_py = (target_dir / "skill.py").exists()
             status = "有效 skill，已启用" if has_skill_py else "已克隆，但缺少 skill.py，需手动编写"
             return {
@@ -56,6 +56,88 @@ def handle_install_skill_from_url(url: str) -> dict:
         return {"success": False, "result": "未找到 git 命令"}
     except Exception as e:
         return {"success": False, "result": f"安装异常: {str(e)}"}
+
+
+def handle_list_skills(filter: str = "all") -> dict:
+    """v0.7: 列出已装 skill + enabled 状态."""
+    from app.skills import discover_skills
+    from app.skills._state import is_enabled
+
+    state_filter = filter if filter in ("all", "enabled", "disabled") else "all"
+    items = []
+    for name, skill in discover_skills().items():
+        enabled = is_enabled(name)
+        if state_filter == "enabled" and not enabled:
+            continue
+        if state_filter == "disabled" and enabled:
+            continue
+        items.append({
+            "name": name,
+            "description": skill.description,
+            "enabled": enabled,
+            "tools": [t["function"]["name"] for t in skill.get_tools()],
+        })
+    return {"success": True, "skills": items, "count": len(items), "filter": state_filter}
+
+
+def handle_get_skill_info(name: str) -> dict:
+    """v0.7: 查 skill 详情."""
+    from app.skills import discover_skills
+    from app.skills._state import is_enabled
+
+    if not name:
+        return {"success": False, "error": "name is required", "code": "INVALID_INPUT"}
+
+    skills = discover_skills()
+    skill = skills.get(name)
+    if skill is None:
+        return {
+            "success": False,
+            "error": f"Skill not found: {name}",
+            "code": "NOT_FOUND",
+            "available_skills": list(skills.keys()),
+        }
+    return {
+        "success": True,
+        "name": name,
+        "description": skill.description,
+        "enabled": is_enabled(name),
+        "tools": [
+            {
+                "name": t["function"]["name"],
+                "description": t["function"]["description"],
+            }
+            for t in skill.get_tools()
+        ],
+    }
+
+
+def handle_enable_skill(name: str) -> dict:
+    """v0.7: 启用 skill (admin only via metadata.py)."""
+    from app.skills import discover_skills
+    from app.skills._state import set_enabled
+
+    if not name:
+        return {"success": False, "error": "name is required", "code": "INVALID_INPUT"}
+    if name not in discover_skills():
+        return {"success": False, "error": f"Skill not found: {name}", "code": "NOT_FOUND"}
+
+    set_enabled(name, True)
+    return {"success": True, "name": name, "enabled": True}
+
+
+def handle_disable_skill(name: str) -> dict:
+    """v0.7: 禁用 skill (admin only via metadata.py)."""
+    from app.skills import discover_skills
+    from app.skills._state import set_enabled
+
+    if not name:
+        return {"success": False, "error": "name is required", "code": "INVALID_INPUT"}
+    if name not in discover_skills():
+        return {"success": False, "error": f"Skill not found: {name}", "code": "NOT_FOUND"}
+
+    set_enabled(name, False)
+    return {"success": True, "name": name, "enabled": False}
 
 
 # ── Tools（PR-5 补：原本只有 handler，CI 守门要求 tools 列表）──
@@ -80,8 +162,81 @@ tools = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_skills",
+            "description": "列出已装 skill 及 enable/disable 状态。filter=all|enabled|disabled。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filter": {
+                        "type": "string",
+                        "enum": ["all", "enabled", "disabled"],
+                        "description": "过滤维度: all=全部, enabled=仅启用, disabled=仅禁用",
+                        "default": "all",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_skill_info",
+            "description": "查 skill 详情 (name / description / tools / enabled 状态)。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "skill 名称 (skill.name 属性)",
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "enable_skill",
+            "description": "启用 skill (admin only)。修改 .omo/skill_state.json, 下次 spawn mcp-skill-mgr 生效。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "skill 名称",
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "disable_skill",
+            "description": "禁用 skill (admin only)。runtime 不杀进程, 只下次 spawn mcp-skill-mgr 工具列表不再返回。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "skill 名称",
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
 ]
 
 handlers = {
     "install_skill_from_url": handle_install_skill_from_url,
+    "list_skills": handle_list_skills,
+    "get_skill_info": handle_get_skill_info,
+    "enable_skill": handle_enable_skill,
+    "disable_skill": handle_disable_skill,
 }
