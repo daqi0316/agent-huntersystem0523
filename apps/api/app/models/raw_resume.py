@@ -34,14 +34,14 @@ class RawResume(Base):
     __tablename__ = "raw_resumes"
 
     id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True
+        String(36), primary_key=True
     )
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     file_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     file_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     filename: Mapped[str | None] = mapped_column(String(512), nullable=True)
     target_job_id: Mapped[str | None] = mapped_column(
-        UUID(as_uuid=False), nullable=True
+        String(36), nullable=True
     )
     status: Mapped[RawResumeStatus] = mapped_column(
         enum_column(RawResumeStatus, "raw_resume_status"),
@@ -49,7 +49,7 @@ class RawResume(Base):
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     candidate_id: Mapped[str | None] = mapped_column(
-        UUID(as_uuid=False), nullable=True
+        String(36), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -63,4 +63,5 @@ class RawResume(Base):
 
 
 def new_raw_resume_id() -> str:
+    """Generate new raw_resume id (UUID v4 string format)."""
     return str(uuid.uuid4())
