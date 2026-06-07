@@ -20,61 +20,17 @@ from app.services.candidate import CandidateService
 logger = logging.getLogger(__name__)
 
 
-async def _handle_parse_resume(
-    content: str = "",
-    file_url: str = "",
-    file_type: str = "",
-    filename: str = "",
-    target_job_id: str = "",
+async def _do_extract_and_link(
+    raw_resume_id: str,
+    content: str,
     auto_create: bool = True,
 ) -> dict[str, Any]:
-    """Parse a single resume: extract structured data, assess quality, detect duplicates.
+    """v0.5a: 公共函数 — LLM extract + 状态机更新集中。
 
-    v0.4d 事务边界：
-    1. 文件解析成功 → raw_text 立刻落 raw_resumes 表 (status=processing)
-    2. LLM extract
-    3. 成功 → 创建候选人 + 更新 raw_resumes (status=parsed, candidate_id=xxx)
-    4. 失败 → 更新 raw_resumes (status=failed, error_message=xxx)，raw_text 保留供 retry
+    parse_resume (auto_create=True) 和 v0.5b retry_raw_resume 都调这里。
+    状态机边界：processing → parsed/failed。
+    auto_create=False 早返回（保持原行为：不创建候选人、不更新 raw_resumes 状态）。
     """
-    if not content and not file_url:
-        return {"status": "failed", "error": {"code": "INVALID_INPUT", "message": "content or file_url required"}}
-
-    # ── 文件下载：file_url → 临时文件 → 解析 ────────────────────────
-    if file_url and not content:
-        from app.tools._file_parser_helpers import download_and_save, cleanup_temp_file
-        from app.services.resume_parser import parse_resume as _parse_resume_file, ResumeParseError
-
-        tmp_path = None
-        try:
-            ext = file_type or (filename.rsplit(".", 1)[-1].lower() if filename else "pdf")
-            resolved_filename = filename or f"resume.{ext}"
-            tmp_path = await download_and_save(file_url, resolved_filename)
-
-            with open(tmp_path, "rb") as f:
-                file_bytes = f.read()
-            content = _parse_resume_file(file_bytes, resolved_filename)
-        except ResumeParseError as e:
-            return {"status": "failed", "error": {"code": "PARSE_ERROR", "message": str(e), "retryable": True}}
-        except Exception as e:
-            return {"status": "failed", "error": {"code": "DOWNLOAD_ERROR", "message": f"文件下载失败: {e}"}}
-        finally:
-            if tmp_path:
-                cleanup_temp_file(tmp_path)
-
-    raw_resume_id = new_raw_resume_id()
-    async with AsyncSessionLocal() as db:
-        raw_resume = RawResume(
-            id=raw_resume_id,
-            raw_text=content,
-            file_url=file_url or None,
-            file_type=file_type or None,
-            filename=filename or None,
-            target_job_id=target_job_id or None,
-            status=RawResumeStatus.PROCESSING,
-        )
-        db.add(raw_resume)
-        await db.commit()
-
     candidate = None
     try:
         candidate = await extract_from_text(content)
@@ -155,6 +111,62 @@ async def _handle_parse_resume(
 
     result["confidence"] = 0.85 if candidate.name and candidate.email else 0.6
     return {"status": "success", "data": result}
+
+
+async def _handle_parse_resume(
+    content: str = "",
+    file_url: str = "",
+    file_type: str = "",
+    filename: str = "",
+    target_job_id: str = "",
+    auto_create: bool = True,
+) -> dict[str, Any]:
+    """Parse a single resume: extract structured data, assess quality, detect duplicates.
+
+    v0.4d 事务边界（保留）：
+    1. 文件解析成功 → raw_text 立刻落 raw_resumes 表 (status=processing)
+    2. LLM extract → 创建候选人 + 更新 raw_resumes (status=parsed/failed)
+    3. 失败时 raw_text 保留供 retry (v0.5b 工具)
+    """
+    if not content and not file_url:
+        return {"status": "failed", "error": {"code": "INVALID_INPUT", "message": "content or file_url required"}}
+
+    if file_url and not content:
+        from app.tools._file_parser_helpers import download_and_save, cleanup_temp_file
+        from app.services.resume_parser import parse_resume as _parse_resume_file, ResumeParseError
+
+        tmp_path = None
+        try:
+            ext = file_type or (filename.rsplit(".", 1)[-1].lower() if filename else "pdf")
+            resolved_filename = filename or f"resume.{ext}"
+            tmp_path = await download_and_save(file_url, resolved_filename)
+
+            with open(tmp_path, "rb") as f:
+                file_bytes = f.read()
+            content = _parse_resume_file(file_bytes, resolved_filename)
+        except ResumeParseError as e:
+            return {"status": "failed", "error": {"code": "PARSE_ERROR", "message": str(e), "retryable": True}}
+        except Exception as e:
+            return {"status": "failed", "error": {"code": "DOWNLOAD_ERROR", "message": f"文件下载失败: {e}"}}
+        finally:
+            if tmp_path:
+                cleanup_temp_file(tmp_path)
+
+    raw_resume_id = new_raw_resume_id()
+    async with AsyncSessionLocal() as db:
+        raw_resume = RawResume(
+            id=raw_resume_id,
+            raw_text=content,
+            file_url=file_url or None,
+            file_type=file_type or None,
+            filename=filename or None,
+            target_job_id=target_job_id or None,
+            status=RawResumeStatus.PROCESSING,
+        )
+        db.add(raw_resume)
+        await db.commit()
+
+    return await _do_extract_and_link(raw_resume_id, content, auto_create=auto_create)
 
 
 async def _handle_batch_parse(

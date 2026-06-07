@@ -120,3 +120,58 @@ async def test_v0_4d_raw_text_saved_before_llm_call():
     llm_idx = call_order.index("llm_call")
     add_idx = call_order.index("add_raw_resume")
     assert add_idx < llm_idx, f"raw_resume add 必须在 LLM 之前（add={add_idx}, llm={llm_idx}）"
+
+
+@pytest.mark.asyncio
+async def test_v0_4d_llm_success_marks_parsed_and_links_candidate():
+    """v0.5a 恢复：LLM 成功路径完整断言。
+
+    v0.4d ship 时"不崩溃"断言不够，v0.5a 抽 _do_extract_and_link 公共函数后
+    用更稳的 mock 模式（直接 patch CandidateService + 1 个 db.get 拿 raw_resume mock）
+    验三件事：
+    1. 返回 success + candidate_id 真值
+    2. basic_info.email 真值（mask_pii 之后仍含 @）
+    3. raw_resumes.status=PARSED + candidate_id 链落库
+    """
+    from app.tools.resume_parser import _do_extract_and_link
+    from app.models.raw_resume import RawResumeStatus
+
+    fake_candidate = MagicMock()
+    fake_candidate.name = "张三"
+    fake_candidate.email = "zhang@example.com"
+    fake_candidate.phone = "13800000000"
+    fake_candidate.skills = ["Python", "FastAPI"]
+    fake_candidate.experience_years = 5
+    fake_candidate.education = "清华大学"
+    fake_candidate.current_company = "AC"
+    fake_candidate.current_title = "Engineer"
+
+    fake_created = MagicMock()
+    fake_created.id = "cand-1"
+
+    fake_rr = MagicMock()
+    fake_rr.status = None
+    fake_rr.candidate_id = None
+
+    with patch("app.tools.resume_parser.extract_from_text", new_callable=AsyncMock) as mock_extract:
+        mock_extract.return_value = fake_candidate
+        with patch("app.tools.resume_parser.CandidateService") as mock_svc_cls:
+            mock_svc = MagicMock()
+            mock_svc.create = AsyncMock(return_value=fake_created)
+            mock_svc_cls.return_value = mock_svc
+            with patch("app.tools.resume_parser.AsyncSessionLocal") as mock_session_cls:
+                mock_db = MagicMock()
+                mock_db.add = MagicMock()
+                mock_db.commit = AsyncMock()
+                mock_db.get = AsyncMock(return_value=fake_rr)
+                mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+                mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+                result = await _do_extract_and_link("rr-test-3", "raw text", auto_create=True)
+
+    assert result["status"] == "success"
+    assert result["data"]["candidate_id"] == "cand-1", "candidate_id 必须真值链上"
+    assert "@" in result["data"]["basic_info"]["email"], "basic_info.email 真值"
+
+    assert fake_rr.status == RawResumeStatus.PARSED, "raw_resumes.status 必须更新为 PARSED"
+    assert fake_rr.candidate_id == "cand-1", "raw_resumes.candidate_id 必须链上"
