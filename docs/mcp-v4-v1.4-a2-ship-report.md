@@ -12,7 +12,7 @@
 |---|---|
 | `.github/workflows/mcp-ci.yml` 加 2 个 jobs | ✅ `e2e-14-servers` + `perf-baseline` |
 | 14 server e2e (mcp_v4_e2e_14_servers.py) 接入 CI | ✅ |
-| Perf baseline 测 (perf_baseline.py) 接入 CI | ✅ |
+| Perf baseline 测 (perf baseline.py) 接入 CI | ✅ |
 | Momus §1.2 阶段 3 阈值门禁 | ✅ P95<1.2s 冷启动 / P95<50ms 热调用 / P50<800ms 平均 |
 | `health-check-load.sh` 接入 `health-check` job | ✅ 顺带接入 (A1 拆分) |
 | Perf baseline JSON 上传 artifact | ✅ retention 30d, 趋势追踪 |
@@ -46,8 +46,6 @@
 - 防 server 启动时去连默认 config 的 DB (host=localhost 没监听会 hang)
 - env vars 让 server 在缺服务时快速 fail 而不是 hang
 
-这是反直觉的设计 — 注释里说明意图, 避免下个看代码的人误以为漏挂 services。
-
 ### 3.3 perf 阈值 1.3x buffer (跟 A5 报告一致)
 
 按 A5 报告 §3 实测数据:
@@ -63,7 +61,7 @@
 
 `needs: e2e-14-servers` 让 perf 排队等 e2e 完成。`health-check` 也 `needs: unit-tests` 同理。
 
-## 4. CI workflow 完整结构 (mcp-ci.yml)
+### 3.5 CI workflow 完整结构 (mcp-ci.yml)
 
 ```
 ┌─ mcp-ci.yml (5 jobs) ──────────────────────────────────────┐
@@ -89,7 +87,7 @@
 - perf-baseline: ~3min (3 rounds × 10 trials)
 - **总 wall time: ~10min** (job 并行, 实际 ~5-6min 取决于 runner)
 
-## 5. 测试
+## 4. 测试
 
 | # | 测试 | 覆盖 |
 |---|---|---|
@@ -99,7 +97,7 @@
 | 4 | fail block PR | GitHub Actions 默认行为, 不需额外测 |
 | 5 | health-check-load.sh 接入 | 跟 health-check 一起跑, admin reset 端点工作 |
 
-## 6. 退出门槛验证
+## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|
@@ -113,7 +111,7 @@
 | 5 强约束 (H 风险 rollback) | 风险 L (CI 配置, 不动生产) | N/A |
 | 5 强约束 (顺序锁死) | A1 → A5 → A2 (Phase A 第 3 步) | ✅ |
 
-## 7. 未在 A2 范围（明确不做）
+## 6. 未在 A2 范围（明确不做）
 
 - ❌ **GitHub branch protection 配置** (用户在 GitHub repo settings 设 required checks, 不在 code scope)
 - ❌ **CD 接入 perf baseline** (cd.yml 现在只 build+push image, 部署后 perf 监控推 Phase C Grafana)
@@ -122,7 +120,7 @@
 - ❌ **修复 uvicorn hang 死 (A5 §4.1 已知问题)** (推 Phase B 单独 PR)
 - ❌ **A2 self-hosted runner** (用 GitHub-hosted ubuntu-latest 够用)
 
-## 8. 后续路径
+## 7. 后续路径
 
 **A3 (0.8d, 1 commit) — v1.4a orchestrator parse→evaluate E2E**:
 - 写 `apps/api/tests/mcp/integration/test_e2e_orchestrator_v1_4a.py`
@@ -143,7 +141,7 @@
 - lifespan task 加 timeout
 - httpx + curl 双测验证
 
-## 9. 回滚方法
+## 8. 回滚方法
 
 ```bash
 git revert <A2 commit>
@@ -157,7 +155,7 @@ git checkout HEAD~1 -- .github/workflows/mcp-ci.yml
 - `health-check-load.sh` 也不在 CI 跑
 - **风险**: e2e 失败不挡 PR, 性能退化不报警
 
-## 10. 引用
+## 9. 引用
 
 - 规划: `.omo/plans/2026-06-07-roadmap-corrected.md` §5.1 (A2 = E2E CI 0.5d)
 - Momus 修正: `.omo/plans/2026-06-07-complete-roadmap-momus-review.md` §1.2 (3 阶段), §1.3 (E2E CI 框架)
@@ -165,7 +163,7 @@ git checkout HEAD~1 -- .github/workflows/mcp-ci.yml
 - 上上站: A1 (限流工程化, commit 2462e23 + 9f76046)
 - A1 拆分: `scripts/health-check.sh` + `scripts/health-check-load.sh` (A1 接入 health-check job)
 - 14 server e2e: `scripts/mcp_v4_e2e_14_servers.py` (v0.4e 已写, A2 接入 CI)
-- Perf baseline: `scripts/perf_baseline.py` (A5 新增, A2 接入 CI)
+- Perf baseline: `scripts/perf baseline.py` (A5 新增, A2 接入 CI)
 - 阈值: `docs/perf-baseline-2026-06-07.md` §3
 - CI workflow: `.github/workflows/mcp-ci.yml`
 - 已有 CI: `.github/workflows/ci.yml` (CI 包含 backend + frontend + e2e + docker), `cd.yml` (CD)

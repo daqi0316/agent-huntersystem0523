@@ -182,9 +182,9 @@ git checkout HEAD~1 -- \
 - 限流 store 每次新建 (admin 拿不到引用, 但 P5-8 限流仍工作)
 - health-check 恢复单脚本 (Step 8 留限流污染)
 
-## 9. A1 累计 + 引用
+## 9. 引用
 
-| 维度 | 数值 |
+| 累计 | 数值 |
 |---|---|
 | 估时 | 1.1d (A1 0.3d + A6 模板化 0.3d 合并, A6 推到下 PR) |
 | 实际 | 1.1d |
@@ -192,8 +192,10 @@ git checkout HEAD~1 -- \
 | 测试 | 0 新单测 (核心无改动) + 6 端到端验证 |
 | Health-check | 7/7 + 2/2 (含新 admin reset) |
 | 教训沉淀 | sync/async 边界分层 (3.2) |
+| Commit | `2462e23` (feat) + `9f76046` (docs) |
 
-**引用**：
+**外部引用**:
+
 - 规划: `.omo/plans/2026-06-07-roadmap-corrected.md` §5.1 (Phase A)
 - Momus 审核: `.omo/plans/2026-06-07-complete-roadmap-momus-review.md` §1.4 (限流 mitigation 选 (b) 拆脚本)
 - 历史 PR: `v1.3` (pre-commit 防御 check), `v0.7.2` (per-host 鉴权), `v0.8` (60 并发压测)
