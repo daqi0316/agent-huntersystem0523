@@ -19,7 +19,12 @@ from app.models.raw_resume import RawResumeStatus
 
 @pytest.mark.asyncio
 async def test_retry_default_no_force_arg_works():
-    """不传 force (默认 False), LLM 成功, 走 v0.5b 主路径, 状态正确更新。"""
+    """v0.6c.1: 不传 force (默认 False) 走 reuse 路径, 调 svc.update 旧候选人。
+
+    v0.6c 时这个测试假设 force=False 走 create (v0.5b 行为), 但 v0.6c.1
+    真正差异化语义后, force=False = 复用旧 candidate_id 调 svc.update。
+    此测试改: 验 update 被调, rr.candidate_id 保持旧值 (不被覆盖)。
+    """
     from app.tools.resume_parser import _handle_retry_raw_resume
 
     fake_candidate = MagicMock()
@@ -32,18 +37,18 @@ async def test_retry_default_no_force_arg_works():
     fake_candidate.current_company = "AC"
     fake_candidate.current_title = "Engineer"
 
-    fake_created = MagicMock()
-    fake_created.id = "cand-v0_5b"
+    fake_updated = MagicMock()
+    fake_updated.id = "cand-reused"
 
     rr_retry = MagicMock()
     rr_retry.status = RawResumeStatus.FAILED
     rr_retry.raw_text = "raw text"
     rr_retry.error_message = "low_confidence"
-    rr_retry.candidate_id = "cand-old"  # v0.5b 行为: 旧 candidate_id 在 retry handler 中保留
+    rr_retry.candidate_id = "cand-existing"
 
     rr_extract = MagicMock()
     rr_extract.status = RawResumeStatus.PROCESSING
-    rr_extract.candidate_id = "cand-old"  # v0.5b: _do_extract_and_link 拿到时是旧值
+    rr_extract.candidate_id = "cand-existing"  # reuse 路径保持
     rr_extract.error_message = None
 
     call_count = {"n": 0}
@@ -51,6 +56,8 @@ async def test_retry_default_no_force_arg_works():
     async def fake_get(model, id_):
         call_count["n"] += 1
         return rr_retry if call_count["n"] == 1 else rr_extract
+
+    create_called = False
 
     with patch("app.tools.resume_parser.AsyncSessionLocal") as mock_session_cls:
         mock_db = MagicMock()
@@ -64,15 +71,25 @@ async def test_retry_default_no_force_arg_works():
             mock_extract.return_value = fake_candidate
             with patch("app.tools.resume_parser.CandidateService") as mock_svc_cls:
                 mock_svc = MagicMock()
-                mock_svc.create = AsyncMock(return_value=fake_created)
+
+                async def fake_create(*a, **kw):
+                    nonlocal create_called
+                    create_called = True
+                    return fake_updated
+
+                async def fake_update(candidate_id, update_data):
+                    return fake_updated
+
+                mock_svc.create = fake_create
+                mock_svc.update = fake_update
                 mock_svc_cls.return_value = mock_svc
 
                 result = await _handle_retry_raw_resume(raw_resume_id="rr-failed-1")
 
     assert result["status"] == "success"
-    assert result["data"]["candidate_id"] == "cand-v0_5b"
-    # v0.5b 行为: rr.candidate_id 在 _do_extract_and_link 中被覆盖为新值
-    assert rr_extract.candidate_id == "cand-v0_5b"
+    assert result["data"]["candidate_id"] == "cand-reused"
+    assert rr_extract.candidate_id == "cand-existing"
+    assert create_called is False, "force=False 路径不应调 svc.create"
 
 
 @pytest.mark.asyncio

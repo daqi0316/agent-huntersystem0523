@@ -24,10 +24,19 @@ async def _do_extract_and_link(
     raw_resume_id: str,
     content: str,
     auto_create: bool = True,
+    reuse_candidate_id: bool = False,
 ) -> dict[str, Any]:
     """v0.5a: 公共函数 — LLM extract + 状态机更新集中。
 
-    parse_resume (auto_create=True) 和 v0.5b retry_raw_resume 都调这里。
+    v0.6c.1: 加 reuse_candidate_id 参数 (force=False 默认走 reuse=True, force=True 走 reuse=False)。
+      - reuse_candidate_id=True:
+        - raw_resumes.candidate_id 存在 → svc.update() 复用旧候选人
+        - raw_resumes.candidate_id 不存在 → fallback svc.create() (新候选人)
+      - reuse_candidate_id=False (默认):
+        - svc.create() 创建新候选人 (v0.5a 行为)
+        - raw_resumes.candidate_id 覆盖成新 ID (v0.5a 行为)
+
+    parse_resume (reuse_candidate_id=False) 和 v0.5b retry_raw_resume 都调这里。
     状态机边界：processing → parsed/failed。
     auto_create=False 早返回（保持原行为：不创建候选人、不更新 raw_resumes 状态）。
     """
@@ -52,26 +61,63 @@ async def _do_extract_and_link(
         }
 
     candidate_id = ""
+    reused = False  # v0.6c.1: 跟踪是否走了 update 路径
     if auto_create:
         try:
-            from app.schemas.candidate import CandidateCreate
+            from app.schemas.candidate import CandidateCreate, CandidateUpdate
             async with AsyncSessionLocal() as db:
+                # v0.6c.1: reuse 路径先查 raw_resumes.candidate_id
+                rr_check = await db.get(RawResume, raw_resume_id)
+                existing_candidate_id = rr_check.candidate_id if rr_check else None
+
                 svc = CandidateService(db)
-                create_data = CandidateCreate(
-                    name=candidate.name or "Unknown",
-                    email=candidate.email,
-                    phone=candidate.phone or None,
-                    skills=list(candidate.skills or []),
-                    experience_years=candidate.experience_years,
-                    education=candidate.education or None,
-                    current_company=candidate.current_company or None,
-                    current_title=candidate.current_title or None,
-                )
-                created = await svc.create(create_data)
-                candidate_id = created.id
-                logger.info("Auto-created candidate %s from resume parse", candidate_id)
+                if reuse_candidate_id and existing_candidate_id:
+                    update_data = CandidateUpdate(
+                        name=candidate.name or "Unknown",
+                        email=candidate.email,
+                        phone=candidate.phone or None,
+                        skills=list(candidate.skills or []),
+                        experience_years=candidate.experience_years,
+                        education=candidate.education or None,
+                        current_company=candidate.current_company or None,
+                        current_title=candidate.current_title or None,
+                    )
+                    updated = await svc.update(existing_candidate_id, update_data)
+                    if updated is None:
+                        # candidate 已被外部删, fallback create
+                        create_data = CandidateCreate(
+                            name=candidate.name or "Unknown",
+                            email=candidate.email,
+                            phone=candidate.phone or None,
+                            skills=list(candidate.skills or []),
+                            experience_years=candidate.experience_years,
+                            education=candidate.education or None,
+                            current_company=candidate.current_company or None,
+                            current_title=candidate.current_title or None,
+                        )
+                        created = await svc.create(create_data)
+                        candidate_id = created.id
+                        logger.info("fallback create candidate %s (old %s deleted)", candidate_id, existing_candidate_id)
+                    else:
+                        candidate_id = updated.id
+                        reused = True
+                        logger.info("Reused candidate %s for raw_resume %s", candidate_id, raw_resume_id)
+                else:
+                    create_data = CandidateCreate(
+                        name=candidate.name or "Unknown",
+                        email=candidate.email,
+                        phone=candidate.phone or None,
+                        skills=list(candidate.skills or []),
+                        experience_years=candidate.experience_years,
+                        education=candidate.education or None,
+                        current_company=candidate.current_company or None,
+                        current_title=candidate.current_title or None,
+                    )
+                    created = await svc.create(create_data)
+                    candidate_id = created.id
+                    logger.info("Auto-created candidate %s from resume parse", candidate_id)
         except Exception as e:
-            logger.warning("Auto-create candidate failed (non-blocking): %s", e)
+            logger.warning("Auto-create/update candidate failed (non-blocking): %s", e)
     else:
         return {
             "status": "success",
@@ -86,7 +132,9 @@ async def _do_extract_and_link(
         rr = await db.get(RawResume, raw_resume_id)
         if rr is not None:
             rr.status = RawResumeStatus.PARSED
-            rr.candidate_id = candidate_id or None
+            # v0.6c.1: reuse 路径保持原 candidate_id, 非 reuse 路径覆盖
+            if not reused:
+                rr.candidate_id = candidate_id or None
             await db.commit()
 
     skills = list(candidate.skills or [])
@@ -214,10 +262,13 @@ async def _handle_retry_raw_resume(
 ) -> dict[str, Any]:
     """v0.5b: 重试解析失败的简历。raw_text 在 v0.4d 已落库，无需重新传文件。
 
-    v0.6c: 加 force 参数 (方案 A: 清空 candidate_id + 重建)
-      - force=False (默认): v0.5b 行为, rr.candidate_id 保留旧值, _do_extract_and_link 创建新候选人并覆盖
-      - force=True: 先清空 rr.candidate_id = None, _do_extract_and_link 创建新候选人
-        旧候选人**不**自动删 (user 可手动 archive)
+    v0.6c.1: force 参数真正差异化语义
+      - force=False (默认): _do_extract_and_link(reuse_candidate_id=True)
+        → 复用 rr.candidate_id, svc.update() 更新原候选人 (raw_resumes.candidate_id 保持)
+        → 旧候选人 ID 不变, 候选人字段被新解析结果覆盖
+      - force=True: _do_extract_and_link(reuse_candidate_id=False)
+        → 先清空 rr.candidate_id = None, 然后 svc.create() 创建新候选人
+        → 旧候选人**不**自动删 (user 可手动 archive)
 
     状态校验：只接受 failed（processing/parsed 返 CONFLICT，不存在返 NOT_FOUND）。
     状态机：failed → processing → parsed/failed。
@@ -247,7 +298,10 @@ async def _handle_retry_raw_resume(
         raw_text = rr.raw_text
         await db.commit()
 
-    return await _do_extract_and_link(raw_resume_id, raw_text, auto_create=True)
+    # v0.6c.1: force=False 调 reuse (svc.update 旧候选人), force=True 调 create (v0.6c 行为)
+    return await _do_extract_and_link(
+        raw_resume_id, raw_text, auto_create=True, reuse_candidate_id=not force
+    )
 
 
 async def _handle_parse_resume_async(
@@ -477,12 +531,12 @@ tools = [
         "type": "function",
         "function": {
             "name": "retry_raw_resume",
-            "description": "重试解析失败的简历。raw_text 在 v0.4d 事务边界已落库，无需重新传文件。状态机：failed → processing → parsed/failed。v0.6c 加 force 参数: True 时清空 raw_resumes.candidate_id 后重建（方案 A），False 时保留 v0.5b 默认行为。",
+            "description": "重试解析失败的简历。raw_text 在 v0.4d 事务边界已落库，无需重新传文件。状态机：failed → processing → parsed/failed。v0.6c.1 force 参数真正差异化: False 复用旧 candidate_id 调 svc.update 候选人, True 清空 candidate_id 后 svc.create 新候选人（旧留存）。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "raw_resume_id": {"type": "string", "description": "raw_resumes 表的 ID（v0.4d parse_resume 返回的 raw_resume_id）"},
-                    "force": {"type": "boolean", "description": "v0.6c: True 时先清空 candidate_id 再重建（方案 A，旧候选人留待手动 archive）。默认 False。", "default": False},
+                    "force": {"type": "boolean", "description": "v0.6c.1: False (默认) 复用旧候选人调 svc.update, True 清空后 svc.create 新候选人。", "default": False},
                 },
                 "required": ["raw_resume_id"],
             },
