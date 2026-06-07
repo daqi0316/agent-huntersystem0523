@@ -92,6 +92,10 @@ jobs:
           grep -rn 'api_key\|API_KEY\|api-key' --include='*.py' --include='*.ts' . || echo "No api_key patterns found"
         continue-on-error: true
 
+      - name: Check env keys (v1.0a, Momus §3.1 P0)
+        run: python3 scripts/check_env_keys.py --strict
+        continue-on-error: false
+
       - name: Check import health
         run: |
           python -c "

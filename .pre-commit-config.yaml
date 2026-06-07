@@ -41,3 +41,13 @@ repos:
         types_or: [python, json]
         # 不阻断 commit（CI 抓出问题但不挡 dev 流程）；CI 上跑 strict 模式
         stages: [manual]
+
+  - repo: local
+    hooks:
+      - id: check-env-keys
+        name: Check env keys (apps/api + apps/web vs .env.example)
+        entry: python3 scripts/check_env_keys.py
+        language: system
+        pass_filenames: false
+        types_or: [python, ts, tsx, js, jsx]
+        stages: [manual]
