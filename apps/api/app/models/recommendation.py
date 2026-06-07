@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import JSON, String, Text, DateTime, Integer, Boolean, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -52,13 +53,13 @@ class Recommendation(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     candidate_id: Mapped[str | None] = mapped_column(
-        String(36),
+        UUID(as_uuid=False),
         ForeignKey("candidates.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
     job_id: Mapped[str | None] = mapped_column(
-        String(36),
+        UUID(as_uuid=False),
         ForeignKey("job_positions.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
