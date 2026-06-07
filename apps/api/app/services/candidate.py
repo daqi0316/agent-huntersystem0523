@@ -21,6 +21,7 @@ class CandidateService:
         limit: int = 20,
         search: str | None = None,
         status: str | None = None,
+        skills: list[str] | None = None,
     ) -> tuple[list[Candidate], int]:
         """分页查询候选人列表"""
         query = select(Candidate)
@@ -45,6 +46,9 @@ class CandidateService:
         if status:
             query = query.where(Candidate.status == status)
             count_query = count_query.where(Candidate.status == status)
+        if skills:
+            query = query.where(Candidate.skills.op("&&")(skills))
+            count_query = count_query.where(Candidate.skills.op("&&")(skills))
 
         total = (await self.db.execute(count_query)).scalar() or 0
         query = query.order_by(Candidate.created_at.desc()).offset(skip).limit(limit)

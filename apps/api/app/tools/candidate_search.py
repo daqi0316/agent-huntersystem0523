@@ -22,7 +22,12 @@ async def _handle_search_candidates(
     """搜索候选人列表，支持关键词、状态、技能过滤。"""
     async with AsyncSessionLocal() as db:
         svc = CandidateService(db)
-        items, total = await svc.list(skip=skip, limit=limit, search=query or None, status=status or None)
+        items, total = await svc.list(
+            skip=skip, limit=limit,
+            search=query or None,
+            status=status or None,
+            skills=skills or None,
+        )
 
         results = []
         for c in items:
