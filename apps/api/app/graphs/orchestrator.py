@@ -91,7 +91,9 @@ async def execute_subgraph(state: TaskState) -> dict:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "result_summary": str(result.get("current_step", "done"))[:100],
     }
-    update["execution_history"] = [entry]
+    # v1.4b 修: 累加 history 而非覆盖 (之前 [entry] 字面量导致 multi-invoke 时只保留最后一次)
+    existing_history = state.get("execution_history") or []
+    update["execution_history"] = existing_history + [entry]
     return update
 
 
