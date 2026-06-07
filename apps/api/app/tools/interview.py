@@ -23,11 +23,19 @@ async def _handle_cancel_interview(interview_id: str = "", reason: str = "") -> 
         return {"status": "success", "data": {"interview_id": interview_id, "status": "cancelled", "reason": reason}}
 
 
-async def _handle_schedule_interview(candidate_id="", job_id="", scheduled_time="", notes=""):
+async def _handle_schedule_interview(candidate_id="", job_id="", scheduled_time="", notes="", application_id=""):
+    """v1.2 E2E bug fix: 加 application_id 参数.
+
+    背景: interviews.application_id 是 NOT NULL, 但 v0.3 handler 没传, v1.1 E2E 没碰到
+    (只测 parse_resume). v1.2 E2E 第一次 schedule_interview 真 DB 路径, 立即暴露.
+    修法: handler 接受 application_id 并透传给 InterviewService (slot 字段).
+    调用方应先调 create_application 建 application, 再传 application_id 过来.
+    """
     slot = {
         "type": "video",
         "scheduled_at": scheduled_time or datetime.now(timezone.utc).isoformat(),
         "notes": notes,
+        "application_id": application_id,
     }
     async with AsyncSessionLocal() as db:
         from app.services.interview import InterviewService

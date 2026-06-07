@@ -4,6 +4,7 @@ import enum
 from typing import Optional
 
 from sqlalchemy import JSON, String, Text, DateTime, ForeignKey, Integer, Float, Boolean
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -32,7 +33,7 @@ class InterviewEvaluation(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4()),
     )
     interview_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("interviews.id", ondelete="CASCADE"), nullable=False, index=True,
+        UUID(as_uuid=False), ForeignKey("interviews.id", ondelete="CASCADE"), nullable=False, index=True,
     )
     round: Mapped[InterviewRound] = mapped_column(
         enum_column(InterviewRound, "interview_round"), default=InterviewRound.R1,
