@@ -25,6 +25,7 @@ from app.api.invitations import router as invitations_router
 from app.api.evaluations import router as evaluations_router
 from app.api.dashboard_reports import router as dashboard_reports_router
 from app.api.resume import router as resume_router
+from app.api.raw_resume import router as raw_resume_router
 from app.api.summaries import router as summaries_router
 from app.api.screening import router as screening_router
 from app.api.conversation import router as conversation_router
@@ -59,6 +60,7 @@ api_router = APIRouter()
 
 # 认证
 api_router.include_router(resume_router, prefix="/resume", tags=["Resume"])
+api_router.include_router(raw_resume_router, prefix="/raw-resumes", tags=["Raw Resume"])
 api_router.include_router(auth_router, prefix="/auth", tags=["Auth"])
 
 # 图1: 单Agent

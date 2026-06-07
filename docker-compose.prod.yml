@@ -120,6 +120,43 @@ services:
         reservations:
           memory: 512M
 
+  parse_worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: ai-recruitment/api:${API_IMAGE_TAG:-latest}
+    container_name: ai-recruitment-parse-worker-prod
+    command: ["rq", "worker", "parse_queue", "--url", "redis://redis:6379/0"]
+    env_file:
+      - .env.prod
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_recruitment}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_recruitment}
+      REDIS_URL: redis://redis:6379/0
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
+      LLM_PROVIDER: ${LLM_PROVIDER:-omlx}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "rq heartbeat -u redis://redis:6379/0 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+    restart: *default-restart
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
   web:
     build:
       context: .

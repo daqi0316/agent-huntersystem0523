@@ -323,6 +323,20 @@ register_tool(
     description="重试解析失败的简历 — 用户主动触发，不归 supervisor 自动 retry",
 )
 register_tool(
+    "parse_resume_async",
+    retryable=True,
+    max_retries=2,
+    escalation=EscalationMode.REQUIRES_HUMAN,
+    description="异步解析简历 — enqueue RQ task, 不阻塞等待 LLM",
+)
+register_tool(
+    "poll_parse_resume",
+    retryable=False,
+    max_retries=0,
+    escalation=EscalationMode.NONE,
+    description="轮询异步解析任务状态 — 用户主动调用",
+)
+register_tool(
     "parse_file",
     retryable=True,
     max_retries=2,

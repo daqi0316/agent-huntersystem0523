@@ -235,6 +235,112 @@ async def _handle_retry_raw_resume(raw_resume_id: str = "") -> dict[str, Any]:
     return await _do_extract_and_link(raw_resume_id, raw_text, auto_create=True)
 
 
+async def _handle_parse_resume_async(
+    content: str = "",
+    file_url: str = "",
+    file_type: str = "",
+    filename: str = "",
+    target_job_id: str = "",
+    auto_create: bool = True,
+) -> dict[str, Any]:
+    """v0.6a: async version — 落 raw_resume + enqueue RQ task, 立刻返 task_id。
+
+    不在 API 进程跑 LLM, worker 进程 (parse_worker) 跑 _do_extract_and_link。
+    客户端 poll 走 poll_parse_resume 工具或 GET /raw-resumes/{id}/status。
+    """
+    from app.services.parse_task import enqueue_parse_task
+
+    if not content and not file_url:
+        return {"status": "failed", "error": {"code": "INVALID_INPUT", "message": "content or file_url required"}}
+
+    raw_resume_id = new_raw_resume_id()
+    async with AsyncSessionLocal() as db:
+        rr = RawResume(
+            id=raw_resume_id,
+            raw_text=content or "",
+            file_url=file_url or None,
+            file_type=file_type or None,
+            filename=filename or None,
+            target_job_id=target_job_id or None,
+            status=RawResumeStatus.PROCESSING,
+        )
+        db.add(rr)
+        await db.commit()
+
+    try:
+        task_id = enqueue_parse_task(
+            raw_resume_id=raw_resume_id,
+            content=content or "",
+            auto_create=auto_create,
+        )
+    except Exception as e:
+        logger.error("Failed to enqueue parse task for %s: %s", raw_resume_id, e)
+        async with AsyncSessionLocal() as db:
+            stuck = await db.get(RawResume, raw_resume_id)
+            if stuck is not None:
+                stuck.status = RawResumeStatus.FAILED
+                stuck.error_message = f"enqueue_failed: {e}"
+                await db.commit()
+        return {"status": "failed", "error": {"code": "QUEUE_UNAVAILABLE", "message": str(e), "retryable": True}}
+
+    return {
+        "status": "accepted",
+        "data": {
+            "raw_resume_id": raw_resume_id,
+            "task_id": task_id,
+            "poll_url": f"/raw-resumes/{raw_resume_id}/status",
+        },
+    }
+
+
+async def _handle_poll_parse(raw_resume_id: str = "") -> dict[str, Any]:
+    """v0.6a: poll task status by raw_resume_id.
+
+    读 raw_resumes.status（_do_extract_and_link 写回, source of truth）。
+    """
+    from app.services.parse_task import poll_parse_task
+
+    if not raw_resume_id:
+        return {"status": "failed", "error": {"code": "INVALID_INPUT", "message": "raw_resume_id required"}}
+
+    result = await poll_parse_task(raw_resume_id)
+    if result is None:
+        return {"status": "failed", "error": {"code": "NOT_FOUND", "message": f"raw_resume {raw_resume_id} not found"}}
+
+    parse_status = result["status"]
+    if parse_status == RawResumeStatus.PARSED.value:
+        return {
+            "status": "success",
+            "data": {
+                "raw_resume_id": result["raw_resume_id"],
+                "parse_status": "parsed",
+                "candidate_id": result["candidate_id"],
+                "updated_at": result.get("updated_at"),
+            },
+        }
+    if parse_status == RawResumeStatus.FAILED.value:
+        return {
+            "status": "failed",
+            "error": {
+                "code": "PARSE_FAILED",
+                "message": result.get("error_message", "parse failed"),
+                "retryable": True,
+            },
+            "data": {
+                "raw_resume_id": result["raw_resume_id"],
+                "parse_status": "failed",
+            },
+        }
+    return {
+        "status": "accepted",
+        "data": {
+            "raw_resume_id": result["raw_resume_id"],
+            "parse_status": "processing",
+            "updated_at": result.get("updated_at"),
+        },
+    }
+
+
 async def _handle_get_profile(candidate_id: str = "") -> dict[str, Any]:
     """Get aggregated candidate profile."""
     if not candidate_id:
@@ -366,6 +472,38 @@ tools = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "parse_resume_async",
+            "description": "v0.6a 异步版：落 raw_resume + enqueue RQ task, 立刻返 task_id, 不阻塞等待 LLM。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "简历文本内容"},
+                    "file_url": {"type": "string", "description": "简历文件URL（v0.6a 暂只支持 content）"},
+                    "file_type": {"type": "string", "description": "文件类型"},
+                    "filename": {"type": "string", "description": "原始文件名"},
+                    "target_job_id": {"type": "string", "description": "关联的职位ID"},
+                    "auto_create": {"type": "boolean", "description": "解析成功后是否自动创建候选人（默认 True）"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "poll_parse_resume",
+            "description": "v0.6a 异步版：轮询 parse_resume_async 任务状态。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "raw_resume_id": {"type": "string", "description": "parse_resume_async 返回的 raw_resume_id"},
+                },
+                "required": ["raw_resume_id"],
+            },
+        },
+    },
 ]
 
 handlers = {
@@ -373,4 +511,6 @@ handlers = {
     "batch_parse_resumes": _handle_batch_parse,
     "get_candidate_profile": _handle_get_profile,
     "retry_raw_resume": _handle_retry_raw_resume,
+    "parse_resume_async": _handle_parse_resume_async,
+    "poll_parse_resume": _handle_poll_parse,
 }

@@ -56,6 +56,22 @@ api:check-schema:	## Compare SQLAlchemy models with current DB schema (alembic c
 api:test:	## Run API tests
 	cd apps/api && python -m pytest tests/ -v --tb=short
 
+celery:dev:	## Start parse_worker (RQ) with hot-reload (requires redis)
+	nohup $(MAKE) _celery:run-detached >/dev/null 2>&1 &
+
+celery:watch:	## Run parse_worker watchdog (auto-restart on death)
+	cd apps/api && nohup ../../apps/api/.venv/bin/python -m app.scripts.parse_worker_watchdog > /tmp/celery-wd-stdout.log 2>&1 &
+
+_celery:run-detached:	## Internal: double-fork daemonize rq worker
+	cd apps/api && .venv/bin/python -c "import os,sys;pid=os.fork();\
+sys.exit(0) if pid>0 else None;os.setsid();pid=os.fork();\
+sys.exit(0) if pid>0 else None;\
+log=os.open('/tmp/rq-worker.log',os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o644);\
+devnull=os.open(os.devnull,os.O_RDONLY);\
+os.dup2(devnull,0);os.dup2(log,1);os.dup2(log,2);\
+os.execv('.venv/bin/python',['../apps/api/.venv/bin/python','-m','rq','worker','parse_queue','--url','redis://localhost:6379/0'])"
+	cd apps/api && .venv/bin/python -m rq worker parse_queue --url redis://localhost:6379/0
+
 # ── Web ────────────────────────────────────────────────────────────────────
 
 web:dev:	## Start Next.js dev server

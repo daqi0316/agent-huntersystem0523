@@ -125,6 +125,27 @@ services:
     profiles:
       - full
 
+  parse_worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.dev
+    container_name: ai-recruitment-parse-worker
+    command: ["rq", "worker", "parse_queue", "--url", "redis://redis:6379/0"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
+      DATABASE_URL_SYNC: postgresql://postgres:postgres@postgres:5432/ai_recruitment
+      REDIS_URL: redis://redis:6379/0
+      LLM_BASE_URL: http://vllm:8000/v1
+      LLM_PROVIDER: omlx
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - full
+
 volumes:
   pgdata:
   qdrant_data:
