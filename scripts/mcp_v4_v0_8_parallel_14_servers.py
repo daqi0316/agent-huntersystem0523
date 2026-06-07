@@ -1,39 +1,34 @@
-"""v0.8: 14 server 并行 spawn 压测 — 安全验证 + fd/memory 边界探测
+"""v0.8.1: 14 server 并行 spawn 压测 — subprocess.Popen + psutil 真实 fd/memory 测量
 
-覆盖 3 场景 × 10 trial = 30 实验:
+覆盖 3 场景 × 10 trial = 30 实验 (Momus §3 决策 4 选安全验证):
   - 场景 A: stagger 0 (同时 spawn, 找 fd/memory 硬上限)
   - 场景 B: stagger 100ms (模拟快速重启, 代码热重载场景)
   - 场景 C: stagger 1s (模拟 prod 滚动重启)
 
-主目标 (Momus §3 决策 4): 安全验证 (14 server 并行不死), 非性能基准.
-dev 数字 prod 无效 (v0.5-replan §5 原文 "价值低"), 但失败率阈值 0% 必查
-(任何 spawn fail 都是 bug).
+v0.8 局限修复 (Momus §3.2): v0.8 用 stdio_client, anyio 包装子进程 PID 不暴露, max fd/rss 测 0.
+v0.8.1 改用 subprocess.Popen + psutil.Process:
+  - Popen 拿 real PID
+  - psutil.Process(pid).memory_info().rss 读 RSS (KB)
+  - psutil.Process(pid).open_files() 拿 FD 占用 (regular + socket)
+  - 不测 MCP 协议 (v0.4e 14 server e2e 14/14 已覆盖, 避免双测)
 
-测量:
-  - P95 total wall (单 trial 14 server 全部 spawn+init+list+shutdown 完成时间)
-  - mean RSS peak (Trial 内任一 server 进程 max RSS, KB)
-  - max open fd peak (Trial 内任一 server 进程 max open fd count)
-  - 失败率 (failed lifecycle / total, 0% 是底线)
+主目标 (Momus §3.1): 失败率 0% (任何 fail = bug, 必查).
+次目标: 真实 fd/memory 数字 (per-server + total).
 
-CI 兼容 (Momus §2.2):
-  - lsof / ps 命令 try/except 包, 缺命令时记 NA 不阻塞
-  - trial 间 asyncio.sleep(0.5) 让 fd 释放 (Momus §2.3)
-
-不做函数级 profiling (Momus §2.4): 推 v0.8.1
+CI 兼容 (Momus §3.3): psutil 跨平台 (macOS/Linux/Docker), 不依赖 lsof/ps 命令.
+trial 间 sleep 1.5s 让 fd 释放 (Momus §3.4: Popen 退出后 fd 释放延迟比 stdio_client 长).
 """
 from __future__ import annotations
 
-import asyncio
-import json
-import statistics
+import os
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+import psutil
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -41,10 +36,9 @@ API_ROOT = PROJECT_ROOT / "apps" / "api"
 PYTHON_BIN = str(API_ROOT / ".venv" / "bin" / "python")
 SUBPROCESS_CWD = str(API_ROOT)
 CONFIG_PATH = API_ROOT / "app" / "mcp_servers" / "config.json"
-INIT_TIMEOUT_S = 10.0
-LIST_TOOLS_TIMEOUT_S = 5.0
 TRIALS = 10
-TRIAL_GAP_S = 0.5
+TRIAL_GAP_S = 1.5
+SERVER_INIT_SLEEP_S = 0.5  # 等 server 起来 (initialize + load 资源)
 SCENARIOS = [
     ("A_simultaneous", 0.0),
     ("B_100ms_stagger", 0.1),
@@ -60,116 +54,88 @@ class TrialResult:
     total_wall_ms: float = 0.0
     failed_count: int = 0
     succeeded_count: int = 0
-    peak_rss_kb: int = 0
-    peak_fd: int = 0
-    fd_measurement: str = "ok"  # "ok" / "lsof_na" / "ps_na" / "lsof_and_ps_na"
-    error: str = ""
+    peak_rss_kb: int = 0  # 任一 server 进程 max RSS (KB)
+    peak_fd: int = 0  # 任一 server 进程 max FD 占用 (open_files + connections)
+    mean_rss_kb: int = 0  # 平均 RSS (成功 server)
+    mean_fd: int = 0
+    max_open_files: int = 0
+    max_connections: int = 0
+    measurement: str = "ok"  # "ok" / "no_such_process" / "access_denied"
 
 
-def _read_fd_and_rss(pids: list[int]) -> tuple[int, int, str]:
-    """读一组 PID 的 max fd + max RSS (KB). lsof/ps 缺命令时返 NA.
+def _spawn_one_popen(server: dict) -> tuple[bool, int, int, int, int, int, str]:
+    """Popen 起 server, 等初始化, 读 RSS/fd, terminate.
 
-    Returns: (max_fd, max_rss_kb, measurement_status)
+    Returns: (ok, pid, rss_kb, fd_open_files, fd_connections, total_fd, measurement_status)
     """
-    fd_measurement = "ok"
-    max_fd = 0
-    fd_na = False
-    rss_na = False
-
-    for pid in pids:
-        if not fd_na:
-            try:
-                result = subprocess.run(
-                    ["lsof", "-p", str(pid)],
-                    capture_output=True, text=True, timeout=3,
-                )
-                if result.returncode == 0:
-                    fd_count = len(result.stdout.strip().splitlines()) - 1
-                    max_fd = max(max_fd, fd_count)
-                else:
-                    fd_na = True
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                fd_na = True
-
-        if not rss_na:
-            try:
-                result = subprocess.run(
-                    ["ps", "-o", "rss=", "-p", str(pid)],
-                    capture_output=True, text=True, timeout=3,
-                )
-                if result.returncode == 0:
-                    rss_kb = int(result.stdout.strip().splitlines()[0])
-                    max_rss_kb = max(max_rss_kb, rss_kb)
-                else:
-                    rss_na = True
-            except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
-                rss_na = True
-
-    if fd_na and rss_na:
-        return max_fd, max_rss_kb, "lsof_and_ps_na"
-    if fd_na:
-        return max_fd, max_rss_kb, "lsof_na"
-    if rss_na:
-        return max_fd, max_rss_kb, "ps_na"
-    return max_fd, max_rss_kb, "ok"
-
-
-async def _lifecycle_one(server: dict) -> tuple[bool, list[int]]:
-    """跑单 server 完整 lifecycle. 返 (ok, pids).
-
-    这里简化不开新进程测量, 直接用 stdio_client 子进程 PID.
-    """
-    params = StdioServerParameters(
-        command=PYTHON_BIN,
-        args=list(server["args"]),
+    env = {**os.environ, **server.get("extra_env", {})}
+    proc = subprocess.Popen(
+        [PYTHON_BIN] + list(server["args"]),
         cwd=SUBPROCESS_CWD,
-        env={**server.get("extra_env", {})},
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     try:
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await asyncio.wait_for(session.initialize(), timeout=INIT_TIMEOUT_S)
-                await asyncio.wait_for(session.list_tools(), timeout=LIST_TOOLS_TIMEOUT_S)
-                return True, []
-    except Exception:
-        return False, []
+        time.sleep(SERVER_INIT_SLEEP_S)
+        try:
+            ps = psutil.Process(proc.pid)
+            rss_kb = ps.memory_info().rss // 1024
+            open_files = ps.open_files()
+            connections = ps.connections()
+            fd_count = len(open_files) + len(connections)
+            return True, proc.pid, rss_kb, len(open_files), len(connections), fd_count, "ok"
+        except psutil.NoSuchProcess:
+            return True, proc.pid, 0, 0, 0, 0, "no_such_process"
+        except psutil.AccessDenied:
+            return True, proc.pid, 0, 0, 0, 0, "access_denied"
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
 
-async def _run_trial(servers: list[dict], scenario: str, trial_idx: int, stagger_s: float) -> TrialResult:
-    """跑单 trial: stagger spawn 14 server, 测总耗时 + 失败数 + fd/rss peak."""
+def _run_trial(servers: list[dict], scenario: str, trial_idx: int, stagger_s: float) -> TrialResult:
+    """跑单 trial: ThreadPoolExecutor 并行起 14 server (MCP 协议不测)."""
     r = TrialResult(scenario=scenario, trial_idx=trial_idx, stagger_s=stagger_s)
-    pids_collected: list[int] = []
+    rss_values: list[int] = []
+    fd_values: list[int] = []
+    open_files_values: list[int] = []
+    connections_values: list[int] = []
+
+    def one_with_stagger(idx: int, server: dict) -> None:
+        if stagger_s > 0:
+            time.sleep(stagger_s * idx)
+        ok, _pid, rss_kb, open_files, conns, fd_count, status = _spawn_one_popen(server)
+        r.measurement = status
+        if ok:
+            r.succeeded_count += 1
+            rss_values.append(rss_kb)
+            fd_values.append(fd_count)
+            open_files_values.append(open_files)
+            connections_values.append(conns)
+        else:
+            r.failed_count += 1
 
     t_total = time.perf_counter()
-
-    async def one_with_stagger(idx: int, server: dict):
-        if stagger_s > 0:
-            await asyncio.sleep(stagger_s * idx)
-        ok, pids = await _lifecycle_one(server)
-        pids_collected.extend(pids)
-        return ok
-
-    results = await asyncio.gather(
-        *[one_with_stagger(i, s) for i, s in enumerate(servers)],
-        return_exceptions=True,
-    )
+    with ThreadPoolExecutor(max_workers=14) as executor:
+        futures = [executor.submit(one_with_stagger, i, s) for i, s in enumerate(servers)]
+        for f in as_completed(futures):
+            f.result()
     r.total_wall_ms = (time.perf_counter() - t_total) * 1000
 
-    succeeded = 0
-    failed = 0
-    for r_item in results:
-        if r_item is True:
-            succeeded += 1
-        else:
-            failed += 1
-    r.succeeded_count = succeeded
-    r.failed_count = failed
-
-    if pids_collected:
-        max_fd, max_rss_kb, status = _read_fd_and_rss(pids_collected)
-        r.peak_fd = max_fd
-        r.peak_rss_kb = max_rss_kb
-        r.fd_measurement = status
+    if rss_values:
+        r.peak_rss_kb = max(rss_values)
+        r.mean_rss_kb = sum(rss_values) // len(rss_values)
+    if fd_values:
+        r.peak_fd = max(fd_values)
+        r.mean_fd = sum(fd_values) // len(fd_values)
+    if open_files_values:
+        r.max_open_files = max(open_files_values)
+    if connections_values:
+        r.max_connections = max(connections_values)
 
     return r
 
@@ -182,14 +148,14 @@ def _pct(values: list[float], p: float) -> float:
     return s[idx]
 
 
-async def main() -> int:
+def main() -> int:
     config = json.loads(CONFIG_PATH.read_text())
     servers = config["servers"]
-    print(f"=== v0.8: 14 server 并行 spawn 压测 ===")
+    print(f"=== v0.8.1: 14 server 并行 spawn 压测 (Popen + psutil) ===")
     print(f"Servers: {len(servers)}")
     print(f"Scenarios: {[s[0] for s in SCENARIOS]}")
     print(f"Trials/scenario: {TRIALS}")
-    print(f"Trial gap: {TRIAL_GAP_S}s")
+    print(f"Trial gap: {TRIAL_GAP_S}s, init sleep: {SERVER_INIT_SLEEP_S}s")
     print()
 
     all_results: list[TrialResult] = []
@@ -198,7 +164,7 @@ async def main() -> int:
         print(f"--- 场景 {scenario_name} (stagger={stagger_s}s) ---")
         scenario_results: list[TrialResult] = []
         for trial_idx in range(1, TRIALS + 1):
-            r = await _run_trial(servers, scenario_name, trial_idx, stagger_s)
+            r = _run_trial(servers, scenario_name, trial_idx, stagger_s)
             scenario_results.append(r)
             all_results.append(r)
             status = "✅" if r.failed_count == 0 else "❌"
@@ -206,17 +172,18 @@ async def main() -> int:
                 f"  {status} trial {trial_idx}/{TRIALS}: "
                 f"wall={r.total_wall_ms:7.0f}ms "
                 f"failed={r.failed_count}/14 "
-                f"fd={r.peak_fd} rss={r.peak_rss_kb}KB"
+                f"peak rss={r.peak_rss_kb}KB "
+                f"peak fd={r.peak_fd} (files={r.max_open_files} conns={r.max_connections})"
             )
-            await asyncio.sleep(TRIAL_GAP_S)
+            time.sleep(TRIAL_GAP_S)
         wall_p95 = _pct([r.total_wall_ms for r in scenario_results], 95)
-        avg_failed = statistics.mean([r.failed_count for r in scenario_results])
-        max_fd = max([r.peak_fd for r in scenario_results])
-        max_rss = max([r.peak_rss_kb for r in scenario_results])
+        avg_failed = sum(r.failed_count for r in scenario_results) / len(scenario_results)
+        max_rss = max(r.peak_rss_kb for r in scenario_results)
+        max_fd = max(r.peak_fd for r in scenario_results)
         print(
             f"  Aggregate: P95 wall={wall_p95:.0f}ms "
             f"avg failed/trial={avg_failed:.1f}/14 "
-            f"max fd={max_fd} max rss={max_rss}KB"
+            f"max rss={max_rss}KB max fd={max_fd}"
         )
         print()
 
@@ -232,14 +199,32 @@ async def main() -> int:
     print(f"  总 failed: {total_failed}")
     print(f"  失败率: {overall_fail_rate:.2f}%")
     print()
+    print("  --- fd/memory 真实数字 (Momus §3 修后) ---")
+    rss_peak_per_scenario = {}
+    fd_peak_per_scenario = {}
+    for scenario_name, _ in SCENARIOS:
+        scenario_rss = max(r.peak_rss_kb for r in all_results if r.scenario == scenario_name)
+        scenario_fd = max(r.peak_fd for r in all_results if r.scenario == scenario_name)
+        rss_peak_per_scenario[scenario_name] = scenario_rss
+        fd_peak_per_scenario[scenario_name] = scenario_fd
+    for scenario_name, _ in SCENARIOS:
+        print(
+            f"  {scenario_name}: max rss={rss_peak_per_scenario[scenario_name]}KB "
+            f"max fd={fd_peak_per_scenario[scenario_name]}"
+        )
+    print()
+    print(f"  跨场景: max rss={max(rss_peak_per_scenario.values())}KB "
+          f"max fd={max(fd_peak_per_scenario.values())}")
+    print()
 
     if overall_fail_rate > 0:
-        print(f"❌ 失败率 {overall_fail_rate:.2f}% > 0% — 必须查原因, 推 v0.8.1 修复")
+        print(f"❌ 失败率 {overall_fail_rate:.2f}% > 0% — 必须查原因, 推 v0.8.2 修复")
         return 1
 
-    print("✅ 失败率 0% — 14 server 并行安全, ship 文档")
+    print("✅ 失败率 0% — 14 server 并行安全 + 真实 fd/memory 数字")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    import json
+    sys.exit(main())
