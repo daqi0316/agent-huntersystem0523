@@ -316,6 +316,13 @@ register_tool(
     description="解析简历 — 外部 OCR/解析服务可能超时",
 )
 register_tool(
+    "retry_raw_resume",
+    retryable=False,
+    max_retries=0,
+    escalation=EscalationMode.NONE,
+    description="重试解析失败的简历 — 用户主动触发，不归 supervisor 自动 retry",
+)
+register_tool(
     "parse_file",
     retryable=True,
     max_retries=2,

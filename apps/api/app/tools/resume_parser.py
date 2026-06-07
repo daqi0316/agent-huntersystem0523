@@ -208,6 +208,33 @@ async def _handle_batch_parse(
     }
 
 
+async def _handle_retry_raw_resume(raw_resume_id: str = "") -> dict[str, Any]:
+    """v0.5b: 重试解析失败的简历。raw_text 在 v0.4d 已落库，无需重新传文件。
+
+    状态校验：只接受 failed（processing/parsed 返 CONFLICT，不存在返 NOT_FOUND）。
+    状态机：failed → processing → parsed/failed（与 parse_resume 走同一条 transition）。
+    """
+    if not raw_resume_id:
+        return {"status": "failed", "error": {"code": "INVALID_INPUT", "message": "raw_resume_id required"}}
+
+    async with AsyncSessionLocal() as db:
+        rr = await db.get(RawResume, raw_resume_id)
+        if rr is None:
+            return {"status": "failed", "error": {"code": "NOT_FOUND", "message": f"raw_resume {raw_resume_id} not found"}}
+        if rr.status == RawResumeStatus.PROCESSING:
+            return {"status": "failed", "error": {"code": "CONFLICT", "message": "raw_resume 仍在处理中，请稍后再试"}}
+        if rr.status == RawResumeStatus.PARSED:
+            return {"status": "failed", "error": {"code": "CONFLICT", "message": "raw_resume 已解析成功，无需 retry"}}
+        if rr.status != RawResumeStatus.FAILED:
+            return {"status": "failed", "error": {"code": "CONFLICT", "message": f"无法 retry status={rr.status.value}"}}
+        rr.status = RawResumeStatus.PROCESSING
+        rr.error_message = None
+        raw_text = rr.raw_text
+        await db.commit()
+
+    return await _do_extract_and_link(raw_resume_id, raw_text, auto_create=True)
+
+
 async def _handle_get_profile(candidate_id: str = "") -> dict[str, Any]:
     """Get aggregated candidate profile."""
     if not candidate_id:
@@ -325,10 +352,25 @@ tools = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "retry_raw_resume",
+            "description": "重试解析失败的简历。raw_text 在 v0.4d 事务边界已落库，无需重新传文件。状态机：failed → processing → parsed/failed。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "raw_resume_id": {"type": "string", "description": "raw_resumes 表的 ID（v0.4d parse_resume 返回的 raw_resume_id）"},
+                },
+                "required": ["raw_resume_id"],
+            },
+        },
+    },
 ]
 
 handlers = {
     "parse_resume": _handle_parse_resume,
     "batch_parse_resumes": _handle_batch_parse,
     "get_candidate_profile": _handle_get_profile,
+    "retry_raw_resume": _handle_retry_raw_resume,
 }
