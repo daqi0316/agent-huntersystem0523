@@ -26,11 +26,10 @@ ENV_FILES = [
 ]
 EXCLUDE_DIRS = {"__pycache__", "node_modules", ".next", "dist", "build", ".venv", "venv"}
 SKIP_KEYS = {
-    "DEBUG", "APP_NAME", "GIT SHA", "PYTHONPATH", "PATH", "HOME", "USER", "SHELL",
+    "DEBUG", "APP_NAME", "GIT_SHA", "PYTHONPATH", "PATH", "HOME", "USER", "SHELL",
     "API_BASE", "WEB_BASE", "API_URL", "WEB_URL", "CI",
     "SETTINGS_DIR", "E2E_EMAIL", "E2E_PASSWORD", "REDIS_E2E",
-    "GIT_SHA",
-    "SENTRY TRACES_SAMPLE_RATE", "SENTRY_TRACES_SAMPLE_RATE",
+    "SENTRY TRACES_SAMPLE_RATE",
 }
 
 

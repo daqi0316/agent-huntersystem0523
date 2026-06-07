@@ -7,9 +7,31 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _traces_sample_rate() -> float:
+    """v1.0b.1: 修原 'SENTRY TRACES_SAMPLE_RATE' (带空格 typo).
+
+    读无空格 key; 兼容 1 版本周期: 带空格 key 仍可读, 但 warn 一次.
+    v1.0b.1 deprecate 带空格 key, 推 v1.1 删除 fallback.
+    """
+    value = os.getenv("SENTRY_TRACES_SAMPLE_RATE")
+    if value is not None:
+        return float(value)
+    legacy = os.getenv("SENTRY TRACES_SAMPLE_RATE")
+    if legacy is not None:
+        warnings.warn(
+            "SENTRY TRACES_SAMPLE_RATE (with space) deprecated, "
+            "rename to SENTRY_TRACES_SAMPLE_RATE (no space)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return float(legacy)
+    return 0.1
 
 
 def init_sentry() -> bool:
@@ -17,6 +39,33 @@ def init_sentry() -> bool:
     dsn = os.getenv("SENTRY_DSN", "")
     if not dsn:
         logger.info("SENTRY_DSN not set, Sentry disabled")
+        return False
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        from sentry_sdk.integrations.asyncio import AsyncioIntegration
+
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.getenv("SENTRY_ENV", "production"),
+            release=os.getenv("GIT SHA", "unknown"),
+            traces_sample_rate=_traces_sample_rate(),
+            profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
+            integrations=[
+                FastApiIntegration(),
+                SqlalchemyIntegration(),
+                AsyncioIntegration(),
+            ],
+            before_send=_scrub_pii,
+        )
+        logger.info("Sentry initialized: env=%s release=%s", os.getenv("SENTRY_ENV"), os.getenv("GIT SHA"))
+        return True
+    except ImportError:
+        logger.warning("sentry-sdk not installed, skipping")
+        return False
+    except Exception as e:
+        logger.error("Sentry init failed: %s", e)
         return False
     try:
         import sentry_sdk
