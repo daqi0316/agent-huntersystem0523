@@ -109,6 +109,13 @@ llm_token_quota_remaining = Gauge(
     labelnames=("org_id",),
 )
 
+# A1: 限流埋点
+rate_limit_check_total = Counter(
+    "rate_limit_check_total",
+    "Rate limit checks (label blocked=true|false indicates 429 response)",
+    labelnames=("key_type", "path", "blocked"),
+)
+
 
 # ── 准入白名单 ─────────────────────────────────────────────────
 ALLOWED_EVENTS = frozenset(
@@ -201,6 +208,15 @@ def record_llm_call(model: str, prompt_tokens: int, completion_tokens: int, succ
         llm_token_total.labels(model=model, kind="completion").inc(completion_tokens)
     if not success and error_type:
         llm_failure_total.labels(model=model, error_type=error_type).inc()
+
+
+def record_rate_limit_event(key_type: str, path: str, blocked: bool) -> None:
+    """A1: 限流中间件调用 — 记通过/阻断计数。"""
+    rate_limit_check_total.labels(
+        key_type=key_type,
+        path=path[:128],
+        blocked="true" if blocked else "false",
+    ).inc()
 
 
 def update_db_pool_metrics(used: int, size: int) -> None:

@@ -9,6 +9,7 @@
 - per-org LLM token quota: 超 80% 预警, 超 100% 自动降级
 - 灰度发布: RATELIMIT_ROLLOUT_PCT 0-100, 1% 起步
 - 飞书通知: owner webhook (超 quota 时)
+- A1 增强: module-level singleton store, admin reset/state 接口可访问
 """
 
 from __future__ import annotations
@@ -119,6 +120,141 @@ DEFAULT_LIMITS = {
     "user": (60, 60),   # 60 req/min per user
     "ip": (30, 60),     # 30 req/min per IP (匿名端点)
 }
+
+
+# ── A1: Module-level singleton store ────────────────────────────
+# 之前 create_rate_limit_middleware() 每次都新建 InMemoryRateStore，
+# 导致外部拿不到引用、admin 端点无法 reset/inspect。
+# 改为 module-level singleton：middleware 闭包用同一个 store，admin 接口
+# 拿同一引用。
+# 初始化策略: get_rate_store() 默认返 InMemoryRateStore (sync, 零依赖);
+# Redis 模式需 lifespan 启动时显式 await init_rate_store()。
+
+_rate_store: RateStoreProtocol | None = None
+
+
+def get_rate_store() -> RateStoreProtocol:
+    """获取限流存储单例。默认 InMemory，lifespan 启动时 init_rate_store() 可切 Redis。"""
+    global _rate_store
+    if _rate_store is None:
+        _rate_store = InMemoryRateStore()
+        logger.info("rate_limit: using InMemory store (default; call init_rate_store() for Redis)")
+    return _rate_store
+
+
+def set_rate_store(store: RateStoreProtocol) -> None:
+    """显式设置 store（测试/lifespan 启动用）。"""
+    global _rate_store
+    _rate_store = store
+
+
+async def init_rate_store() -> None:
+    """lifespan 启动时调用：按环境选 Redis 或 InMemory store。
+
+    REDIS_URL 非空时用 Redis（共享存储，跨副本一致）;
+    否则 InMemory（单进程，重启丢状态，dev 够用）。
+    """
+    global _rate_store
+    from app.core.config import settings
+    redis_url = getattr(settings, "redis_url", None) or os.getenv("REDIS_URL", "")
+    if redis_url:
+        try:
+            from app.core.redis import get_redis
+            client = await get_redis()
+            _rate_store = RedisStore(client)
+            logger.info("rate_limit: using Redis store at %s", _redis_mask(redis_url))
+            return
+        except Exception as e:
+            logger.warning("rate_limit: Redis init failed (%s), fallback to InMemory", e)
+    _rate_store = InMemoryRateStore()
+    logger.info("rate_limit: using InMemory store (no REDIS_URL or init failed)")
+
+
+def _redis_mask(url: str) -> str:
+    """隐藏 redis url 中的密码字段。"""
+    if "@" in url:
+        prefix, suffix = url.split("@", 1)
+        if ":" in prefix:
+            scheme_user, _ = prefix.rsplit(":", 1)
+            return f"{scheme_user}:***@{suffix}"
+    return url
+
+
+async def admin_reset_all() -> dict:
+    """重置所有限流状态（admin 端点调用）。
+
+    适用场景: health-check/load test 留下限流污染, 真实用户访问时撞 429。
+    返: {"reset_keys": N, "reset_counters": M}
+    """
+    store = get_rate_store()
+    snapshot = await get_state_snapshot()
+    if isinstance(store, InMemoryRateStore):
+        bucket_count = len(store._buckets)
+        counter_count = len(store._counters)
+        store._buckets.clear()
+        store._counters.clear()
+    elif isinstance(store, RedisStore):
+        # Redis: SCAN + DEL 所有 ratelimit:* key（不删 quota:*）
+        bucket_count = 0
+        try:
+            redis = store._redis
+            async for k in redis.scan_iter(match="ratelimit:*"):
+                await redis.delete(k)
+                bucket_count += 1
+        except Exception as e:
+            logger.warning("admin_reset_all: redis scan failed: %s", e)
+        counter_count = 0
+    else:
+        bucket_count, counter_count = 0, 0
+    logger.info("admin_reset_all: cleared %d buckets, %d counters", bucket_count, counter_count)
+    return {
+        "reset_buckets": bucket_count,
+        "reset_counters": counter_count,
+        "snapshot_before_reset": snapshot,
+    }
+
+
+async def get_state_snapshot() -> dict:
+    """获取限流状态快照（admin/inspect 端点用）。
+
+    返: {"active_buckets": N, "active_counters": M, "store_type": "..."}
+    """
+    store = get_rate_store()
+    if isinstance(store, InMemoryRateStore):
+        active_buckets = len(store._buckets)
+        active_counters = sum(1 for v in store._counters.values() if v > 0)
+        return {
+            "store_type": "in_memory",
+            "active_buckets": active_buckets,
+            "active_counters": active_counters,
+            "limits": DEFAULT_LIMITS,
+        }
+    if isinstance(store, RedisStore):
+        try:
+            redis = store._redis
+            bucket_count = 0
+            async for _ in redis.scan_iter(match="ratelimit:*", count=1000):
+                bucket_count += 1
+            counter_count = 0
+            async for _ in redis.scan_iter(match="quota:*", count=1000):
+                counter_count += 1
+            return {
+                "store_type": "redis",
+                "active_buckets": bucket_count,
+                "active_counters": counter_count,
+                "limits": DEFAULT_LIMITS,
+            }
+        except Exception as e:
+            logger.warning("get_state_snapshot: redis scan failed: %s", e)
+            return {
+                "store_type": "redis",
+                "error": str(e),
+                "limits": DEFAULT_LIMITS,
+            }
+    return {
+        "store_type": type(store).__name__,
+        "limits": DEFAULT_LIMITS,
+    }
 
 
 @dataclass
@@ -253,8 +389,9 @@ def create_rate_limit_middleware(
 
     limits: {"org": (100, 60), "user": (60, 60), "ip": (30, 60)}
     rollout_pct: 0-100, 灰度比例
+    A1: 不传 store 时用 module-level singleton (admin 接口能拿到同一引用)。
     """
-    effective_store = store if store is not None else InMemoryRateStore()
+    effective_store = store if store is not None else get_rate_store()
     effective_limits = limits or DEFAULT_LIMITS
 
     async def rate_limit_dispatch(request: Request, call_next):
@@ -280,6 +417,14 @@ def create_rate_limit_middleware(
             limit_value, window_value = effective_limits.get(key_type, (limit, window))
             redis_key = f"ratelimit:{key_type}:{key_value}:{path}"
             allowed, remaining = await effective_store.check(redis_key, limit_value, window_value)
+            try:
+                from app.core.telemetry import record_rate_limit_event
+                if allowed:
+                    record_rate_limit_event(key_type=key_type, path=path, blocked=False)
+                else:
+                    record_rate_limit_event(key_type=key_type, path=path, blocked=True)
+            except Exception:
+                pass
             if not allowed:
                 logger.warning(
                     "rate limit exceeded: type=%s key=%s path=%s limit=%d/%ds",

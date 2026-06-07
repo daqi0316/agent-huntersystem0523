@@ -161,3 +161,7 @@ api_router.include_router(notification_sms_router, tags=["Notification"])
 api_router.include_router(wechat_template_router, tags=["Notification"])
 api_router.include_router(feishu_wecom_oauth_router, prefix="/oauth", tags=["OAuth"])
 api_router.include_router(mcp_ab_router)  # PR-1b: /api/v1/mcp/ab/*
+
+# A1: Admin 运维端点 (限流状态查询/重置)
+from app.api.admin import router as admin_router  # noqa: E402
+api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])

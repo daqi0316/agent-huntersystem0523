@@ -34,6 +34,13 @@ async def lifespan(app: FastAPI):
     # P5-7: Sentry 启动 (无 DSN 则跳过)
     init_sentry()
 
+    # A1: 限流 store 初始化 (REDIS_URL 非空则 Redis, 否则 in-memory)
+    try:
+        from app.core.rate_limit import init_rate_store
+        await init_rate_store()
+    except Exception as e:
+        logger.warning("rate_limit store init failed: %s", e)
+
     # ── Schema 审计（防止 model enum/UUID 与 DB 不一致时静默 500）──
     # L2 启动期护栏：L1 编译期（pre-commit）+ 测试期（集成测试）失效时的兜底
     try:
