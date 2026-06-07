@@ -36,13 +36,17 @@ API_ROOT = PROJECT_ROOT / "apps" / "api"
 PYTHON_BIN = str(API_ROOT / ".venv" / "bin" / "python")
 SUBPROCESS_CWD = str(API_ROOT)
 CONFIG_PATH = API_ROOT / "app" / "mcp_servers" / "config.json"
-TRIALS = 10
+TRIALS = 10  # 标准场景跑 10 trials
 TRIAL_GAP_S = 1.5
-SERVER_INIT_SLEEP_S = 0.5  # 等 server 起来 (initialize + load 资源)
+D_TRIALS = 3  # long-running 场景只跑 3 trials (5s × 14 server × 3 trials = 210s, 控时间)
+D_TRIAL_GAP_S = 3.0
+SERVER_INIT_SLEEP_S = 0.5  # spawn-kill 模式: 0.5s 让 server 起来 (import + stdio init)
+SERVER_LIVE_SLEEP_S = 5.0  # long-running 模式: 5s 让 server 真正稳定 (listen socket + DB conn)
 SCENARIOS = [
     ("A_simultaneous", 0.0),
     ("B_100ms_stagger", 0.1),
     ("C_1s_stagger", 1.0),
+    ("D_long_running_5s", 0.0),  # v0.8.2 新场景: stdin=PIPE 让 server 不退, 5s 后测稳定态
 ]
 
 
@@ -63,21 +67,26 @@ class TrialResult:
     measurement: str = "ok"  # "ok" / "no_such_process" / "access_denied"
 
 
-def _spawn_one_popen(server: dict) -> tuple[bool, int, int, int, int, int, str]:
+def _spawn_one_popen(server: dict, init_sleep: float = SERVER_INIT_SLEEP_S, keep_alive: bool = False) -> tuple[bool, int, int, int, int, int, str]:
     """Popen 起 server, 等初始化, 读 RSS/fd, terminate.
+
+    keep_alive=True (v0.8.2 long-running): stdin=PIPE 让 server 不退, 测稳定态 fd.
+    keep_alive=False (默认 spawn-kill): stdin=DEVNULL, 0.5s 后测启动期资源.
 
     Returns: (ok, pid, rss_kb, fd_open_files, fd_connections, total_fd, measurement_status)
     """
     env = {**os.environ, **server.get("extra_env", {})}
+    stdin_cfg = subprocess.PIPE if keep_alive else subprocess.DEVNULL
     proc = subprocess.Popen(
         [PYTHON_BIN] + list(server["args"]),
         cwd=SUBPROCESS_CWD,
         env=env,
+        stdin=stdin_cfg,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     try:
-        time.sleep(SERVER_INIT_SLEEP_S)
+        time.sleep(init_sleep)
         try:
             ps = psutil.Process(proc.pid)
             rss_kb = ps.memory_info().rss // 1024
@@ -97,8 +106,11 @@ def _spawn_one_popen(server: dict) -> tuple[bool, int, int, int, int, int, str]:
             proc.kill()
 
 
-def _run_trial(servers: list[dict], scenario: str, trial_idx: int, stagger_s: float) -> TrialResult:
-    """跑单 trial: ThreadPoolExecutor 并行起 14 server (MCP 协议不测)."""
+def _run_trial(servers: list[dict], scenario: str, trial_idx: int, stagger_s: float, init_sleep: float = SERVER_INIT_SLEEP_S, keep_alive: bool = False) -> TrialResult:
+    """跑单 trial: ThreadPoolExecutor 并行起 14 server (MCP 协议不测).
+
+    init_sleep + keep_alive: v0.8.2 long-running 场景用 5.0s + keep_alive=True.
+    """
     r = TrialResult(scenario=scenario, trial_idx=trial_idx, stagger_s=stagger_s)
     rss_values: list[int] = []
     fd_values: list[int] = []
@@ -108,7 +120,7 @@ def _run_trial(servers: list[dict], scenario: str, trial_idx: int, stagger_s: fl
     def one_with_stagger(idx: int, server: dict) -> None:
         if stagger_s > 0:
             time.sleep(stagger_s * idx)
-        ok, _pid, rss_kb, open_files, conns, fd_count, status = _spawn_one_popen(server)
+        ok, _pid, rss_kb, open_files, conns, fd_count, status = _spawn_one_popen(server, init_sleep=init_sleep, keep_alive=keep_alive)
         r.measurement = status
         if ok:
             r.succeeded_count += 1
@@ -151,31 +163,37 @@ def _pct(values: list[float], p: float) -> float:
 def main() -> int:
     config = json.loads(CONFIG_PATH.read_text())
     servers = config["servers"]
-    print(f"=== v0.8.1: 14 server 并行 spawn 压测 (Popen + psutil) ===")
+    print(f"=== v0.8.2: 14 server 并行 spawn 压测 (Popen + psutil + long-running) ===")
     print(f"Servers: {len(servers)}")
     print(f"Scenarios: {[s[0] for s in SCENARIOS]}")
-    print(f"Trials/scenario: {TRIALS}")
-    print(f"Trial gap: {TRIAL_GAP_S}s, init sleep: {SERVER_INIT_SLEEP_S}s")
+    print(f"Trials A/B/C: {TRIALS}, Trial D (long-running): {D_TRIALS}")
+    print(f"Trial gap A/B/C: {TRIAL_GAP_S}s, D: {D_TRIAL_GAP_S}s")
+    print(f"Init sleep spawn-kill: {SERVER_INIT_SLEEP_S}s, long-running: {SERVER_LIVE_SLEEP_S}s")
     print()
 
     all_results: list[TrialResult] = []
 
     for scenario_name, stagger_s in SCENARIOS:
-        print(f"--- 场景 {scenario_name} (stagger={stagger_s}s) ---")
+        is_long = scenario_name.startswith("D_")
+        n_trials = D_TRIALS if is_long else TRIALS
+        gap_s = D_TRIAL_GAP_S if is_long else TRIAL_GAP_S
+        init_s = SERVER_LIVE_SLEEP_S if is_long else SERVER_INIT_SLEEP_S
+        keep_alive = is_long
+        print(f"--- 场景 {scenario_name} (stagger={stagger_s}s, init={init_s}s, keep_alive={keep_alive}) ---")
         scenario_results: list[TrialResult] = []
-        for trial_idx in range(1, TRIALS + 1):
-            r = _run_trial(servers, scenario_name, trial_idx, stagger_s)
+        for trial_idx in range(1, n_trials + 1):
+            r = _run_trial(servers, scenario_name, trial_idx, stagger_s, init_sleep=init_s, keep_alive=keep_alive)
             scenario_results.append(r)
             all_results.append(r)
             status = "✅" if r.failed_count == 0 else "❌"
             print(
-                f"  {status} trial {trial_idx}/{TRIALS}: "
+                f"  {status} trial {trial_idx}/{n_trials}: "
                 f"wall={r.total_wall_ms:7.0f}ms "
                 f"failed={r.failed_count}/14 "
                 f"peak rss={r.peak_rss_kb}KB "
                 f"peak fd={r.peak_fd} (files={r.max_open_files} conns={r.max_connections})"
             )
-            time.sleep(TRIAL_GAP_S)
+            time.sleep(gap_s)
         wall_p95 = _pct([r.total_wall_ms for r in scenario_results], 95)
         avg_failed = sum(r.failed_count for r in scenario_results) / len(scenario_results)
         max_rss = max(r.peak_rss_kb for r in scenario_results)
@@ -193,13 +211,13 @@ def main() -> int:
     overall_fail_rate = total_failed / total_servers * 100 if total_servers else 0.0
 
     print("=" * 50)
-    print("=== 总结 (30 实验, 30 × 14 = 420 server lifecycle) ===")
+    print("=== 总结 (33 实验: A/B/C × 10 + D × 3, 33 × 14 = 462 server lifecycle) ===")
     print(f"  总 trials: {total_trials}")
     print(f"  总 server lifecycle: {total_servers}")
     print(f"  总 failed: {total_failed}")
     print(f"  失败率: {overall_fail_rate:.2f}%")
     print()
-    print("  --- fd/memory 真实数字 (Momus §3 修后) ---")
+    print("  --- fd/memory 真实数字 (v0.8.2 spawn-kill + long-running 对比) ---")
     rss_peak_per_scenario = {}
     fd_peak_per_scenario = {}
     for scenario_name, _ in SCENARIOS:
@@ -218,10 +236,10 @@ def main() -> int:
     print()
 
     if overall_fail_rate > 0:
-        print(f"❌ 失败率 {overall_fail_rate:.2f}% > 0% — 必须查原因, 推 v0.8.2 修复")
+        print(f"❌ 失败率 {overall_fail_rate:.2f}% > 0% — 必须查原因")
         return 1
 
-    print("✅ 失败率 0% — 14 server 并行安全 + 真实 fd/memory 数字")
+    print("✅ 失败率 0% — 14 server 并行安全 + spawn-kill vs long-running 资源对比")
     return 0
 
 
