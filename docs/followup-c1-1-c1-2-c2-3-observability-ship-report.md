@@ -28,38 +28,13 @@ Phase C §5.3 = 可观测性 7d, 6 子项 (C1.1/1.2/1.3 + C2.1/2.2/2.3). momus v
 
 | 子项 | 修法 | 文件 | 状态 |
 |---|---|---|---|
-| **C1.1** Prometheus 14 server 接入 | 验 /metrics 端点 + 写 7 测 + main.py 已含 middleware | apps/api/tests/api/test_prometheus_metrics_endpoint.py | ✅ |
-| **C1.2** Grafana dashboard 5 图 | JSON 模板 5 panel (req/P95/error/CPU/mem), 标 "需 ops review" | monitoring/grafana/ai-recruit-api-overview.json | ✅ |
-| **C2.3** drill 故障定位 <5min | F21 已 ship (ee3e077), 5 测 + 7 故障 trigger + 17s 检测到 | 引用 (F21 ship) | ✅ |
+| **C1.1** Prometheus 14 server 接入 | 7 测覆盖 /metrics + 14 metric + F18 alert | apps/api/tests/api/test_prometheus_metrics_endpoint.py | ✅ |
+| **C1.2** Grafana dashboard 5 图 | JSON 5 panel (req/P95/error/CPU/mem), 标 "需 ops review" | monitoring/grafana/ai-recruit-api-overview.json | ✅ |
+| **C2.3** drill 故障定位 <5min | F21 ship (ee3e077), 7 trigger + 17s 检测到 | 引用 (F21 ship) | ✅ |
 
-### C1.1 实际状态 (vs "14 server 接入" 估)
-
-实际只需验 + 测:
-- main.py line 237 `/metrics` 端点 (Prometheus 格式)
-- main.py line 130 `request_logging_middleware` (api_request_total)
-- apps/api/app/core/telemetry.py api_request_total Counter
-- apps/api/app/mcp/metrics.py 7 mcp metric
-- monitoring/prometheus-alerts.yml F18 2 alert (error>1%, P95>2s)
-- 7 测覆盖所有 14 metric (process + api + mcp)
-
-### C1.2 5 图 dashboard
-
-| 图 | 类型 | PromQL | 阈值 |
-|---|---|---|---|
-| 1 | 请求速率 | `sum by (method) (rate(api_request_total[5m]))` | — |
-| 2 | P95 延迟 | `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))` | 2s 红线 |
-| 3 | 5xx 错误率 | `sum(rate(api_request_total{status=~"5.."}[5m])) / sum(rate(api_request_total[5m])) * 100` | 1% 红线 |
-| 4 | 进程 CPU | `rate(process_cpu_seconds_total[5m])` | — |
-| 5 | 进程内存 | `process_resident_memory_bytes / 1024 / 1024` | — |
-
-标 `meta.ops_review_required=true` (per §3.2 "需 ops 协作").
-
-### C2.3 drill (F21 ship 状态)
-
-- 7 故障 trigger: 5xx/p99/db-pool/llm/db-down/uvicorn-dies/redis-disconnect
-- 5 测全过, 实跑告警 **17s 检测到** (≤ 300s 阈值, <5min KPI 满足)
-- 报告 markdown 模板含 5 KPI 维度
-- 见 `docs/followup-f21-drill-ship-report.md` 详细
+C1.1 实际: main.py line 237 /metrics + line 130 middleware + telemetry.py + mcp/metrics.py 7 metric + F18 2 alert.
+C1.2 5 图: 图1 请求速率 / 图2 P95 延迟 / 图3 5xx 错误率 / 图4 进程 CPU / 图5 进程内存, 标 `meta.ops_review_required=true`.
+C2.3 drill: F21 ship 已含 7 故障 trigger + 17s 检测 (<5min KPI 满足).
 
 ## 4. 测试
 
@@ -91,34 +66,25 @@ Phase C §5.3 = 可观测性 7d, 6 子项 (C1.1/1.2/1.3 + C2.1/2.2/2.3). momus v
 - C1.2 dashboard import Grafana 真实例 (需 ops 协作, §3.2)
 - C2.3 drill 接 Sentry 异常 (P3 增强)
 - C2.3 drill 飞书 webhook (P1 通知增强)
-- Phase C 剩 3/6 → 6/6 全完: 0 项 (本会话 3/6 + 历史 3/6 = 6/6, Phase C 全完)
 
-## 7. 后续 (回滚 + 引用)
+## 7. 后续 (Phase D 推后续)
 
-**回滚**: `git revert <commit>` (C1.1 测删 + Grafana JSON 删, 0 副作用)
-- 测文件 0 副作用 (不影响 production)
-- Grafana JSON 是模板, 0 副作用 (未 import)
+- Phase D §5.4 16d 战略投资 (LangGraph POC + RLS audit + LLM 优化 + rate limit 标准化 + 前端性能)
+- 见 `.omo/plans/2026-06-07-complete-roadmap-momus-review.md` §5.4
 
-**引用**:
+## 8. 回滚
+
+`git revert <commit>` — 测文件 0 副作用 (不影响 production) + Grafana JSON 是模板 (未 import, 0 副作用).
+
+## 9. 引用
+
 - F18 (598d25d) alert + F19.1-6 structlog + F20 限流 audit + F21 drill (前序 PR)
 - .omo/plans/2026-06-07-complete-roadmap-momus-review.md (Phase C 修正版 7d)
 - docs/followup-f21-drill-ship-report.md (C2.3 详细)
 - monitoring/prometheus-alerts.yml (F18, 2 alert)
-- apps/api/app/main.py (line 237 /metrics 端点)
-- apps/api/app/core/telemetry.py (api_request_total Counter)
-- apps/api/app/mcp/metrics.py (7 mcp metric)
+- monitoring/grafana/ai-recruit-api-overview.json (C1.2 dashboard, 5 图)
+- apps/api/tests/api/test_prometheus_metrics_endpoint.py (C1.1 7 测)
 
-## 8. 总结
+## 10. 总结
 
-Phase C §5.3 6 子项 — 6/6 全完:
-| 子项 | 估时 | 状态 | PR |
-|---|---|---|---|
-| C1.1 Prometheus 14 server 接入 | 1d | ✅ | 本 PR |
-| C1.2 Grafana dashboard 5 图 | 1d | ✅ | 本 PR |
-| C1.3 Alert rule (error>1%, P95>2s) | 0.5d | ✅ | F18 (598d25d) |
-| C2.1 structlog 集中日志 | 1.5d | ✅ | F19.1-6 (23dfc9f) |
-| C2.2 限流 audit + 文档化 | 0.5d | ✅ | F20 (a304621) |
-| C2.3 drill 故障定位 <5min | 1d | ✅ | F21 (ee3e077) |
-| **总** | **5.5d** | **6/6** | — |
-
-**Phase C 全完 (6/6)**, §5.3 7d 估 → 5.5d 实际. 0 production 改, 0 breaking, 12 测全过.
+Phase C §5.3 6 子项 — 6/6 全完: C1.1 ✅ (本 PR) / C1.2 ✅ (本 PR) / C1.3 ✅ (F18) / C2.1 ✅ (F19.1-6) / C2.2 ✅ (F20) / C2.3 ✅ (F21). 5.5d 实际 vs 7d 估. 0 production 改, 0 breaking, 12 测全过.
