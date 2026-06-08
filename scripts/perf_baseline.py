@@ -114,6 +114,78 @@ def _summarize(name: str, category: str, target: str, durations: list[float]) ->
     )
 
 
+def compare_with_baseline(
+    current: list[BaselineResult], baseline: list[BaselineResult]
+) -> list[dict]:
+    """对比 current vs baseline, 返回每端点的 diff (含 P50/P95/P99 ±%).
+
+    Phase A 推后 (3): 性能 baseline 历史对比. 阈值 ±20% 标黄 (警告), ±50% 标红.
+    返回 list[dict], 每项含 target, p50/p95/p99 当前+基线+diff_pct, 标记 warning/critical.
+    """
+    base_by_target: dict[str, BaselineResult] = {r.target: r for r in baseline}
+    diffs: list[dict] = []
+    for r in current:
+        b = base_by_target.get(r.target)
+        if b is None:
+            diffs.append({
+                "target": r.target,
+                "category": r.category,
+                "status": "new",
+                "p50_current_ms": r.p50_ms,
+                "p95_current_ms": r.p95_ms,
+                "p99_current_ms": r.p99_ms,
+            })
+            continue
+        def _pct_delta(cur: float, base: float) -> float:
+            if base == 0:
+                return 0.0 if cur == 0 else 100.0
+            return (cur - base) / base * 100.0
+        d_p50 = _pct_delta(r.p50_ms, b.p50_ms)
+        d_p95 = _pct_delta(r.p95_ms, b.p95_ms)
+        d_p99 = _pct_delta(r.p99_ms, b.p99_ms)
+        worst = max(d_p50, d_p95, d_p99)
+        if abs(worst) >= 50:
+            status = "critical"
+        elif abs(worst) >= 20:
+            status = "warning"
+        else:
+            status = "ok"
+        diffs.append({
+            "target": r.target,
+            "category": r.category,
+            "status": status,
+            "p50_current_ms": r.p50_ms, "p50_baseline_ms": b.p50_ms, "p50_delta_pct": d_p50,
+            "p95_current_ms": r.p95_ms, "p95_baseline_ms": b.p95_ms, "p95_delta_pct": d_p95,
+            "p99_current_ms": r.p99_ms, "p99_baseline_ms": b.p99_ms, "p99_delta_pct": d_p99,
+        })
+    return diffs
+
+
+def _print_diff_table(diffs: list[dict]) -> None:
+    """打印 diff 表格 (status emoji + target + P95 差)."""
+    if not diffs:
+        print("  (无 baseline 对比数据)")
+        return
+    print(f"  {'STATUS':10} {'TARGET':30} {'P50 Δ%':>10} {'P95 Δ%':>10} {'P99 Δ%':>10}")
+    for d in diffs:
+        emoji = {"ok": "✅", "warning": "⚠️ ", "critical": "❌", "new": "🆕"}.get(d["status"], "?")
+        p50 = d.get("p50_delta_pct", 0.0)
+        p95 = d.get("p95_delta_pct", 0.0)
+        p99 = d.get("p99_delta_pct", 0.0)
+        print(
+            f"  {emoji:10} {d['target']:30} {p50:+10.1f} {p95:+10.1f} {p99:+10.1f}"
+        )
+    n_warn = sum(1 for d in diffs if d["status"] == "warning")
+    n_crit = sum(1 for d in diffs if d["status"] == "critical")
+    n_new = sum(1 for d in diffs if d["status"] == "new")
+    if n_crit:
+        print(f"\n  ❌ {n_crit} 端点 P95 退化 ≥50%")
+    if n_warn:
+        print(f"  ⚠️  {n_warn} 端点 P95 退化 20-50%")
+    if n_new:
+        print(f"  🆕 {n_new} 新端点 (无基线)")
+
+
 async def _measure_mcp_cold_start(server: str, trials: int) -> list[float]:
     """测 MCP server 冷启动: spawn subprocess + initialize + list_tools, terminate。"""
     durations: list[float] = []
@@ -211,6 +283,7 @@ async def main() -> int:
     parser.add_argument("--trials", type=int, default=TRIALS_PER_ROUND, help="每轮 trial 数 (默认 30)")
     parser.add_argument("--base", default="http://localhost:8000", help="API base URL")
     parser.add_argument("--output", help="输出 JSON 报告")
+    parser.add_argument("--compare-with", help="对比历史 baseline JSON (Phase A 推后 3)")
     parser.add_argument("--skip-mcp", action="store_true", help="跳过 MCP 测 (只测 HTTP)")
     parser.add_argument("--skip-http", action="store_true", help="跳过 HTTP 测 (只测 MCP)")
     args = parser.parse_args()
@@ -273,6 +346,16 @@ async def main() -> int:
         with open(args.output, "w") as f:
             json.dump([asdict(r) for r in results], f, indent=2, ensure_ascii=False)
         print(f"\n完整报告: {args.output}")
+
+    if args.compare_with:
+        with open(args.compare_with) as f:
+            baseline_raw = json.load(f)
+        baseline = [BaselineResult(**r) for r in baseline_raw]
+        diffs = compare_with_baseline(results, baseline)
+        print(f"\n=== Diff vs baseline ({args.compare_with}) ===")
+        _print_diff_table(diffs)
+        n_crit = sum(1 for d in diffs if d["status"] == "critical")
+        return 1 if n_crit else 0
 
     return 0
 
