@@ -9,8 +9,9 @@ from typing import Any
 
 from app.core.database import AsyncSessionLocal, AsyncSession
 from app.models.interview_evaluation import InterviewEvaluation, InterviewRound, EvaluationVerdict
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def _handle_save_evaluation(

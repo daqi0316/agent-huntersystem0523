@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 
 from app.services.knowledge import KnowledgeService
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def _handle_search_knowledge(query=""):

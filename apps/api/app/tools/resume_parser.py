@@ -16,8 +16,9 @@ from app.agents.pii_filter import mask_pii
 from app.models.raw_resume import RawResume, RawResumeStatus, new_raw_resume_id
 from app.services.resume_extractor import extract_from_text
 from app.services.candidate import CandidateService
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def _do_extract_and_link(

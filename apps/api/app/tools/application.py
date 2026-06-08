@@ -9,8 +9,9 @@ from app.core.database import AsyncSessionLocal
 from app.services.application import ApplicationService
 from app.schemas.application import ApplicationCreate, ApplicationUpdate
 from app.agents.pii_filter import mask_pii
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def _handle_create_application(

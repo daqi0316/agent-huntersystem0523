@@ -8,8 +8,9 @@ from typing import Any
 from app.core.database import AsyncSessionLocal
 from app.services.candidate import CandidateService
 from app.models.candidate import Candidate
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def _handle_search_candidates(query="", skill="", experience_min=0, limit=10):
