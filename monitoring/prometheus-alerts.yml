@@ -1,0 +1,22 @@
+groups:
+  - name: api-overview
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(api_request_total{status=~"5.."}[5m])) / sum(rate(api_request_total[5m])) > 0.01
+        for: 2m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "API 5xx 错误率 > 1% (2min 滑窗)"
+          description: "当前错误率: {{ $value | humanizePercentage }}, 阈值 1%"
+      - alert: HighP95Latency
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 2
+        for: 2m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "API P95 延迟 > 2s (2min 滑窗)"
+          description: "当前 P95: {{ $value }}s, 阈值 2s"
