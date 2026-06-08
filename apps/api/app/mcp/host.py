@@ -35,8 +35,9 @@ from app.mcp.metrics import (
 from app.mcp.registry import ToolEntry, ToolRegistry
 from app.mcp.supervisor import ProcessSupervisor
 from app.tools.metadata import get_input_model
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SubprocessDown(Exception):

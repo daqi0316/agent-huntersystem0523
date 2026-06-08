@@ -31,6 +31,8 @@ from prometheus_client import (
     generate_latest,
 )
 
+from app.core.logging import get_logger
+
 # F8: 直接用 psutil 暴露 process_* 指标 (替代 ProcessCollector, 后者不可靠)
 _process = psutil.Process()
 _process_cpu_seconds_total = Counter(
@@ -47,7 +49,7 @@ _process_start_time_seconds = Gauge(
 )
 _process_start_time_seconds.set(_process.create_time())
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # ── Prometheus 指标 ──────────────────────────────────────────────
 
