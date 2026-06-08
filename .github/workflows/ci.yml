@@ -96,6 +96,21 @@ jobs:
         run: python3 scripts/check_env_keys.py --strict
         continue-on-error: false
 
+      - name: Check ship report (G11-1/3, A6 G5+G8 模板)
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/check_ship_report.py docs/
+        continue-on-error: false
+
+      - name: Check baseline run (G11-2/3, G7 防御 check)
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/check_baseline_run.py --hours 168
+        continue-on-error: false
+
+      - name: Check e2e run (G11-2/3, G7 防御 check)
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/check_e2e_run.py --hours 168
+        continue-on-error: false
+
       - name: Check import health
         run: |
           python -c "
