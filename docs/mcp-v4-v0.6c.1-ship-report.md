@@ -155,7 +155,7 @@ v0.6c 测试 1 `test_retry_default_no_force_arg_works`：
 - 提供 `force=True` 显式选择保留 v0.6c 行为（创建新）
 - 文档明确 force 语义变更（changelog / API doc）
 
-## 6. 退出门槛验证
+## 6. 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|
@@ -220,3 +220,9 @@ git revert e69c190
 - v0.5b retry: `commit efcd0a4` + `docs/mcp-v4-v0.5b-ship-report.md`
 - svc.update: `apps/api/app/services/candidate.py:77`
 - CandidateUpdate schema: `apps/api/app/schemas/candidate.py:18`
+
+## 7. 后续
+
+- (F2 retrofit 标 — 22 老 mcp-v4-v* ship report 同步升级到 G8 模板)
+- followups.md 总索引 (F1-F22 + G11-G18) 持续维护
+- Phase D 远期 (按 docs/phase-d-session-plan.md 11 session 计划)

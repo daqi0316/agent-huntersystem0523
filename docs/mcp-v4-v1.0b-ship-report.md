@@ -102,7 +102,7 @@ DB `DateTime(timezone=True)` 列**已存**历史 naive timestamp 数据。
 | 3 | `test_now_utc_compatible_with_aware_datetime` | 与 `RawResume.updated_at` (DB aware 字段) 比较不抛 TypeError |
 | 4 | `test_now_utc_does_not_raise_deprecation` | aware datetime 不触发 "utcnow"/"naive" 警告 |
 
-## 5. 退出门槛验证
+## 5. 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|

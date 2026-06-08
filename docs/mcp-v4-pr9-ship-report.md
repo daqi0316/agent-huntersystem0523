@@ -200,3 +200,9 @@ git checkout mcp-v4-pr9-pre
 - 盘点: `docs/mcp-v4-pr9-tool-inventory.md`
 - PR-8 ship report: `docs/mcp-v4-pr8-ship-report.md`
 - MCP v4 实施报告: `docs/mcp-v4-impl-report.md`
+
+## 7. 后续
+
+- (F2 retrofit 标 — 22 老 mcp-v4-v* ship report 同步升级到 G8 模板)
+- followups.md 总索引 (F1-F22 + G11-G18) 持续维护
+- Phase D 远期 (按 docs/phase-d-session-plan.md 11 session 计划)

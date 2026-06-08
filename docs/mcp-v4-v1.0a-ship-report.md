@@ -85,7 +85,7 @@ process.env.NEXT_PUBLIC_KEY
 | MCP 监控 | `MCP_AB_*` (3) / `MCP_ALERT_*` (3) / `MCP_LARGE_RESULT_DIR` |
 | Feature flags | `ENABLE_LAYERED_PROMPT` / `EPHEMERAL_ENABLED` / `SKILLS_ENABLED` / `USER_MEMORY_ENABLED` / `RATELIMIT_ROLLOUT_PCT` |
 
-## 5. 退出门槛验证
+## 5. 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|

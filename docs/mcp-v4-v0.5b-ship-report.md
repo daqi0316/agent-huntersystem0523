@@ -108,7 +108,7 @@ register_tool(
 - 1 个 `db.get` 通过 `call_count` side_effect 区分 retry 第一次拿 / extract 第二次拿
 - 2 个 MagicMock 模拟同一 raw_resume 在 retry vs extract 两个 session 的状态
 
-## 5. 退出门槛验证
+## 5. 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|

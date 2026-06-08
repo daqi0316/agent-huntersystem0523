@@ -125,7 +125,7 @@ register_tool("disable_skill", REQUIRES_HUMAN, admin)
 
 **关键设计**: 测试 8 **不**走 TestClient (v0.6b WS 踩坑), 直接调 `enabled_tools()` / `enabled_handlers()` 验过滤效果。state 用 `tmp_path` + `monkeypatch` 隔离。
 
-## 5. 退出门槛验证
+## 5. 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|
@@ -207,3 +207,9 @@ git revert <v0.7-feat-commit>
 - 已有 deps: `apps/api/app/core/dependencies.py` (get_current_user 有 role 字段)
 - e2e 脚本: `scripts/mcp_v4_e2e_14_servers.py`
 - health-check 脚本: `scripts/health-check.sh`
+
+## 7. 后续
+
+- (F2 retrofit 标 — 22 老 mcp-v4-v* ship report 同步升级到 G8 模板)
+- followups.md 总索引 (F1-F22 + G11-G18) 持续维护
+- Phase D 远期 (按 docs/phase-d-session-plan.md 11 session 计划)

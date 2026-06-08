@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 10 gap 找全 (3 P0 + 4 P1 + 3 P2) | ✅ momus audit 报告 |
-| G1 5 强约束适用边界 | ✅ plan §7 改 (代码/docs/config/启动 PR 4 边界) |
+| G1 5 强约束适用边界 | ✅ plan §7 改 (代码/docs/config/启动 PR 4 边界) | / +30% buffer / 1 PR 必含测
 | G2 Phase A 推后 (4) workers 显式 skip | ✅ plan §7 加"显式 skip"段 |
 | G3 Phase E placeholder | ✅ plan §5.5 加 (E1/E2/E3, 1.5-3.5d) |
 | G4 B3 跳因明说 | ✅ plan §5.2 改 (v0.8 Router 已有 30+ E2E) |
@@ -99,3 +99,17 @@
 - 5 强约束历史教训: 规划 §9 (本会话应用 7 条)
 
 **本 momus audit 结论**: 10 gap 中 5 P0/P1 修 (G1+G2+G3+G4+G6), 5 P1/P2 推后续 PR. 修正后规划 + 实施 = "v2 完整版". 跨多 session 推 followups 22 项, 推荐起点 F8 + F18 (1.5-2d).
+
+## 7. 后续
+
+- (F2 retrofit 标 — 22 老 mcp-v4-v* ship report 同步升级到 G8 模板)
+- followups.md 总索引 (F1-F22 + G11-G18) 持续维护
+- Phase D 远期 (按 docs/phase-d-session-plan.md 11 session 计划)
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件改动 — revert 自动恢复)
+
+- 不破坏任何文件 (纯文档 retrofit, F2 标)
+- 不影响 production code (0 改)
+- 不需迁移步骤

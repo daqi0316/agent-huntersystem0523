@@ -105,7 +105,7 @@ assert deleted_ids == [], f"force=True 不应自动删旧候选人"
 - 1 个 db.get 通过 call_count side_effect 区分两次调用
 - 显式 mock svc.delete（即使它**不**被调，记录调用列表验证不 destructive）
 
-## 5. 退出门槛验证
+## 5. 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|

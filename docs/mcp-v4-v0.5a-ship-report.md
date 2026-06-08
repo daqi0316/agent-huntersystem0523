@@ -95,7 +95,7 @@ assert fake_rr.candidate_id == "cand-1"
 
 **v0.5a 新测试 = 1 个**（commit 前 v0.4d 3 个 → commit 后 v0.4d 4 个）。
 
-## 4. 退出门槛验证
+## 4. 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|
@@ -167,3 +167,9 @@ git revert 88066a3               # 撤销 v0.5a commit
 - v0.4 ship report: `docs/mcp-v4-v0.4-ship-report.md`
 - e2e 脚本: `scripts/mcp_v4_e2e_14_servers.py`
 - health-check 脚本: `scripts/health-check.sh`
+
+## 7. 后续
+
+- (F2 retrofit 标 — 22 老 mcp-v4-v* ship report 同步升级到 G8 模板)
+- followups.md 总索引 (F1-F22 + G11-G18) 持续维护
+- Phase D 远期 (按 docs/phase-d-session-plan.md 11 session 计划)

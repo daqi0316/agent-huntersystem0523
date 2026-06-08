@@ -92,7 +92,7 @@ $ python -m app.scripts.skill_cli list
 
 **关键**: 测试用 `subprocess.run` 调 CLI (独立进程), 真实测 argparse + 真实 state.json 路径 (`apps/api/` cwd), 验证端到端而非只 unit test handler。
 
-## 5. 退出门槛验证
+## 5. 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|
@@ -153,3 +153,9 @@ git revert <v0.7.1-feat-commit>
 - v0.7 ship: `docs/mcp-v4-v0.7-ship-report.md` (v0.7 工具 + 状态)
 - v0.7 4 handler: `apps/api/app/tools/skill_tool.py:73-150`
 - v0.7 state: `apps/api/app/skills/_state.py`
+
+## 7. 后续
+
+- (F2 retrofit 标 — 22 老 mcp-v4-v* ship report 同步升级到 G8 模板)
+- followups.md 总索引 (F1-F22 + G11-G18) 持续维护
+- Phase D 远期 (按 docs/phase-d-session-plan.md 11 session 计划)

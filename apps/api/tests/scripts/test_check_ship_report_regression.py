@@ -26,9 +26,12 @@ from pathlib import Path
 
 # F12 baseline: 15 ship report pass (11 mcp-v4-v1.4 + 4 followup-* 新模板)
 # F retrofit (3 retrofit) 升 baseline 15 → 34: 14 老 followup-* retrofit
-# 后全过 (F1+F2/F8/F18/F19/F19.1-6/F20/G16+G17) + 4 新 followup-* + 11
-# mcp-v4-v1.4. 32 老 mcp-v4-v1.0a/b 仍不 pass (pre-5 强约束 era), 不计.
-BASELINE_PASS = 34
+# F2 retrofit (本 commit) 升 baseline 34 → 36: 2 mcp-v4-v* 修 (v0.6a/v0.6b/
+# v0.6c/v0.6c.1 5 强约束 keyword 加 — 实际 22 fail 中只 2 真正能自动修).
+# 20 mcp-v4-v* 仍 fail: 命名 mismatch (mcp-v4-fix-1/pr8/phase-*/momus-*
+# 缺 'v' 前缀) + 章节标题 keyword 错位 (v0.4/v0.5a/pr8/pr9 §5-§9 标
+# 题不匹配) + §9 缺 (v0.5a/momus-audit/momus-audit-v2). 需手动修.
+BASELINE_PASS = 36
 
 
 def test_check_ship_report_no_regression():

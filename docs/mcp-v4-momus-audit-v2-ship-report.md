@@ -92,7 +92,7 @@
 - G13 F11-F14 retro-fit 4 PR (1.6d, 跨 session 2-3)
 - G14-G18 推下 session
 
-## 5. 退出门槛验证
+## 5. 退出门槛验证 / +30% buffer
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|
@@ -138,3 +138,17 @@
 4. G12 F21 drill (1d, 模拟故障 + drill 报告)
 
 总 1.4d 估, 4 PR ship, Phase C 收尾 + momus 推后续 + 远期规划全清.
+
+## 7. 后续
+
+- (F2 retrofit 标 — 22 老 mcp-v4-v* ship report 同步升级到 G8 模板)
+- followups.md 总索引 (F1-F22 + G11-G18) 持续维护
+- Phase D 远期 (按 docs/phase-d-session-plan.md 11 session 计划)
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件改动 — revert 自动恢复)
+
+- 不破坏任何文件 (纯文档 retrofit, F2 标)
+- 不影响 production code (0 改)
+- 不需迁移步骤
