@@ -159,7 +159,7 @@ git revert efcd0a4              # 撤销 v0.5b commit（v0.5a 仍保留）
 - 总回滚 = revert 1 commit
 - v0.5a `_do_extract_and_link` 公共函数**保留**（无影响，是 v0.5b 的依赖）
 
-## 9. v0.5 系列累计
+## 9. 引用 — v0.5 系列累计
 
 | 阶段 | commit | 改动 | 估时 |
 |---|---|---|---|

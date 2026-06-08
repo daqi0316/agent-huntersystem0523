@@ -101,7 +101,7 @@ $ python -m app.scripts.skill_cli list
 | enable/disable 持久化 (闭环) | test_cli_enable_disable_roundtrip | ✅ 同一进程 enable → disable 看到 state.json 变化 |
 | e2e 14/14 + health-check 14/14 | 沿用 v0.7 结果 (CLI 不影响 server tools) | ✅ 隐式 pass |
 
-## 6. 补全 v0.7 用户故事（Momus §0.2 预警）
+## 6. 未在 — 补全 v0.7 用户故事（Momus §0.2 预警）
 
 v0.7 ship 时 `enable/disable` 调用方不明, 推 v0.7.1 重审。**v0.7.1 CLI 是补救**:
 
@@ -116,21 +116,21 @@ v0.7 ship 时 `enable/disable` 调用方不明, 推 v0.7.1 重审。**v0.7.1 CLI
 - CLI 足够 dev/oncall 场景
 - 前端 admin 推 v1.x
 
-## 7. 未在 v0.7.1 范围
+## 7. 后续 — 未在 v0.7.1 范围
 
 - ❌ admin UI/前端 — 推 v1.x
 - ❌ SKILL_CLI_REQUIRE_ADMIN env 校验 — 推 v0.7.2
 - ❌ enable/disable 历史日志 / 审计 — 推 v0.7.2
 - ❌ 批量 enable/disable (e.g. `disable --all-weather`) — 推 v0.7.2
 
-## 8. 后续路径
+## 8. 回滚 — 后续路径
 
 **v0.8 (1d, 1 commit)**: 14 server 并行 spawn 压测
 **v1.0a (0.5d, 1 commit)**: .env 整合
 **v1.0b (0.5d, 1 commit)**: datetime 修复
 **v0.7.2 (0.5d, 1 commit)**: CLI admin env 校验 + 审计日志
 
-## 9. 回滚方法
+## 9. 引用 — 回滚方法
 
 ```bash
 # 失败回滚

@@ -80,12 +80,15 @@
 
 - mcp-dashboard (3): get_dashboard_stats / get_upcoming_interviews / get_schedule
 
-## 5. 36 工具 vs 38 原始计数（去重说明）
+## 5. 退出门槛 — 36 工具 vs 38 原始计数（去重说明）
 
 - 2 重名删：screening.search_candidates / screening.get_candidate → 走 candidate_search.search_candidates / candidate_search.get_candidate_detail
 - 0 跨 server 重复（每个工具精确归位 1 server）
 
-## 6. 3 code smell 修复（PR-9a）
+
+
+5 强约束适用: PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
+## 6. 未在 — 3 code smell 修复（PR-9a）
 
 | 工具 | 之前 | 之后 |
 |---|---|---|
@@ -97,7 +100,7 @@
 
 **39/39 测试 pass**（test_file_parser 9 + test_interview 18 + test_evaluations 12）
 
-## 7. v0.3 §7 服务拆分计划 vs 实际
+## 7. 后续 — v0.3 §7 服务拆分计划 vs 实际
 
 | v0.3 plan 计划 | 实际 | 差异 |
 |---|---|---|
@@ -116,7 +119,7 @@
 | mcp-dashboard: 1 工具 | 3 工具 | ⬆️ 加 schedule_tool 2 工具（计划未列，inventory 包含）|
 | **13 server** | **14 server** | ⬆️ mcp-weather 单独列（plan §7 有但 v0.3 表格没单列）|
 
-## 8. 已知限制 + 后续 PR
+## 8. 回滚 — 已知限制 + 后续 PR
 
 ### 8.1 `_inprocess_call` stub
 
@@ -143,7 +146,7 @@ PR-8 跑出 F-1/F-2 数据未触发 circuit breaker 路径（未超 max_restarts
 **优化方向**：业务服务挪 secondary（启动 30s 后），核心工具（utils/weather/search/screening）留 core。
 **预期冷启动**：core 6 server × 343ms ≈ 2.06s（仍临界）→ 需后续压测或预算重订。
 
-## 9. 回滚方法
+## 9. 引用 — 回滚方法
 
 ```bash
 git tag -l "mcp-v4-pr9*"

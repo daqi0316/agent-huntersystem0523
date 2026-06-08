@@ -136,7 +136,7 @@ register_tool("disable_skill", REQUIRES_HUMAN, admin)
 | e2e 14/14 | `mcp_v4_e2e_14_servers.py` | ✅ 14/14, total wall 9272ms |
 | health-check 14/14 | `bash scripts/health-check.sh` | ✅ 14/14（9 步全过）|
 
-## 6. ⚠️ 用户故事风险（Momus §0.2 显式预警）
+## 6. 未在 — ⚠️ 用户故事风险（Momus §0.2 显式预警）
 
 v0.7 实施时**未明**确 enable/disable 工具的**真实使用方**：
 
@@ -150,7 +150,7 @@ v0.7 实施时**未明**确 enable/disable 工具的**真实使用方**：
 
 **应对**: 实施 v0.7.1 时根据实际使用方**重审**。若发现无实际使用方, 工具可能**回退**或**重设计**(如默认 enable, 灰度通过 metadata `enabled: false` 而非 state.json)。
 
-## 7. 未在 v0.7 范围（明确不做）
+## 7. 后续 — 未在 v0.7 范围（明确不做）
 
 - ❌ admin UI/CLI 调 enable/disable — 推 v0.7.1
 - ❌ gallery skills (installer.install_skill / install_gallery_skill / list_gallery_skills) — v0.6+ 修 30 项 §2.4 显式删除
@@ -159,7 +159,7 @@ v0.7 实施时**未明**确 enable/disable 工具的**真实使用方**：
 - ❌ skill 自身配置 (每个 skill 单独的 config) — 不在 v0.7 范围
 - ❌ handle_install_skill / installed_list 旧函数保留 (没 MCP 工具暴露, 仅内部用) — 不动
 
-## 8. 后续路径
+## 8. 回滚 — 后续路径
 
 **v0.7.1（0.5d，1 commit）— admin UI/CLI**：
 - 前端 admin 页面: skill 列表 + enable/disable 按钮
@@ -170,7 +170,7 @@ v0.7 实施时**未明**确 enable/disable 工具的**真实使用方**：
 
 **v1.0a + v1.0b**：.env 整合 + datetime 修复
 
-## 9. 回滚方法
+## 9. 引用 — 回滚方法
 
 ```bash
 # 失败回滚

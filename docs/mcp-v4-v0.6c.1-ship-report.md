@@ -135,7 +135,7 @@ v0.6c 测试 1 `test_retry_default_no_force_arg_works`：
 | 5 | `test_force_true_create_failure_is_non_blocking_status_parsed` | svc.create 抛异常时 status=PARSED |
 | 6 | `test_force_true_old_candidate_not_deleted` | 旧候选人留存 (svc.delete 不被调) |
 
-## 5. ⚠️ 破坏性变更（Momus §2.4 显式预警）
+## 5. 退出门槛 — ⚠️ 破坏性变更（Momus §2.4 显式预警）
 
 **v0.6c.1 后 retry_raw_resume 默认行为**：
 
@@ -155,7 +155,7 @@ v0.6c 测试 1 `test_retry_default_no_force_arg_works`：
 - 提供 `force=True` 显式选择保留 v0.6c 行为（创建新）
 - 文档明确 force 语义变更（changelog / API doc）
 
-## 6. 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
+## 6. 未在 — 退出门槛验证 / PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
 
 | 退出门槛 | 验证方式 | 结果 |
 |---|---|---|
@@ -164,7 +164,7 @@ v0.6c 测试 1 `test_retry_default_no_force_arg_works`：
 | 14 server e2e | `mcp_v4_e2e_14_servers.py` | ✅ 14/14, total wall 9142ms |
 | health-check 14/14 | `bash scripts/health-check.sh` | ✅ 14/14（9 步全过）|
 
-## 7. 未在 v0.6c.1 范围（明确不做）
+## 7. 后续 — 未在 v0.6c.1 范围（明确不做）
 
 - ❌ 旧候选人自动 archive / cleanup — 推后续
 - ❌ 旧候选人合并到新候选人 (phone/email dedup) — 不在 v0.6c.1 范围
@@ -172,13 +172,13 @@ v0.6c 测试 1 `test_retry_default_no_force_arg_works`：
 - ❌ 旧候选人 / 新候选人 关系表 — 不在 v0.6c.1 范围
 - ❌ force=False 路径上 svc.update 失败的 retry 链 (写 status=FAILED 重试) — v0.5a 设计是非阻塞, 推后续
 
-## 8. 后续路径
+## 8. 回滚 — 后续路径
 
 **v0.7（2d，2 commit）**：skill_mgr 5 工具
 **v0.8（1d，1 commit）**：14 server 并行 spawn 压测
 **v1.0a + v1.0b**：.env 整合 + datetime 修复
 
-## 9. 回滚方法
+## 9. 引用 — 回滚方法
 
 ```bash
 # 失败回滚

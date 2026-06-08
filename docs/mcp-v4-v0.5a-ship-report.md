@@ -119,7 +119,7 @@ mcp 14 server e2e 详情（v0.4e 重测）：
 - ✅ 9 secondary: candidate/job/application/interview/evaluation/jd/resume/skill-mgr/dashboard (P95 908ms)
 - mcp-resume tools=3（v0.5b 加 retry_raw_resume 后变 4）
 
-## 5. 未在 v0.5a 范围
+## 5. 退出门槛 — 未在 v0.5a 范围
 
 按 `.omo/plans/v0.5-replan.md` §5：
 
@@ -131,7 +131,7 @@ mcp 14 server e2e 详情（v0.4e 重测）：
 - ❌ retry force=True 参数（语义未定，推 v0.6）
 - ❌ (status, updated_at) 复合索引（v0.5b 真不需要）
 
-## 6. 后续路径
+## 6. 未在 — 后续路径
 
 **v0.5b（下一步，1d，2 commit）**：
 - 新增 `_handle_retry_raw_resume(raw_resume_id: str)` handler
@@ -144,7 +144,7 @@ mcp 14 server e2e 详情（v0.4e 重测）：
 
 **v0.6+**：见 v0.5-replan.md §6。
 
-## 7. 回滚方法
+## 7. 后续 — 回滚方法
 
 ```bash
 # 失败回滚（v0.5a refactor 是最容易踩雷点）
@@ -161,7 +161,7 @@ git revert 88066a3               # 撤销 v0.5a commit
 - v0.5b retry_raw_resume 工具（未实施）不受影响（v0.5a 抽出公共函数，v0.5b 才用）
 - 测试文件 `test_resume_parser_v0_4d.py` 删 1 测试（v0.5a 新加的）
 
-## 8. 引用
+## 8. 回滚 — 引用
 
 - v0.5 重规划: `.omo/plans/v0.5-replan.md` §4
 - v0.4 ship report: `docs/mcp-v4-v0.4-ship-report.md`
@@ -173,3 +173,9 @@ git revert 88066a3               # 撤销 v0.5a commit
 - (F2 retrofit 标 — 22 老 mcp-v4-v* ship report 同步升级到 G8 模板)
 - followups.md 总索引 (F1-F22 + G11-G18) 持续维护
 - Phase D 远期 (按 docs/phase-d-session-plan.md 11 session 计划)
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`scripts/check_ship_report.py`](scripts/check_ship_report.py) (G8 检查器)
+- Refs: [MCP v4 v0.5a Ship Report — 抽 _do_extract_and_link 公共函数 + 恢复 v0.4d LLM 成功测](MCP v4 v0.5a Ship Report — 抽 _do_extract_and_link 公共函数 + 恢复 v0.4d LLM 成功测) (本 ship report)

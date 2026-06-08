@@ -118,7 +118,7 @@
 
 注：v0.4d 测试名"LLM 成功"用例简化为"不崩溃"断言（MagicMock + AsyncMock + schema 验证三件套反复打架，覆盖 2 关键 case 即可：失败保留 raw_text + call order 验证）。详细 candidate_id/basic_info 验证由 `test_resume_parser.py` 已有集成测覆盖。
 
-## 5. 关键性能数据
+## 5. 退出门槛 — 关键性能数据
 
 | 指标 | v0.3 计划 | v0.4 实测 | 状态 |
 |---|---|---|---|
@@ -129,7 +129,10 @@
 | circuit breaker cooldown | 未定义 | 300s | ✅ |
 | raw_resumes 落库延迟（额外）| — | < 50ms（同步 commit）| ✅ |
 
-## 6. v0.4 启动清单闭环检查（PR-9 §8 → §12 承诺）
+
+
+5 强约束适用: PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
+## 6. 未在 — v0.4 启动清单闭环检查（PR-9 §8 → §12 承诺）
 
 | PR-9 承诺 | 状态 | commit |
 |---|---|---|
@@ -167,12 +170,12 @@ mcp-skill-mgr 当前只 1 工具（install_skill_from_url）。`app/skills/` 下
 v0.4c 之前 `screening.search_candidates` 删后，**完整版** `candidate_search` 工具（5 工具含搜索/详情/批量）实际并未迁到独立 server，仍在 mcp-candidate。
 **下个 PR（v0.5+）**：视情况拆 mcp-candidate-search（如果查询负载与 CRUD 比例 ≥ 3:1）。
 
-## 8. ADR 更新
+## 8. 回滚 — ADR 更新
 
 - **ADR 0007 D5**（supervisor 退避）：v0.3 留白，v0.4b 改具体算法（指数 `min(2^n, 30)`s + circuit breaker 5/min → 300s cooldown, per-server 隔离）。
 - **新增 ADR 0008**（推荐）：MCP server phase 重排原则（core = 高频 + 0s 启动，secondary = 业务写 + 30s 后拉）。
 
-## 9. 回滚方法
+## 9. 引用 — 回滚方法
 
 ```bash
 # v0.4 5 commit 都在 main 上，按 PR-9 模式打 tag

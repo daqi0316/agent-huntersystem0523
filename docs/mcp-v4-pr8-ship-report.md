@@ -55,7 +55,7 @@
 
 每个故障配 1 个 pytest + 1 个 ADR 数据点（§3.2 要求）。
 
-## 5. v0.3 §3.5 dual-track pytest（全过）
+## 5. 退出门槛 — v0.3 §3.5 dual-track pytest（全过）
 
 | 测试 | 验证 | 状态 |
 |---|---|---|
@@ -66,7 +66,10 @@
 
 **关键架构**：v0.3 §3.3 dual-track 在 call_tool 入口 try/except `SubprocessDown`/`CallTimeout`，fallback 到 in-process handler。
 
-## 6. ADR 0007 — supervisor 架构 7 决策
+
+
+5 强约束适用: PR ≤ 1.5d / +30% buffer / 1 PR 必含测 / 顺序锁死
+## 6. 未在 — ADR 0007 — supervisor 架构 7 决策
 
 | 决策 | 状态 |
 |---|---|
@@ -80,7 +83,7 @@
 
 P0 三答（Day 1 必答）— 都答了。P1 一个 TBD（D5）有计划填。
 
-## 7. 已知限制 + PR-9 TODO
+## 7. 后续 — 已知限制 + PR-9 TODO
 
 ### 7.1 _inprocess_call stub
 
@@ -130,7 +133,7 @@ git checkout mcp-v4-pr8-pre
 #   放弃 v4 路线：AsyncExitStack 限制无解 或 stdio 性能 < 20 P95
 ```
 
-## 9. v0.3 Plan 16 项反馈全闭环
+## 9. 引用 — v0.3 Plan 16 项反馈全闭环
 
 | 编号 | 来源 | 解决位置 |
 |---|---|---|

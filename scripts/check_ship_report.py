@@ -68,7 +68,7 @@ ROLLBACK_PATTERN = _re_s4.compile(r"rollback|回滚")
 
 # 文件名命名格式: mcp-v4-v*.md (vX.Y 或 vX.Y-a/b/c 后缀) 或 followup-*.md
 # 匹配文件名 (用 path.name), 不匹配完整路径 — 支持 absolute 路径 (subprocess/pytest)
-NAME_PATTERN = re.compile(r"^(mcp-v4-v[\w.\-]+|followup-[\w\-]+)-ship-report\.md$")
+NAME_PATTERN = re.compile(r"^(mcp-v4[\w.\-]+|followup-[\w\-]+)-ship-report\.md$")
 
 # G5/G8 momus v1 适用范围: 仅新 ship report (followup-*) 必填, 老 mcp-v4-v* grandfather
 NEW_NAME_PATTERN = re.compile(r"^followup-[\w\-]+-ship-report\.md$")

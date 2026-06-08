@@ -185,7 +185,7 @@ git revert <v0.6a-commit>      # 撤销 v0.6a 单 commit
 - **v0.5b retry_raw_resume 不受影响**（无共享代码）
 - v0.4d/v0.5b 9 测试仍 pass
 
-## 9. v0.6 系列累计
+## 9. 引用 — v0.6 系列累计
 
 | 阶段 | commit | 改动 | 估时 |
 |---|---|---|---|
