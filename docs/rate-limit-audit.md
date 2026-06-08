@@ -143,3 +143,42 @@ sum(rate(rate_limit_check_total[5m])) by (path)
 - Telemetry: `apps/api/app/core/telemetry.py` (A1 加 14 行)
 - 健康检查: `scripts/health-check.sh` (A1 拆分)
 - 历史教训: `.omo/plans/2026-06-07-roadmap-corrected.md` §0.5 (LangGraph 推后), §1.4 (限流 mitigation 选 (b) 拆脚本)
+
+## 11. F20 补充 (2026-06-08): v0.7 鉴权 + v0.8 60 并发 audit
+
+### 11.1 v0.7.2 Skill CLI per-host pre-shared key 鉴权 (A1 之外的独立 gate)
+
+**位置**: `apps/api/app/scripts/skill_cli.py`
+**类型**: **鉴权 (auth gate)**, 不是限流
+**机制**:
+- 配 `SKILL_CLI_REQUIRE_ADMIN=1` + 创建 `~/.skill_admin_key` 文件 (per-host)
+- CLI 调 `_require_admin()` 验 pre-shared key (line 164)
+- 失败返 non-zero exit code, 阻断 admin 操作
+- jsonl 审计: 所有 admin 调用记录到 `~/.skill_audit.jsonl`
+
+**与 A1 区别**:
+- v0.7 鉴权: "你能不能调这个端点" (binary, 失败返 401/non-zero exit)
+- A1 限流: "你调这个端点多少次" (counter, 超限返 429)
+
+**适用范围**: 仅 `skill_cli.py` (admin CLI), 不影响 HTTP API. HTTP API 鉴权走 JWT (`app/core/dependencies.py:get_current_user_id`).
+
+### 11.2 v0.8 60 并发限流 — 未找到 (审计负向发现)
+
+**调研范围**: `apps/api/app/mcp/` (supervisor.py / host.py / registry.py)
+**结果**: 无 `asyncio.Semaphore` / `concurrency_limit` / `60` / `concurrent` 关键字
+
+**实际行为**: MCP server 是 sequential 连接 (host.py:102 "core batch 连接 (v3 V-1 简化: 顺序而非 gather)"), 不存在 60 并发限流.
+
+**结论**: followups.md "v0.8 60 并发" 是误记 (可能混淆 v0.8 ship 的 MCP server 数量 14 + 60 token 限, 跟 followups.md Phase C 描述 60/min 限流混淆). 实际 MCP 无全局并发限流.
+
+**建议**: F20.1 推独立 PR 验证 (grep 全 repo 找 `Semaphore` / `concurrent` 关键字, 确认无遗漏), 或 F22 Phase D 时统一治理.
+
+### 11.3 3 套策略对比 (F20 实际找到 2 套 + 1 套误记)
+
+| 套 | 类型 | 位置 | 触发 | 配白名单 | Admin 端点 | 跨副本一致 |
+|---|---|---|---|---|---|---|
+| v0.7 鉴权 | auth | `apps/api/app/scripts/skill_cli.py` | key 不匹配 | N/A (整 CLI gate) | N/A (per-host pre-shared) | N/A (本地文件) |
+| A1 限流 | rate | `apps/api/app/core/rate_limit.py` | 超 60/min (user key) | 5 路径 (health/metrics/docs) | `POST /admin/rate-limit/reset` | ❌ InMemory / ✅ Redis |
+| v0.8 60 并发 | ❌ 未找到 | — | — | — | — | — |
+
+**F20 结论**: 实际只 1 套限流 (A1) + 1 套鉴权 (v0.7) + 1 套未找到. followups.md 描述 "3 套限流" 不准确, 实际是 "1 套限流 + 1 套鉴权 + 1 套未找到". 文档化完成.
