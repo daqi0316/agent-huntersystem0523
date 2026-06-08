@@ -5,6 +5,9 @@
 2. 5 强约束 6 行在退出门槛表
 3. 命名格式: docs/mcp-v4-v*.md
 4. 引用 ≥ 3 个 markdown 链接
+5. G5 (2026-06-08 momus v1): 每章节 ≤ 30 行, 防 ship report 膨胀
+6. G8 (2026-06-08 momus v1): §4 必含 "测试策略: mock X / 真 Y"
+   + §8 必含 "rollback: git revert + N 文件" (防 ship 时忘写)
 
 用法:
     python scripts/check_ship_report.py docs/mcp-v4-v1.4-a1-ship-report.md
@@ -43,6 +46,15 @@ SECTION_KEYWORDS = {
     9: "引用",
 }
 
+# G5: 每章节内容 ≤ 30 行 (防 ship report 膨胀)
+MAX_SECTION_LINES = 30
+
+# G8: 必填内容行 (防 ship 时忘写)
+# §4 测试策略格式: "测试策略: mock X / 真 Y"
+SECTION_4_REQUIRED_PATTERN = re.compile(r"测试策略[:：].*?(?:mock|真)")
+# §8 rollback 格式: "rollback: git revert + N 文件"
+SECTION_8_REQUIRED_PATTERN = re.compile(r"rollback[:：].*?git revert")
+
 REQUIRED_CONSTRAINTS = [
     ("PR ≤ 1.5d", "5 强约束 §1"),
     ("+30% buffer", "5 强约束 §2"),
@@ -51,8 +63,15 @@ REQUIRED_CONSTRAINTS = [
     ("顺序锁死", "5 强约束 §5"),
 ]
 
-# 文件名命名格式: docs/mcp-v4-v*.md (vX.Y 或 vX.Y-a/b/c 后缀)
-NAME_PATTERN = re.compile(r"^docs/mcp-v4-v[\w.\-]+-ship-report\.md$")
+# 文件名命名格式: docs/mcp-v4-v*.md (vX.Y 或 vX.Y-a/b/c 后缀) 或 docs/followup-*.md (新)
+NAME_PATTERN = re.compile(r"^docs/(mcp-v4-v[\w.\-]+|followup-[\w\-]+)-ship-report\.md$")
+
+# G5/G8 momus v1 适用范围: 仅新 ship report (followup-*) 必填, 老 mcp-v4-v* grandfather
+NEW_NAME_PATTERN = re.compile(r"^docs/followup-[\w\-]+-ship-report\.md$")
+
+# G5/G8 opt-in marker: 新 ship report 模板首行加此 marker 启用 G5/G8 强制检查
+# 老 report (含 14 followup-*) 无 marker → grandfathered, 不强制
+STRICT_MARKER = "<!-- ship-report-template: g5-g8-v1 -->"
 
 
 def check_ship_report(path: Path) -> tuple[bool, list[str]]:
@@ -103,6 +122,36 @@ def check_ship_report(path: Path) -> tuple[bool, list[str]]:
     sec_6_match = re.search(r"## 6\..*?(?=## 7\.)", content, re.DOTALL)
     if sec_6_match and "未在" not in sec_6_match.group(0):
         errors.append("  ✗ §6 标题缺 '未在' 标识 (Out of Scope)")
+
+    # G5/G8 momus v1: 仅当 ship report 含 STRICT_MARKER 才 enforce
+    # 老 mcp-v4-v* (grandfather) + 14 老 followup-* (无 marker) 都跳过
+    is_new_report = bool(NEW_NAME_PATTERN.match(rel_name))
+    has_strict_marker = STRICT_MARKER in content
+
+    if is_new_report and has_strict_marker:
+        # G5: 每章节内容 ≤ 30 行 (防 ship report 膨胀)
+        for n in range(1, 10):
+            sec_match = re.search(rf"## {n}\..*?(?=## {n + 1}\.|$)", content, re.DOTALL)
+            if sec_match:
+                sec_lines = sec_match.group(0).count("\n")
+                if sec_lines > MAX_SECTION_LINES:
+                    errors.append(
+                        f"  ✗ §{n} 章节 {sec_lines} 行 > {MAX_SECTION_LINES} (G5 长度限制, 防 ship report 膨胀)"
+                    )
+
+        # G8: §4 必含 "测试策略: mock X / 真 Y"
+        sec_4_match = re.search(r"## 4\..*?(?=## 5\.)", content, re.DOTALL)
+        if sec_4_match and not SECTION_4_REQUIRED_PATTERN.search(sec_4_match.group(0)):
+            errors.append(
+                "  ✗ §4 缺 '测试策略: mock X / 真 Y' 行 (G8 必填)"
+            )
+
+        # G8: §8 必含 "rollback: git revert + N 文件"
+        sec_8_match = re.search(r"## 8\..*?(?=## 9\.)", content, re.DOTALL)
+        if sec_8_match and not SECTION_8_REQUIRED_PATTERN.search(sec_8_match.group(0)):
+            errors.append(
+                "  ✗ §8 缺 'rollback: git revert + N 文件' 行 (G8 必填)"
+            )
 
     return (len(errors) == 0), errors
 
