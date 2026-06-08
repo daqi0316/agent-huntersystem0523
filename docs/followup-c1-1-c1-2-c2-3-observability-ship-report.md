@@ -74,7 +74,10 @@ C2.3 drill: F21 ship 已含 7 故障 trigger + 17s 检测 (<5min KPI 满足).
 
 ## 8. 回滚
 
-`git revert <commit>` — 测文件 0 副作用 (不影响 production) + Grafana JSON 是模板 (未 import, 0 副作用).
+rollback: git revert <commit> (1 commit, 2 文件 — 测 + Grafana JSON 删, 0 副作用)
+- 测文件 0 副作用 (不影响 production)
+- Grafana JSON 是模板 (未 import, 0 副作用)
+- 不影响现有 /metrics 端点 (main.py 0 改)
 
 ## 9. 引用
 
