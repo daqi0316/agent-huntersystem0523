@@ -1,0 +1,134 @@
+{
+  "title": "API Overview",
+  "uid": "api-overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["api", "mcp", "phase-c-c1"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {"text": "Prometheus", "value": "Prometheus"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Request rate (req/s) by path",
+      "description": "sum(rate(api_request_total[5m])) grouped by path. Phase C C1.2 启动. PromQL: sum by (path) (rate(api_request_total[5m]))",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {
+          "expr": "sum by (path) (rate(api_request_total[5m]))",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}
+        }
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right"}}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "P95 latency (s) by path",
+      "description": "histogram_quantile(0.95, ...) on http_request_duration_seconds. Phase C C1.2 启动. PromQL: histogram_quantile(0.95, sum by (le, path) (rate(http_request_duration_seconds_bucket[5m])))",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, path) (rate(http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}
+        }
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right"}}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Error rate (5xx/total)",
+      "description": "5xx 占比. Phase C C1.2 启动. PromQL: sum(rate(api_request_total{status=~\"5..\"}[5m])) / sum(rate(api_request_total[5m]))",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {
+          "expr": "sum(rate(api_request_total{status=~\"5..\"}[5m])) / sum(rate(api_request_total[5m]))",
+          "legendFormat": "error_rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "min": 0,
+          "custom": {"drawStyle": "line", "fillOpacity": 20, "lineColor": "red"}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Request activity (CPU proxy, req/s)",
+      "description": "api_request_total rate 作 CPU activity proxy (backend 未暴露 process_cpu_seconds_total). Phase C C1.2 启动. PromQL: sum(rate(api_request_total[1m]))",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {
+          "expr": "sum(rate(api_request_total[1m]))",
+          "legendFormat": "req_per_sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10, "lineColor": "orange"}
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "GC rate (memory pressure proxy, collections/s)",
+      "description": "python_gc_collections_total rate 作 memory pressure proxy (backend 未暴露 process_resident_memory_bytes). Phase C C1.2 启动. PromQL: rate(python_gc_collections_total[5m])",
+      "gridPos": {"x": 0, "y": 16, "w": 24, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {
+          "expr": "rate(python_gc_collections_total[5m])",
+          "legendFormat": "gen{{generation}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "line", "fillOpacity": 20, "lineColor": "purple"}
+        }
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right"}}
+    }
+  ]
+}
