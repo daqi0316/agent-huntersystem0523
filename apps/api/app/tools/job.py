@@ -9,8 +9,9 @@ from app.core.database import AsyncSessionLocal
 from app.services.job import JobService
 from app.schemas.job import JobCreate, JobUpdate
 from app.models.job_position import JobStatus
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def _handle_create_job(

@@ -6,8 +6,9 @@ import logging
 from typing import Any
 
 from app.llm import get_llm_client
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def _handle_generate_jd(title="", requirements="", preferences=""):

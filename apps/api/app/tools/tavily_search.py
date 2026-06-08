@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+from app.core.logging import get_logger
 import os
 
 from tavily import TavilyClient
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _get_tavily_client() -> TavilyClient:

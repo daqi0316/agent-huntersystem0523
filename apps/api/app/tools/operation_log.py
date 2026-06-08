@@ -8,8 +8,9 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 from app.tools.metadata import Capability, register_tool
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LogOperationInput(BaseModel):

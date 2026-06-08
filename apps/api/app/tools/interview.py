@@ -8,8 +8,9 @@ from typing import Any
 
 from app.core.database import AsyncSessionLocal
 from app.services.interview import InterviewService
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def _handle_cancel_interview(interview_id: str = "", reason: str = "") -> dict[str, Any]:
