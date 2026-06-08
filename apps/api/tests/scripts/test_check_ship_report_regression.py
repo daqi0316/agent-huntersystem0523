@@ -25,9 +25,10 @@ from pathlib import Path
 
 
 # F12 baseline: 15 ship report pass (11 mcp-v4-v1.4 + 4 followup-* 新模板)
-# 14 老 followup-* 不 pass (缺章节 + 5 强约束缺), 32 老 mcp-v4-v1.0a/b
-# 不 pass (pre-5 强约束 era), 都不计入 baseline.
-BASELINE_PASS = 15
+# F retrofit (3 retrofit) 升 baseline 15 → 34: 14 老 followup-* retrofit
+# 后全过 (F1+F2/F8/F18/F19/F19.1-6/F20/G16+G17) + 4 新 followup-* + 11
+# mcp-v4-v1.4. 32 老 mcp-v4-v1.0a/b 仍不 pass (pre-5 强约束 era), 不计.
+BASELINE_PASS = 34
 
 
 def test_check_ship_report_no_regression():

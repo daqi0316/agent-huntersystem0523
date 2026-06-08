@@ -81,6 +81,9 @@
 - 多 worker 模式下 process_* 暴露 (单 worker 现状 OK, 跟 Fix-1 §3.2 一致)
 - 长时间 (1d+) CPU/mem 趋势 (累积数据看趋势, 跟 C1.3 alert 一起)
 
+
+
+测试策略: mock subprocess bash 脚本 (subprocess.run + DRY_RUN=1) / 真 apps/ 跑验
 ## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
@@ -106,8 +109,13 @@
 - 多 worker 模式 process_* 暴露验证 (推后续, 跟 Phase A 推后 (4) workers 一起)
 - Grafana dashboard 真实渲染 (user 触发, import 到 Grafana 沙箱)
 
-## 7. 引用
+## 7. 后续
 
+(F retrofit 标 — 老 ship report 同步升级到 G8 模板)
+
+## 9. 引用
+
+(F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F8 (P1, 0.2d) ← 本 PR
 - C1.2 ship report: `docs/mcp-v4-phase-c-c1-2-ship-report.md` §3.1 (proxy 治标, 推 F8 治本)
 - C1 启动 ship report: `docs/mcp-v4-phase-c-c1-startup-ship-report.md` (现状 70% ship)
@@ -121,3 +129,20 @@
 **Phase C 状态**: C1 启动 + C1.2 (proxy) + F8 (治根因) = 3 PR ship, 推后续 F18 alert + F1/F2 B6
 **Phase A+B+C 累计**: 41 commit, 19 大项
 **下一步**: 推 F18 C1.3 alert rule (0.3d) — C1 收尾
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f8-process-metrics-ship-report.md](followup-f8-process-metrics-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f8-process-metrics-ship-report.md`](followup-f8-process-metrics-ship-report.md) (本 ship report)

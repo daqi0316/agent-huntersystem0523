@@ -99,6 +99,9 @@ def _capture_5_services() -> str:
 - F22 Phase D 8 PR (15d, P3) — 远期
 - 装 structlog 后跑 5 服务测 (重跑本测, 验 JSON 格式)
 
+
+
+测试策略: mock subprocess bash 脚本 (subprocess.run + DRY_RUN=1) / 真 apps/ 跑验
 ## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
@@ -107,7 +110,7 @@ def _capture_5_services() -> str:
 | 5 测过 | python3 docs/tests/test_structlog_e2e.py | ✅ 5 passed |
 | 78 E2E 不退化 | pytest tests/mcp/integration/ | ✅ 78 passed |
 | health-check 6/6 (CLAUDE.md 强制) | bash scripts/health-check.sh | ✅ 11/11 |
-| 5 强约束 (PR ≤ 1.5d) | 实际 0.2d (1 测文件) | ✅ |
+| 5 强约束 (PR ≤ 1.5d) | 实际 0.2d (1 测文件) | ✅ | / +30% buffer
 | 5 强约束 (Bugfix Rule) | 0 production code 改 (纯测) | ✅ |
 | 5 强约束 (1 PR 必含测) | 5 测过 | ✅ (G1 §7 边界: 启动 PR 接受门槛) |
 | 5 强约束 (H 风险 rollback) | 风险 L (纯 docs 测, 可独立 revert) | ✅ |
@@ -121,8 +124,13 @@ def _capture_5_services() -> str:
 - ❌ **F22 Phase D 8 PR** (15d, P3) — 远期
 - ❌ **mcp/registry.py / supervisor.py 也迁** (推 F19.6, 0.2d) — tools/* 完了但 mcp/* 还差 registry + supervisor
 
-## 7. 引用
+## 7. 后续
 
+(F retrofit 标 — 老 ship report 同步升级到 G8 模板)
+
+## 9. 引用
+
+(F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F19.4 (P1, 0.2d) ← 本 PR
 - 上一站: `e8a667e` F19.3.2 feat + `894945e` F19.3.2 docs
 - F19.3: `9750a13` + `d5c85f3` (7 核心 tools/*)
@@ -139,3 +147,20 @@ def _capture_5_services() -> str:
 **Phase A+B+C 累计**: 61 commit, 29 大项
 **structlog 接入完成**: F19 启动 + F19.1 main/rate_limit + F19.2 telemetry/mcp_host + F19.3/3.1/3.2 tools/* (15 文件) + F19.4 端到端 1 query 验
 **下一步**: 推 F19.5 装 structlog 升级路径验 (0.1d, P2) 或 F21 drill (1d, P1) — 推下次 session
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f19-4-structlog-e2e-1-query-ship-report.md](followup-f19-4-structlog-e2e-1-query-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f19-4-structlog-e2e-1-query-ship-report.md`](followup-f19-4-structlog-e2e-1-query-ship-report.md) (本 ship report)

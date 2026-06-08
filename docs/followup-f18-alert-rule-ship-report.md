@@ -82,6 +82,9 @@
 - alertmanager 部署 + webhook 集成 (推独立 PR)
 - 长跑 (1d+) 累积 alert 趋势 (跟 C1.2 dashboard 一起)
 
+
+
+测试策略: mock subprocess bash 脚本 (subprocess.run + DRY_RUN=1) / 真 apps/ 跑验
 ## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
@@ -108,8 +111,13 @@
 - ❌ **F20 C2.2 限流 audit + 文档化** (0.5d, P1)
 - ❌ **F21 C2.3 drill 故障定位 <5min** (1d, P1)
 
-## 7. 引用
+## 7. 后续
 
+(F retrofit 标 — 老 ship report 同步升级到 G8 模板)
+
+## 9. 引用
+
+(F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F18 (P1, 0.3d) ← 本 PR
 - 规划: `.omo/plans/2026-06-07-roadmap-corrected.md` §5.3 C1.3 (error > 1% / P95 > 2s)
 - 上一站: `6b8485a` F8 feat (process_* 暴露)
@@ -123,3 +131,20 @@
 **Phase C 状态**: C1 启动 + C1.2 (proxy → F8 治本) + F18 alert = C1 收尾 ✅
 **Phase A+B+C 累计**: 43 commit, 20 大项
 **下一步**: 推 F1+F2 B6 完整推后 (0.5d, P1) — 限流白名单 + auth UI selector
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f18-alert-rule-ship-report.md](followup-f18-alert-rule-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f18-alert-rule-ship-report.md`](followup-f18-alert-rule-ship-report.md) (本 ship report)

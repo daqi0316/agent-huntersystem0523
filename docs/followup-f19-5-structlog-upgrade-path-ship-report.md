@@ -89,6 +89,9 @@ found = any(
 - F21 C2.3 drill 故障定位 <5min (1d, P1) — Phase C 继续
 - F22 Phase D 8 PR (15d, P3) — 远期
 
+
+
+测试策略: mock subprocess bash 脚本 (subprocess.run + DRY_RUN=1) / 真 apps/ 跑验
 ## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
@@ -96,7 +99,7 @@ found = any(
 | 3 升级路径测过 | python3 docs/tests/test_structlog_upgrade_path.py | ✅ 3 passed |
 | 78 E2E 不退化 | pytest tests/mcp/integration/ | ✅ 78 passed |
 | health-check 6/6 (CLAUDE.md 强制) | bash scripts/health-check.sh | ✅ 11/11 |
-| 5 强约束 (PR ≤ 1.5d) | 实际 0.1d (1 测文件) | ✅ |
+| 5 强约束 (PR ≤ 1.5d) | 实际 0.1d (1 测文件) | ✅ | / +30% buffer
 | 5 强约束 (Bugfix Rule) | 0 production code 改 (纯测) | ✅ |
 | 5 强约束 (1 PR 必含测) | 3 测过 | ✅ (G1 §7 边界: 启动 PR 接受门槛) |
 | 5 强约束 (H 风险 rollback) | 风险 L (纯 docs 测, 可独立 revert) | ✅ |
@@ -110,8 +113,13 @@ found = any(
 - ❌ **F21 C2.3 drill 故障定位 <5min** (1d, P1) — Phase C 继续
 - ❌ **F22 Phase D 8 PR** (15d, P3) — 远期
 
-## 7. 引用
+## 7. 后续
 
+(F retrofit 标 — 老 ship report 同步升级到 G8 模板)
+
+## 9. 引用
+
+(F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F19.5 (P2, 0.1d) ← 本 PR
 - 上一站: `9a11dda` F19.4 feat + `d0da287` F19.4 docs (5 服务端到端 1 query 验)
 - F19.4: `docs/tests/test_structlog_e2e.py` (5 服务格式一致验)
@@ -129,3 +137,20 @@ found = any(
 **Phase A+B+C 累计**: 63 commit, 30 大项
 **structlog 接入完成**: F19 + F19.1 (2) + F19.2 (2) + F19.3/3.1/3.2 (15) + F19.4 端到端 + F19.5 升级路径 = 全栈全覆盖
 **下一步**: 推 F19.6 迁 mcp/registry.py + supervisor.py (0.2d, P2) 或 F21 drill (1d, P1) — 推下次 session
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f19-5-structlog-upgrade-path-ship-report.md](followup-f19-5-structlog-upgrade-path-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f19-5-structlog-upgrade-path-ship-report.md`](followup-f19-5-structlog-upgrade-path-ship-report.md) (本 ship report)

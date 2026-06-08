@@ -78,6 +78,9 @@
 - F21 C2.3 drill 故障定位 <5min (1d, P1) — Phase C 继续
 - Grafana 面板加 rate_limit_check_total{blocked="true"} 429 占比 (C2.x 推)
 
+
+
+测试策略: mock subprocess bash 脚本 (subprocess.run + DRY_RUN=1) / 真 apps/ 跑验
 ## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
@@ -88,7 +91,7 @@
 | 3 套策略对比表 | test_momus_3_套_对比_table | ✅ |
 | 78 E2E 不退化 | pytest tests/mcp/integration/ | ✅ 78 passed |
 | health-check 6/6 (CLAUDE.md 强制) | bash scripts/health-check.sh | ✅ 11/11 |
-| 5 强约束 (PR ≤ 1.5d) | 实际 0.2d (纯 docs + 测) | ✅ |
+| 5 强约束 (PR ≤ 1.5d) | 实际 0.2d (纯 docs + 测) | ✅ | / +30% buffer
 | 5 强约束 (Bugfix Rule) | 0 production code 改 (纯 docs) | ✅ |
 | 5 强约束 (1 PR 必含测) | 6 文档完整性测 | ✅ (G1 §7 边界: docs PR) |
 | 5 强约束 (H 风险 rollback) | 风险 L (docs 改动可独立 revert) | ✅ |
@@ -105,8 +108,13 @@
 - ❌ **F21 C2.3 drill 故障定位 <5min** (1d, P1) — Phase C 继续
 - ❌ **B2B org 阈值调整** (100 → 200, 推 F20.2 业务驱动)
 
-## 7. 引用
+## 7. 后续
 
+(F retrofit 标 — 老 ship report 同步升级到 G8 模板)
+
+## 9. 引用
+
+(F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F20 (P1, 0.5d) ← 本 PR 0.2d
 - 上一站: `b3e82f8` F19 feat + `1cd062a` F19 docs
 - 现有 audit 文档: `docs/rate-limit-audit.md` (A1 PR 2026-06-07, 145 行 → 192 行)
@@ -118,3 +126,20 @@
 **Phase C 状态**: C1 收尾 (4 PR) + C2 启动 (F19 config + F20 audit) = 6 PR
 **Phase A+B+C 累计**: 49 commit, 23 大项
 **下一步**: 推 F19.1 迁 main.py + rate_limit.py 到 structlog (0.3d, P1) — 承接 F19 启动
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f20-rate-limit-audit-ship-report.md](followup-f20-rate-limit-audit-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f20-rate-limit-audit-ship-report.md`](followup-f20-rate-limit-audit-ship-report.md) (本 ship report)

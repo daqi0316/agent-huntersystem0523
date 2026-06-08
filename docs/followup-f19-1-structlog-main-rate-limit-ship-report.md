@@ -75,6 +75,9 @@
 - structlog 装上后 fallback 失效 (F19.5 验升级路径)
 - loguru 选型最终决定 (momus G3 §3.3 选 structlog, 当前实现一致)
 
+
+
+测试策略: mock subprocess bash 脚本 (subprocess.run + DRY_RUN=1) / 真 apps/ 跑验
 ## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
@@ -84,7 +87,7 @@
 | graceful degradation | 无 structlog 跑 import OK, stdlib fallback 工作 | ✅ |
 | 78 E2E 不退化 | pytest tests/mcp/integration/ | ✅ 78 passed |
 | health-check 6/6 (CLAUDE.md 强制) | bash scripts/health-check.sh | ✅ 11/11 |
-| 5 强约束 (PR ≤ 1.5d) | 实际 0.3d (3 文件接入) | ✅ |
+| 5 强约束 (PR ≤ 1.5d) | 实际 0.3d (3 文件接入) | ✅ | / +30% buffer
 | 5 强约束 (Bugfix Rule) | 0 existing 业务逻辑改 (纯 logger 接入) | ✅ |
 | 5 强约束 (1 PR 必含测) | 78 E2E + health-check 11/11 (生产环境验证) | ✅ |
 | 5 强约束 (H 风险 rollback) | 风险 L (fallback 跟 A1 一致, 装后升级) | ✅ |
@@ -100,8 +103,13 @@
 - ❌ **F21 C2.3 drill 故障定位 <5min** (1d, P1) — Phase C 继续
 - ❌ **F22 Phase D 8 PR** (15d, P3) — 远期
 
-## 7. 引用
+## 7. 后续
 
+(F retrofit 标 — 老 ship report 同步升级到 G8 模板)
+
+## 9. 引用
+
+(F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F19.1 (P1, 0.3d) ← 本 PR
 - 上一站: `a304621` F20 feat + `51c28ec` F20 docs
 - F19 启动: `b3e82f8` + `1cd062a` (structlog config + dep + skip 测)
@@ -112,3 +120,20 @@
 **Phase C 状态**: C1 收尾 (4 PR) + C2 启动 (F19 + F19.1 + F20) = 8 PR
 **Phase A+B+C 累计**: 51 commit, 24 大项
 **下一步**: 推 F19.2 迁 telemetry.py + mcp/host.py (0.3d, P1) — 承接 F19.1
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f19-1-structlog-main-rate-limit-ship-report.md](followup-f19-1-structlog-main-rate-limit-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f19-1-structlog-main-rate-limit-ship-report.md`](followup-f19-1-structlog-main-rate-limit-ship-report.md) (本 ship report)

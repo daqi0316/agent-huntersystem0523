@@ -17,7 +17,7 @@
 | 实际跑 4 测 | ⚠️ skip (venv 没 pip, structlog 装不上) — code 正确性 OK, 装上后即跑 |
 | health-check 6/6 | ✅ 11/11 |
 | 78 E2E 不退化 | ✅ 78 passed |
-| 完整 8+ 服务迁移到 structlog | ❌ 推后续 (1 PR ≤ 1.5d 装不下, 估 3-5 PR 跨多 session) |
+| 完整 8+ 服务迁移到 structlog | ❌ 推后续 (1 PR ≤ 1.5d 装不下, 估 3-5 PR 跨多 session) | / +30% buffer
 
 ## 2. 改动 diff
 
@@ -99,6 +99,9 @@ cd apps/api && uv pip install structlog>=24.1.0
 - 1 query 跨 5 服务验 (F19.4)
 - `loguru` vs `structlog` 选型最终决定 (momus G3 §3.3 选 structlog, 跟 1 致)
 
+
+
+测试策略: mock subprocess bash 脚本 (subprocess.run + DRY_RUN=1) / 真 apps/ 跑验
 ## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
@@ -124,8 +127,13 @@ cd apps/api && uv pip install structlog>=24.1.0
 - ❌ **F20 C2.2 限流 audit + 文档化** (0.5d, P1) — Phase C 继续
 - ❌ **F21 C2.3 drill 故障定位 <5min** (1d, P1) — Phase C 继续
 
-## 7. 引用
+## 7. 后续
 
+(F retrofit 标 — 老 ship report 同步升级到 G8 模板)
+
+## 9. 引用
+
+(F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F19 (P1, 1.5d) ← 本 PR 启动 0.2d
 - 规划: `.omo/plans/2026-06-07-roadmap-corrected.md` §5.3 C2.1
 - Momus: `.omo/plans/2026-06-07-complete-roadmap-momus-review.md` §3.3 (structlog + 统一字段)
@@ -137,3 +145,20 @@ cd apps/api && uv pip install structlog>=24.1.0
 **Phase C 状态**: C1 收尾 (4 PR) + C2 启动 (F19 config) = 5 PR
 **Phase A+B+C 累计**: 47 commit, 22 大项
 **下一步**: 推 F19.1 迁 main.py + rate_limit.py (0.3d, P1) — 让 structlog 实际生效
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f19-structlog-startup-ship-report.md](followup-f19-structlog-startup-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f19-structlog-startup-ship-report.md`](followup-f19-structlog-startup-ship-report.md) (本 ship report)

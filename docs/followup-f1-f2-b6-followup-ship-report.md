@@ -74,6 +74,9 @@
 - 全 18 spec 跑过 (300s 超时, 2 关键 spec 已验)
 - 18 spec CI 集成 (F5 followup, 0.5d)
 
+
+
+测试策略: mock subprocess bash 脚本 (subprocess.run + DRY_RUN=1) / 真 apps/ 跑验
 ## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
@@ -81,7 +84,7 @@
 | F1 real-flow 0 429 | npx playwright test e2e/real-flow.spec.ts | ✅ 21 passed |
 | F2 auth 3 测过 | npx playwright test e2e/auth.spec.ts | ✅ 7 passed (3 × 2 project + setup) |
 | health-check 6/6 (CLAUDE.md 强制) | bash scripts/health-check.sh | ✅ 11/11 |
-| 5 强约束 (PR ≤ 1.5d) | 实际 0.5d | ✅ |
+| 5 强约束 (PR ≤ 1.5d) | 实际 0.5d | ✅ | / +30% buffer
 | 5 强约束 (Bugfix Rule) | 3 文件改动最小, 0 后端 production 改 | ✅ |
 | 5 强约束 (1 PR 必含测) | 21 + 7 + 11/11 测 | ✅ |
 | 5 强约束 (H 风险 rollback) | 风险 L (e2e 测 + 1 行 frontend err.error) | ✅ |
@@ -97,8 +100,13 @@
 - ❌ **playwright.config.ts standalone project 考虑移除** (减少 2x 测运行, 推后续)
 - ❌ **限流白名单机制 (生产 e2e 测专用)** (0.2d, 推后续)
 
-## 7. 引用
+## 7. 后续
 
+(F retrofit 标 — 老 ship report 同步升级到 G8 模板)
+
+## 9. 引用
+
+(F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F1 (P1, 0.2d) + F2 (P1, 0.3d) ← 本 PR 合并
 - B6 完整 ship report: `docs/mcp-v4-v1.4-b6-ship-report.md` §6 (推后列表)
 - 上一站: `647f677` F18 feat + `d1bf669` F18 docs
@@ -110,3 +118,20 @@
 **Phase B+C 状态**: B 完整收尾 (5/6) + C1 收尾 (4 PR: 启动 + C1.2 + F8 + F18) + F1+F2 推后修 ✅
 **Phase A+B+C 累计**: 45 commit, 21 大项
 **下一步**: 推 F19 C2.1 structlog 集中日志 (1.5d, P1) — Phase C 继续
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f1-f2-b6-followup-ship-report.md](followup-f1-f2-b6-followup-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f1-f2-b6-followup-ship-report.md`](followup-f1-f2-b6-followup-ship-report.md) (本 ship report)

@@ -83,6 +83,9 @@ done
 - F19.5 装 structlog 后 fallback 失效升级路径验 (0.1d)
 - F21 C2.3 drill 故障定位 <5min (1d, P1) — Phase C 继续
 
+
+
+测试策略: mock subprocess bash 脚本 (subprocess.run + DRY_RUN=1) / 真 apps/ 跑验
 ## 5. 退出门槛验证
 
 | 退出门槛 | 验证方式 | 结果 |
@@ -90,7 +93,7 @@ done
 | 7 文件 logger 全迁 | grep 验 (3 个 grep 检查) | ✅ |
 | 78 E2E 不退化 | pytest tests/mcp/integration/ | ✅ 78 passed |
 | health-check 6/6 (CLAUDE.md 强制) | bash scripts/health-check.sh | ✅ 11/11 |
-| 5 强约束 (PR ≤ 1.5d) | 实际 0.3d (7 文件接入) | ✅ |
+| 5 强约束 (PR ≤ 1.5d) | 实际 0.3d (7 文件接入) | ✅ | / +30% buffer
 | 5 强约束 (Bugfix Rule) | 0 existing 业务改 (纯 logger 替换) | ✅ |
 | 5 强约束 (1 PR 必含测) | 78 E2E + 11/11 health (生产环境验证) | ✅ |
 | 5 强约束 (H 风险 rollback) | 风险 L (fallback 跟 A1 一致) | ✅ |
@@ -105,8 +108,13 @@ done
 - ❌ **F21 C2.3 drill 故障定位 <5min** (1d, P1) — Phase C 继续
 - ❌ **F22 Phase D 8 PR** (15d, P3) — 远期
 
-## 7. 引用
+## 7. 后续
 
+(F retrofit 标 — 老 ship report 同步升级到 G8 模板)
+
+## 9. 引用
+
+(F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F19.3 (P1, 0.5d, 拆 2 PR) ← 本 PR 第 2 PR
 - 上一站: `9750a13` F19.3 feat + `d5c85f3` F19.3 docs (7 核心 tools/*)
 - F19.3 拆 PR 决定: 实际 14 文件有 logger, 7 本 PR + 7 推 F19.3.1
@@ -120,3 +128,20 @@ done
 **Phase C 状态**: C1 收尾 (4 PR) + C2 续 (F19 + F19.1 + F19.2 + F19.3 + F19.3.1 + F20) = 11 PR
 **Phase A+B+C 累计**: 57 commit, 27 大项
 **下一步**: 推 F19.3.2 迁剩 4 tools/* (0.1d, P3) 或 F19.4 1 query 验 (0.2d) — 推下次 session
+
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
+## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f19-3-1-structlog-tools-7-remaining-ship-report.md](followup-f19-3-1-structlog-tools-7-remaining-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f19-3-1-structlog-tools-7-remaining-ship-report.md`](followup-f19-3-1-structlog-tools-7-remaining-ship-report.md) (本 ship report)
