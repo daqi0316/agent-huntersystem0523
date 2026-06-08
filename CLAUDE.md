@@ -56,6 +56,33 @@ Next.js dev 编译 `/_not-found` / `/_error` 会破坏已编译路由（已知 b
 
 不要自己写裸 `new EventSource(url)`。
 
+### 6. MCPHost 访问入口——必须用 `get_mcp_host()`
+
+**规则**：所有代码访问 `MCPHost` 走 `get_mcp_host()` 函数入口，**不要直接 import module-level `mcp_host`**。
+
+```python
+# ✅ 正确
+from app.mcp.host import get_mcp_host
+mcp_host = get_mcp_host()         # 拿 module-level singleton
+mcp_host.reset()                  # 测试 reset state
+# 或
+from app.mcp.host import MCPHost
+fresh = MCPHost.create()          # 真 fresh 实例（factory, 052b74d 引入）
+
+# ❌ 错误：直接 import module-level 引用
+from app.mcp.host import mcp_host
+mcp_host.reset()                  # 0 警告，但未来若改 lru_cache / 多实例
+                                 # 会引入 closure trap / stale reference bug
+```
+
+**为什么**：
+- `mcp_host is get_mcp_host()` 必为 `True`（向后兼容，2026-06-08 G15 重构验证）
+- 真 fresh 实例走 `MCPHost.create()`（factory 模式，052b74d 引入）
+- 测 reset state 走 `get_mcp_host().reset()`（单点维护，conftest 已改）
+- 未来若改 `@lru_cache` / `MCPHost()` 多实例，老 consumer 自动跟新
+
+**反例**（2026-06 教训）：直接 `from app.mcp.host import mcp_host` 在 `agent_service.py` 的 `_make_mcp_host_handler` 内 closure capture 旧引用，测试 reset 不生效。修法：函数内 `mcp_host = get_mcp_host()`。
+
 ## 已实现功能（参考）
 
 - `get_schedule` — 查询指定月份所有面试（含过去+未来），参数：year/month/status_filter/limit
