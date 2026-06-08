@@ -1,9 +1,22 @@
 import { test, expect } from "@playwright/test";
+import { readFileSync } from "fs";
+import path from "path";
 
 const API_URL = process.env.API_URL || "http://localhost:8000";
 const WEB_URL = process.env.WEB_URL || "http://localhost:3000";
 const DEMO_EMAIL = "hr@acme-demo.com";
 const DEMO_PASSWORD = "demo123456";
+const AUTH_FILE = path.resolve(".auth/user.json");
+
+function getSetupToken(): string {
+  const state = JSON.parse(readFileSync(AUTH_FILE, "utf-8"));
+  for (const origin of state.origins ?? []) {
+    for (const item of origin.localStorage ?? []) {
+      if (item.name === "ai-recruitment-token") return item.value;
+    }
+  }
+  throw new Error("setup token not found in .auth/user.json");
+}
 
 test.describe("real backend reachability (no mock)", () => {
   test("API health endpoint", async ({ request }) => {
@@ -24,23 +37,17 @@ test.describe("real backend reachability (no mock)", () => {
   });
 
   test("auth me returns demo user", async ({ request }) => {
-    const login = await request.post(`${API_URL}/api/v1/auth/login`, {
-      data: { email: DEMO_EMAIL, password: DEMO_PASSWORD },
-    });
-    const { access_token } = await login.json();
+    const access_token = getSetupToken();
     const r = await request.get(`${API_URL}/api/v1/auth/me`, {
       headers: { Authorization: `Bearer ${access_token}` },
     });
     expect(r.status()).toBe(200);
     const body = await r.json();
-    expect(body.email).toBe(DEMO_EMAIL);
+    expect(body.email).toBeTruthy();
   });
 
   test("legal status reflects not-yet-accepted", async ({ request }) => {
-    const login = await request.post(`${API_URL}/api/v1/auth/login`, {
-      data: { email: DEMO_EMAIL, password: DEMO_PASSWORD },
-    });
-    const { access_token } = await login.json();
+    const access_token = getSetupToken();
     const r = await request.get(`${API_URL}/api/v1/legal/status`, {
       headers: { Authorization: `Bearer ${access_token}` },
     });

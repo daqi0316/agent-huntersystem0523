@@ -106,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "登录失败" }));
-        throw new Error(err.detail || "登录失败");
+        throw new Error(err.error || err.detail || err.message || "登录失败");
       }
 
       const data = await res.json();
