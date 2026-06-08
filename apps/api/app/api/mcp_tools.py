@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.mcp.host import mcp_host
+from app.mcp.host import get_mcp_host
 from app.mcp.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ async def list_tools(
         capability: 可选过滤
         include_deprecated: 是否包含 deprecated tool
     """
+    mcp_host = get_mcp_host()  # G15: get_mcp_host() 替代直接 import mcp_host
     tools = mcp_host.list_tools(format=format)
     if capability:
         tools = [t for t in tools if (t.get("meta", {}).get("capability") if format == "mcp" else t.get("function", {}).get("capability", "read")) == capability]
@@ -52,6 +53,7 @@ async def list_tools(
 @router.get("/tools/{name}")
 async def get_tool(name: str):
     """单个 tool 详情（含 Pydantic InputModel 提示）。"""
+    mcp_host = get_mcp_host()  # G15
     entry = mcp_host.registry.get(name)
     if not entry:
         raise HTTPException(status_code=404, detail=f"Tool {name!r} not found")
@@ -72,6 +74,7 @@ async def get_tool(name: str):
 @router.get("/servers")
 async def list_servers():
     """server 进程状态。"""
+    mcp_host = get_mcp_host()  # G15
     return {
         "count": len(mcp_host.supervisor.all_servers()),
         "servers": mcp_host.list_servers(),

@@ -272,7 +272,9 @@ def _get_handlers() -> dict[str, callable]:
 
 def _make_mcp_host_handler(tool_name: str):
     """构造走 MCPHost.call_tool 的 handler（如果 host 已 connected）。"""
-    from app.mcp.host import mcp_host
+    from app.mcp.host import get_mcp_host  # G15: get_mcp_host() 替代 mcp_host singleton
+
+    mcp_host = get_mcp_host()  # G15: 函数内拿 host (避免 closure trap)
 
     async def _new_handler(**kwargs):
         return await mcp_host.call_tool(tool_name, kwargs)

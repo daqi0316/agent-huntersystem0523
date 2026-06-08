@@ -30,9 +30,10 @@ def _reset_mcp_host():
     原 4 测 test_host_lifecycle.py 标 skip (Fix-1 ship report §3.3 推后) 现可跑.
 
     G15 fix (本 PR): 用 MCPHost.reset() 封装手动 state clearing, 单点维护.
+    G15 强制 instance-level (后续 PR): 用 get_mcp_host() 替代 module-level mcp_host.
     """
-    from app.mcp.host import mcp_host
-    mcp_host.reset()
+    from app.mcp.host import get_mcp_host
+    get_mcp_host().reset()
     yield
 
 

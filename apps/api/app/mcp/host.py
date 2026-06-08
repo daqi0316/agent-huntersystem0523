@@ -377,3 +377,26 @@ class MCPHost:
 
 # 全局单例
 mcp_host = MCPHost()
+
+
+# G15 强制 instance-level: 提供 get_mcp_host() 函数作为唯一入口 (代替直接
+# import mcp_host). 返回 module-level singleton (向后兼容: get_mcp_host()
+# is mcp_host 必为 True, 避免真独立需求的混乱). 真 fresh 实例用 MCPHost.create().
+def get_mcp_host() -> MCPHost:
+    """返 module-level singleton MCPHost 实例.
+
+    G15 root cause fix (instance-level 重构):
+    - 默认: process-level shared (跟原 module-level singleton 行为一致)
+    - 真独立: 用 MCPHost.create() (不调 get_mcp_host())
+    - 测试: MCPHost.reset() 清 state (旧 event loop task 自然 GC)
+
+    usage:
+        from app.mcp.host import get_mcp_host
+        host = get_mcp_host()
+        await host.start()
+
+    不兼容 (设计 trade-off):
+    - get_mcp_host.cache_clear() 不支持 (lru_cache 不用, 同实例保证)
+    - 真 fresh 实例用 MCPHost.create() 替代
+    """
+    return mcp_host
