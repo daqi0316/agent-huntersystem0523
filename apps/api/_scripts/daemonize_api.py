@@ -83,7 +83,7 @@ def main() -> int:
     kill_existing(8000)
     time.sleep(1.0)
 
-    print("[2/4] start uvicorn --reload (setsid)")
+    print("[2/4] start uvicorn (setsid)")
     start_uvicorn()
 
     print("[3/4] wait for uvicorn :8000 LISTEN")
@@ -91,6 +91,21 @@ def main() -> int:
         print(f"❌ uvicorn 未起, 看 {UVICORN_LOG}")
         return 1
     print("✅ uvicorn :8000 LISTEN")
+
+    print("[3.5/4] wait for uvicorn worker ready (curl /health)")
+    # LISTEN 不等于 worker ready, 单 worker 模式下 curl /health 确认 HTTP 路径 OK
+    import urllib.request
+    deadline = time.time() + 30.0
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=2.0) as resp:
+                if resp.status == 200:
+                    print("✅ uvicorn worker ready (/health 200)")
+                    break
+        except Exception:
+            time.sleep(0.5)
+    else:
+        print(f"⚠️  /health 未 200, 看 {UVICORN_LOG} (但 LISTEN OK, 继续)")
 
     print("[4/4] start api-watchdog (setsid)")
     start_watchdog()

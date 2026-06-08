@@ -27,6 +27,7 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         storageState: ".auth/user.json",
+        baseURL: "http://127.0.0.1:3000",
       },
     },
     {
@@ -34,15 +35,17 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         storageState: ".auth/user.json",
-        baseURL: "http://localhost:3001",
+        baseURL: "http://127.0.0.1:3000",
       },
     },
   ],
   webServer: {
-    command: "node node_modules/next/dist/bin/next dev --port 3001",
-    url: "http://localhost:3001",
+    // B6 修: 改用 :3000 (现有 Next dev + next.config.js rewrite), 不启新 :3001
+    // reuseExistingServer: true 让本地已有 :3000 Next dev 不被新启
+    command: "node node_modules/next/dist/bin/next dev --port 3000",
+    url: "http://127.0.0.1:3000",
     reuseExistingServer: true,
-    timeout: 120 * 1000,
+    timeout: 60 * 1000,
     cwd: ".",
   },
 });
