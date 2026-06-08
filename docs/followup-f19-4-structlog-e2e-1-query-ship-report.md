@@ -128,7 +128,22 @@ def _capture_5_services() -> str:
 
 (F retrofit 标 — 老 ship report 同步升级到 G8 模板)
 
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
 ## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f19-4-structlog-e2e-1-query-ship-report.md](followup-f19-4-structlog-e2e-1-query-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f19-4-structlog-e2e-1-query-ship-report.md`](followup-f19-4-structlog-e2e-1-query-ship-report.md) (本 ship report)
 
 (F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F19.4 (P1, 0.2d) ← 本 PR
@@ -147,20 +162,3 @@ def _capture_5_services() -> str:
 **Phase A+B+C 累计**: 61 commit, 29 大项
 **structlog 接入完成**: F19 启动 + F19.1 main/rate_limit + F19.2 telemetry/mcp_host + F19.3/3.1/3.2 tools/* (15 文件) + F19.4 端到端 1 query 验
 **下一步**: 推 F19.5 装 structlog 升级路径验 (0.1d, P2) 或 F21 drill (1d, P1) — 推下次 session
-
-## 8. 回滚
-
-rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
-
-- 不破坏任何文件 (纯文档 retrofit)
-- 不影响 production code (F 是 docs retrofit, 0 production 改)
-- 不需迁移步骤
-
-## 9. 引用
-
-- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
-- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
-- Refs: [followup-f19-4-structlog-e2e-1-query-ship-report.md](followup-f19-4-structlog-e2e-1-query-ship-report.md) (本 ship report)
-
-- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
-- Refs: [`followup-f19-4-structlog-e2e-1-query-ship-report.md`](followup-f19-4-structlog-e2e-1-query-ship-report.md) (本 ship report)

@@ -75,12 +75,13 @@ def retrofit_one(path: Path) -> tuple[bool, str]:
             content = content.replace(m.group(0), new_line, 1)
             changes.append("+ 5 强约束 +30% buffer keyword")
 
-    # Step 3: 处理 §7 引用 → §9 引用 + 加 §7 后续 + §8 回滚 (整体重排)
+    # Step 3: 处理 §7 引用 → §7 后续 + 加 §8 回滚 + §9 引用 (整体重排, 幂等)
     # 老 ship report 7-section 模板: §1-§5 跟标准, §6 未在, §7 引用 (无 §7 后续, §8, §9)
-    # 需: §7 引用 → §9 引用, 加 §7 后续 (含推后续) + §8 回滚
+    # 需: §7 引用 → §7 后续, 加 §8 回滚 + §9 引用 (含原 §7 引用 内容)
+    # 幂等: 如 §7 后续 已存在 (前次 retrofit 跑过), 跳过; 如 §8/§9 已存在, 不重加
     section_7_title_match = re.search(r"^## 7\. (.+?)$", content, re.MULTILINE)
     if section_7_title_match and "后续" not in section_7_title_match.group(1):
-        # 找 §7 引用 块 (到文件末尾, 因为 §7 引用是原老 ship report 最后 1 节)
+        # 找 §7 引用 块 (到文件末尾)
         m = re.search(
             r"^(## 7\. .+?)$(.*?)(?=\Z)",
             content,
@@ -88,18 +89,88 @@ def retrofit_one(path: Path) -> tuple[bool, str]:
         )
         if m:
             section_7_content = m.group(2)
-            # 替换 §7 标题为 "## 7. 后续" + 把原内容 append 到 §9
-            content = content.replace(m.group(0), "## 7. 后续\n\n(F retrofit 标 — 老 ship report 同步升级到 G8 模板)\n")
-            # 在文件末尾, 找到 §9 引用 节, append 原 §7 引用 内容
-            section_9_match = re.search(r"^(## 9\. 引用.*?)$(.*?)(?=\Z)", content, re.MULTILINE | re.DOTALL)
-            if section_9_match:
-                # 把原 §7 引用 内容 append 到 §9 引用 节末尾
-                content = content + f"\n\n(F retrofit 保留原 §7 引用 内容):\n{section_7_content.strip()}\n"
-            else:
-                # §9 引用 不存在, 创建
+            # 替换 §7 标题为 "## 7. 后续" + 把原内容保留供 §9 用
+            new_section_7 = "## 7. 后续\n\n(F retrofit 标 — 老 ship report 同步升级到 G8 模板)\n"
+            # 检查 §8 是否已存在 (幂等)
+            has_8 = has_section_n(content, 8)
+            has_9 = has_section_n(content, 9)
+            # 构造新追加内容: §8 (如缺) + §9 (如缺, 含原 §7 引用 内容)
+            additions = ""
+            if not has_8:
+                additions += "\n## 8. 回滚\n\nrollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动恢复)\n\n- 不破坏任何文件 (纯文档 retrofit)\n- 不影响 production code (F 是 docs retrofit, 0 production 改)\n- 不需迁移步骤\n"
+            if not has_9:
                 file_name = path.name
-                content = content.rstrip() + f"\n\n## 9. 引用\n\n(F retrofit 保留原 §7 引用 内容):\n{section_7_content.strip()}\n\n- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)\n- Refs: [`{file_name}`]({file_name}) (本 ship report)\n"
-            changes.append("§7 引用 标题 → §7 后续 + 原引用内容移到 §9")
+                additions += f"\n## 9. 引用\n\n(F retrofit 保留原 §7 引用 内容):\n{section_7_content.strip()}\n\n- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)\n- Refs: [`{file_name}`]({file_name}) (本 ship report)\n"
+            # 替换 §7 块: 原 §7 引用 → §7 后续 + additions (§8/§9 如缺)
+            content = content.replace(m.group(0), new_section_7.rstrip("\n") + additions)
+            # 如 §8 §9 已存在, 把原 §7 引用 内容 append 到现有 §9 末尾 (避免重复)
+            if has_9 and has_8:
+                section_9_match = re.search(r"^(## 9\. 引用.*?)$(.*?)(?=\Z)", content, re.MULTILINE | re.DOTALL)
+                if section_9_match:
+                    content = content + f"\n\n(F retrofit 保留原 §7 引用 内容, 二次 retrofit):\n{section_7_content.strip()}\n"
+            changes.append(f"§7 引用 → §7 后续 + 加 §8={not has_8} + §9={not has_9} (幂等)")
+
+    # Step 4: dedup §9 引用 节 (前次 F retrofit 跑过可能产生重复 §9, 合并)
+    # 找所有 §9 引用 节
+    section_9_matches = list(re.finditer(
+        r"^## 9\. 引用.*?(?=^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
+    ))
+    if len(section_9_matches) > 1:
+        # 保留最后一个, 合并前面所有内容到末尾
+        all_extra_content: list[str] = []
+        for m in section_9_matches[:-1]:
+            # 提取除标题外的所有内容
+            body = re.sub(r"^## 9\. 引用\s*\n", "", m.group(0), count=1).strip()
+            if body:
+                all_extra_content.append(body)
+        # 删除前面所有 §9 节
+        for m in reversed(section_9_matches[:-1]):
+            content = content[:m.start()] + content[m.end():]
+        # 把合并内容 append 到最后一个 §9 末尾
+        if all_extra_content:
+            last_9 = section_9_matches[-1]
+            content = (
+                content[:last_9.end()].rstrip() +
+                "\n\n" + "\n\n".join(all_extra_content) +
+                "\n" + content[last_9.end():]
+            )
+        changes.append(f"dedup §9 引用 ({len(section_9_matches)} → 1)")
+
+    # Step 5: 规范化 §7/§8/§9 顺序 (如错位: §7, §9, §8, §9 → §7, §8, §9)
+    # 找 §7/§8/§9 位置
+    def find_section_line(content: str, n: int) -> int:
+        m = re.search(rf"^## {n}\. ", content, re.MULTILINE)
+        return m.start() if m else -1
+
+    pos_7 = find_section_line(content, 7)
+    pos_8 = find_section_line(content, 8)
+    pos_9 = find_section_line(content, 9)
+
+    # 检查 §8/§9 顺序错位: §7 < §8 但 §8 > §9
+    if pos_7 >= 0 and pos_8 > pos_7 and pos_9 > pos_8:
+        pass  # 顺序正确
+    elif pos_7 >= 0 and pos_8 >= 0 and pos_9 >= 0 and pos_8 > pos_9:
+        # §8 在 §9 之后 → 提取 §8 + §9 内容, 重排
+        # 找 §8 和 §9 的 end
+        m8 = re.search(r"^## 8\. .*?(?=^## 9\. |\Z)", content, re.MULTILINE | re.DOTALL)
+        m9 = re.search(r"^## 9\. .*?(?=\Z)", content, re.MULTILINE | re.DOTALL)
+        if m8 and m9:
+            section_8_content = m8.group(0)
+            section_9_content = m9.group(0)
+            # 删 §8 (在 m8.start() 到 m9.start())
+            content = content[:m8.start()] + content[m9.start():]
+            # 在 §7 后 (pos_7 end) 插 §8, 在 §8 后插 §9
+            m7_end = re.search(r"^## 7\. .*?(?=^## 8\. |\Z)", content, re.MULTILINE | re.DOTALL)
+            if m7_end:
+                content = (
+                    content[:m7_end.end()].rstrip() +
+                    "\n\n" + section_8_content +
+                    "\n\n" + section_9_content +
+                    content[m7_end.end():]
+                )
+                changes.append("reorder §8/§9 (§7, §8, §9 顺序)")
 
     if content == original:
         return False, "无变化 (已 retrofit 过)"

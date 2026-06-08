@@ -117,7 +117,22 @@ found = any(
 
 (F retrofit 标 — 老 ship report 同步升级到 G8 模板)
 
+## 8. 回滚
+
+rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
+
+- 不破坏任何文件 (纯文档 retrofit)
+- 不影响 production code (F 是 docs retrofit, 0 production 改)
+- 不需迁移步骤
+
 ## 9. 引用
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
+- Refs: [followup-f19-5-structlog-upgrade-path-ship-report.md](followup-f19-5-structlog-upgrade-path-ship-report.md) (本 ship report)
+
+- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
+- Refs: [`followup-f19-5-structlog-upgrade-path-ship-report.md`](followup-f19-5-structlog-upgrade-path-ship-report.md) (本 ship report)
 
 (F retrofit 保留原 §7 引用 内容):
 - Followup: `docs/followups.md` F19.5 (P2, 0.1d) ← 本 PR
@@ -137,20 +152,3 @@ found = any(
 **Phase A+B+C 累计**: 63 commit, 30 大项
 **structlog 接入完成**: F19 + F19.1 (2) + F19.2 (2) + F19.3/3.1/3.2 (15) + F19.4 端到端 + F19.5 升级路径 = 全栈全覆盖
 **下一步**: 推 F19.6 迁 mcp/registry.py + supervisor.py (0.2d, P2) 或 F21 drill (1d, P1) — 推下次 session
-
-## 8. 回滚
-
-rollback: git revert HEAD~1..HEAD (1 commit, 1-3 文件新建 docs/ — revert 自动删新建)
-
-- 不破坏任何文件 (纯文档 retrofit)
-- 不影响 production code (F 是 docs retrofit, 0 production 改)
-- 不需迁移步骤
-
-## 9. 引用
-
-- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
-- Refs: [`.omo/plans/2026-06-07-roadmap-corrected.md`](.omo/plans/2026-06-07-roadmap-corrected.md) (修正版规划)
-- Refs: [followup-f19-5-structlog-upgrade-path-ship-report.md](followup-f19-5-structlog-upgrade-path-ship-report.md) (本 ship report)
-
-- Refs: [`docs/followups.md`](docs/followups.md) (F1-F22 总索引)
-- Refs: [`followup-f19-5-structlog-upgrade-path-ship-report.md`](followup-f19-5-structlog-upgrade-path-ship-report.md) (本 ship report)
