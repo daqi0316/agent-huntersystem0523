@@ -69,6 +69,40 @@ class MCPHost:
         self._started = False
         self._supervisor = ProcessSupervisor()
 
+    @classmethod
+    def create(cls) -> "MCPHost":
+        """G15 root cause fix: factory method 创建独立实例.
+
+        单例 (module-level mcp_host = MCPHost()) 在多 worker / 长跑 / 跨
+        session 场景下导致 state 污染:
+        - 多 worker: 每个 worker 进程独立, 没问题 (但测试间需 fresh 实例)
+        - 长跑: state 累积, _watch_tasks / _restart_counts 等无界增长
+        - 跨 session: 测试间 event loop 不同, 旧 task 引用旧 loop 报错
+
+        factory 模式让 caller 显式 create, 避免隐式共享:
+        - 测试: 每个 test 调 host = MCPHost.create() 拿 fresh 实例
+        - 生产: 单进程仍可用 module-level mcp_host (向后兼容)
+        - 多 worker: 每个 worker 独立 process, 仍 module-level (正确)
+        """
+        return cls()
+
+    def reset(self) -> None:
+        """G15 root cause fix: 重置所有 instance state (测试间用).
+
+        不 await 任何 task (跨 event loop 不可靠, 跟 conftest 原做法一致).
+        同步清 state 字段, 旧 task 引用旧 loop 自然 GC.
+        """
+        self._sessions.clear()
+        self._pids.clear()
+        self._configs.clear()
+        self._restart_counts.clear()
+        self._exit_stack = None
+        self._watch_tasks.clear()
+        self._start_lock = False
+        self._shutdown = False
+        self._started = False
+        self.registry = ToolRegistry()
+
     async def start(
         self,
         config_path: str = "app/mcp_servers/config.json",
