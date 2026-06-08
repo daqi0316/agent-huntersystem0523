@@ -66,11 +66,12 @@ REQUIRED_CONSTRAINTS = [
 import re as _re_s4
 ROLLBACK_PATTERN = _re_s4.compile(r"rollback|回滚")
 
-# 文件名命名格式: docs/mcp-v4-v*.md (vX.Y 或 vX.Y-a/b/c 后缀) 或 docs/followup-*.md (新)
-NAME_PATTERN = re.compile(r"^docs/(mcp-v4-v[\w.\-]+|followup-[\w\-]+)-ship-report\.md$")
+# 文件名命名格式: mcp-v4-v*.md (vX.Y 或 vX.Y-a/b/c 后缀) 或 followup-*.md
+# 匹配文件名 (用 path.name), 不匹配完整路径 — 支持 absolute 路径 (subprocess/pytest)
+NAME_PATTERN = re.compile(r"^(mcp-v4-v[\w.\-]+|followup-[\w\-]+)-ship-report\.md$")
 
 # G5/G8 momus v1 适用范围: 仅新 ship report (followup-*) 必填, 老 mcp-v4-v* grandfather
-NEW_NAME_PATTERN = re.compile(r"^docs/followup-[\w\-]+-ship-report\.md$")
+NEW_NAME_PATTERN = re.compile(r"^followup-[\w\-]+-ship-report\.md$")
 
 # G5/G8 opt-in marker: 新 ship report 模板首行加此 marker 启用 G5/G8 强制检查
 # 老 report (含 14 followup-*) 无 marker → grandfathered, 不强制
@@ -81,10 +82,10 @@ def check_ship_report(path: Path) -> tuple[bool, list[str]]:
     """返回 (pass, errors)."""
     errors: list[str] = []
 
-    # 命名检查 (仅对文件名, 不要求路径以 docs/ 开头)
-    rel_name = str(path)
-    if not NAME_PATTERN.match(rel_name):
-        errors.append(f"  ✗ 命名不符合 {NAME_PATTERN.pattern} (got: {rel_name})")
+    # 命名检查 (仅对文件名, 不要求路径以 docs/ 开头) — 改用 path.name 支持 absolute
+    file_name = path.name
+    if not NAME_PATTERN.match(file_name):
+        errors.append(f"  ✗ 命名不符合 {NAME_PATTERN.pattern} (got: {file_name})")
 
     if not path.exists():
         errors.append(f"  ✗ 文件不存在: {path}")
@@ -131,7 +132,7 @@ def check_ship_report(path: Path) -> tuple[bool, list[str]]:
 
     # G5/G8 momus v1: 仅当 ship report 含 STRICT_MARKER 才 enforce
     # 老 mcp-v4-v* (grandfather) + 14 老 followup-* (无 marker) 都跳过
-    is_new_report = bool(NEW_NAME_PATTERN.match(rel_name))
+    is_new_report = bool(NEW_NAME_PATTERN.match(file_name))
     has_strict_marker = STRICT_MARKER in content
 
     if is_new_report and has_strict_marker:
