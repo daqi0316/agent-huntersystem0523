@@ -1,5 +1,8 @@
 from app.models.candidate import Candidate
+from app.models.candidate_state import CandidateStateHistory, RecruitmentCandidateState
 from app.models.job_position import JobPosition
+from app.models.job_profile import JobProfile
+from app.models.rejection import CandidateRejectionRecord, RejectionReason
 from app.models.application import Application
 from app.models.interview import Interview
 from app.models.user import User, UserRole
@@ -97,7 +100,7 @@ from app.models.notification import (  # noqa: F401
 )
 
 __all__ = [
-    "Candidate", "JobPosition", "Application", "Interview", "User", "UserRole",
+    "Candidate", "CandidateStateHistory", "RecruitmentCandidateState", "JobPosition", "JobProfile", "RejectionReason", "CandidateRejectionRecord", "Application", "Interview", "User", "UserRole",
     "Organization", "OrganizationPlan", "OrganizationStatus",
     "Membership", "MembershipRole", "MembershipStatus",
     "Invitation", "InvitationStatus",

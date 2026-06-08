@@ -7,6 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+from app.models._base import enum_column
+from app.models.candidate_state import RecruitmentCandidateState
 import enum
 
 
@@ -42,6 +44,11 @@ class Candidate(Base):
     status: Mapped[CandidateStatus] = mapped_column(
         SAEnum(CandidateStatus, name="candidate_status", validate_strings=False, values_callable=lambda x: [e.value for e in x]),
         default=CandidateStatus.ACTIVE,
+        index=True,
+    )
+    recruitment_state: Mapped[RecruitmentCandidateState] = mapped_column(
+        enum_column(RecruitmentCandidateState, "recruitment_candidate_state"),
+        default=RecruitmentCandidateState.NEW_APPLICATION,
         index=True,
     )
     created_at: Mapped[datetime] = mapped_column(
