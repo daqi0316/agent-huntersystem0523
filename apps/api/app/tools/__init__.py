@@ -15,7 +15,9 @@ import pkgutil
 from pathlib import Path
 from typing import Any, Callable
 
-logger = logging.getLogger(__name__)
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 TOOLS_DIR = Path(__file__).parent
 

@@ -1,12 +1,13 @@
 """文件下载与临时存储管理 — 供简历解析工具调用。"""
 
 import logging
+from app.core.logging import get_logger
 import os
 import tempfile
 import uuid
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ResumeDownloadError(Exception):
