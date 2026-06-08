@@ -51,3 +51,15 @@ repos:
         pass_filenames: false
         types_or: [python, ts, tsx, js, jsx]
         stages: [manual]
+
+  # A6 ship report 模板 lint 集成 (Phase A 推后 5 修):
+  # check_ship_report.py 验 9 章节 + 5 强约束 + 命名格式 + 引用, 仅匹配 docs/mcp-v4-v*.md
+  - repo: local
+    hooks:
+      - id: check-ship-report
+        name: Check ship report template (9 sections + 5 强约束, A6)
+        entry: python3 scripts/check_ship_report.py
+        language: system
+        pass_filenames: true
+        files: ^docs/mcp-v4-v.*\.md$
+        stages: [pre-commit, manual]

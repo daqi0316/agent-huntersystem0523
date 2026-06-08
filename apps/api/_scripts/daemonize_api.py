@@ -5,7 +5,9 @@
 启动 uvicorn 8000 + api-watchdog 监控。
 
 用法: python3 apps/api/_scripts/daemonize_api.py
+       python3 apps/api/_scripts/daemonize_api.py --health-check-url http://127.0.0.1:8000/health
 """
+import argparse
 import os
 import subprocess
 import sys
@@ -77,6 +79,14 @@ def kill_existing(port: int) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Daemonize API server (double-fork + setsid)")
+    parser.add_argument(
+        "--health-check-url",
+        default="http://127.0.0.1:8000/health",
+        help="Worker ready check URL (default: %(default)s). Phase A 推后 5: A2 增强.",
+    )
+    args = parser.parse_args()
+
     print("=== daemonize api (subprocess + setsid) ===")
 
     print("[1/4] kill existing :8000")
@@ -92,20 +102,19 @@ def main() -> int:
         return 1
     print("✅ uvicorn :8000 LISTEN")
 
-    print("[3.5/4] wait for uvicorn worker ready (curl /health)")
-    # LISTEN 不等于 worker ready, 单 worker 模式下 curl /health 确认 HTTP 路径 OK
+    print("[3.5/4] wait for uvicorn worker ready (curl health-check-url)")
     import urllib.request
     deadline = time.time() + 30.0
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=2.0) as resp:
+            with urllib.request.urlopen(args.health_check_url, timeout=2.0) as resp:
                 if resp.status == 200:
-                    print("✅ uvicorn worker ready (/health 200)")
+                    print(f"✅ uvicorn worker ready ({args.health_check_url} 200)")
                     break
         except Exception:
             time.sleep(0.5)
     else:
-        print(f"⚠️  /health 未 200, 看 {UVICORN_LOG} (但 LISTEN OK, 继续)")
+        print(f"⚠️  {args.health_check_url} 未 200, 看 {UVICORN_LOG} (但 LISTEN OK, 继续)")
 
     print("[4/4] start api-watchdog (setsid)")
     start_watchdog()
