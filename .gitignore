@@ -69,7 +69,7 @@ runtime/**
 next-env.d.ts
 
 .archive/
-AI_招聘系统_MCP_工具系统_设计文档_v2.md
+AI_招聘系统_MCP_工具系统设计文档_v2.md
 
 # Skill runtime state (v0.7+: per-host state, not committed)
 .omo/skill_state.json
