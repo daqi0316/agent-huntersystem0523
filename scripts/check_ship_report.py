@@ -59,9 +59,12 @@ REQUIRED_CONSTRAINTS = [
     ("PR ≤ 1.5d", "5 强约束 §1"),
     ("+30% buffer", "5 强约束 §2"),
     ("1 PR 必含测", "5 强约束 §3"),
-    ("H 风险 rollback", "5 强约束 §4"),
     ("顺序锁死", "5 强约束 §5"),
 ]
+
+# 5 强约束 §4 改 regex: 接受 "rollback" 或 "回滚" (中文), 老 ship report 多用 "回滚"
+import re as _re_s4
+ROLLBACK_PATTERN = _re_s4.compile(r"rollback|回滚")
 
 # 文件名命名格式: docs/mcp-v4-v*.md (vX.Y 或 vX.Y-a/b/c 后缀) 或 docs/followup-*.md (新)
 NAME_PATTERN = re.compile(r"^docs/(mcp-v4-v[\w.\-]+|followup-[\w\-]+)-ship-report\.md$")
@@ -101,10 +104,13 @@ def check_ship_report(path: Path) -> tuple[bool, list[str]]:
         if m and keyword not in m.group(1):
             errors.append(f"  ✗ §{n} 标题缺关键词 '{keyword}' (got: '{m.group(1)}')")
 
-    # 5 强约束检查 (前 5 严格, "量化 KPI" 改为 §1 概览表里 KPI 数字验证)
+    # 5 强约束检查 (前 4 严格, "量化 KPI" 改为 §1 概览表里 KPI 数字验证)
     for keyword, label in REQUIRED_CONSTRAINTS:
         if keyword not in content:
             errors.append(f"  ✗ 5 强约束缺: {keyword} ({label})")
+    # 5 强约束 §4: rollback 策略, 接受 "rollback" 或 "回滚" (中文)
+    if not ROLLBACK_PATTERN.search(content):
+        errors.append("  ✗ 5 强约束缺: rollback/回滚 策略 (§4)")
     # 量化 KPI 替代验证: §1 概览表里含 ≥ 3 个 ✅ 行 (KPI 维度)
     overview_match = re.search(r"## 1\. 概览.*?(?=## 2\.)", content, re.DOTALL)
     if overview_match:
