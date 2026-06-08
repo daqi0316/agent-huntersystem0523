@@ -27,7 +27,9 @@ from typing import Any, Awaitable, Callable
 from app.mcp.metrics import record_restart, record_server_up, record_startup
 from app.mcp.config import ServerConfig
 
-logger = logging.getLogger(__name__)
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 # ── 平台资源限制（macOS 部分支持）───────────────────────────────────
