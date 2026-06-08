@@ -19,6 +19,31 @@ def _clear_agent_registry():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_mcp_host():
+    """重置 mcp_host module-level singleton 状态, 防跨 event loop 状态污染.
+
+    Phase A 推后 (2): ``asyncio_default_fixture_loop_scope=function`` 让每个
+    测试新 event loop, 但 module-level ``mcp_host._started=True`` 等 state
+    留旧 loop — 旧 task 在旧 loop 死时还在跑, 跟新测试的 start() 冲突.
+    修法: 每测前同步清 state 字段 (不 await 旧 task, 跨 loop 不可靠).
+    原 4 测 test_host_lifecycle.py 标 skip (Fix-1 ship report §3.3 推后) 现可跑.
+    """
+    from app.mcp.host import mcp_host
+    from app.mcp.registry import ToolRegistry
+
+    mcp_host._watch_tasks.clear()
+    mcp_host._sessions.clear()
+    mcp_host._pids.clear()
+    mcp_host._configs.clear()
+    mcp_host._restart_counts.clear()
+    mcp_host._exit_stack = None
+    mcp_host._started = False
+    mcp_host._shutdown = False
+    mcp_host.registry = ToolRegistry()
+    yield
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Single event loop per session to keep asyncpg connections alive."""

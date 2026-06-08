@@ -33,24 +33,24 @@ def _chdir_to_apps_api():
 
 
 class TestMCPHostLifecycle:
-    @pytest.mark.skip(reason="Fix-2 (Phase A→B): mcp_host module-level singleton 被多测试污染, expected 1 connected got N. 推独立 PR 修 mcp_host anyio lifecycle.")
     @pytest.mark.asyncio
     @pytest.mark.timeout(60)
     async def test_start_list_call_shutdown(self):
-        """端到端：start → list_tools → call_tool → shutdown。"""
+        """端到端：start → utils 4 tool → call_tool → shutdown。
+
+        v0.4c core=5 server 后本测聚焦 utils (4 工具), 验 host.subprocess 路径.
+        """
         from app.mcp.host import mcp_host
 
-        # start
         connected = await mcp_host.start(phases=["core"])
-        assert connected == 1, f"expected 1 connected, got {connected}"
+        assert connected == 5, f"expected 5 core connected, got {connected}"
 
         try:
-            # list_tools via registry
-            assert mcp_host.registry.tool_count() == 4
-            tool_names = {e.name for e in mcp_host.registry.all()}
+            utils_tools = mcp_host.registry.by_server("mcp-utils")
+            assert len(utils_tools) == 4, f"utils tools: {len(utils_tools)}"
+            tool_names = {e.name for e in utils_tools}
             assert tool_names == {"greet", "get_current_time", "calculate", "log_operation"}
 
-            # call_tool 真打通
             r = await mcp_host.call_tool("calculate", {"expression": "10+5"})
             assert r == "15", f"expected '15', got {r}"
 
@@ -58,10 +58,8 @@ class TestMCPHostLifecycle:
             assert "Alice" in r2 and "Hello" in r2
         finally:
             await mcp_host.shutdown()
-            # shutdown 后不应有 watch_task 残留
             assert len(mcp_host._watch_tasks) == 0
 
-    @pytest.mark.skip(reason="Fix-2: mcp_host anyio task lifecycle 预存问题, 跟 test_start_list_call_shutdown 同一根因. 推独立 PR.")
     @pytest.mark.asyncio
     @pytest.mark.timeout(60)
     async def test_pydantic_rejects_evil_input_via_host(self):
@@ -117,11 +115,10 @@ class TestMCPHostLifecycle:
         finally:
             await mcp_host.shutdown()
 
-    @pytest.mark.skip(reason="Fix-2: mcp_host anyio task lifecycle 预存问题 (3 预存 fail 同根因). 推独立 PR.")
     @pytest.mark.asyncio
     @pytest.mark.timeout(60)
     async def test_list_servers_endpoint(self):
-        """host.list_servers 返回 server 状态。"""
+        """host.list_servers 返回 server 状态 (v0.4c core=5)."""
         from app.mcp.host import mcp_host
         await mcp_host.start(phases=["core"])
         try:
@@ -130,19 +127,17 @@ class TestMCPHostLifecycle:
                     break
                 await asyncio.sleep(0.5)
             servers = mcp_host.list_servers()
-            assert len(servers) == 1
-            s = servers[0]
-            assert s["server_id"] == "mcp-utils"
-            assert s["up"] is True
-            assert s["tool_count"] == 4
+            assert len(servers) == 5
+            utils = next(s for s in servers if s["server_id"] == "mcp-utils")
+            assert utils["up"] is True
+            assert utils["tool_count"] == 4
         finally:
             await mcp_host.shutdown()
 
-    @pytest.mark.skip(reason="Fix-2: mcp_host anyio task lifecycle 预存问题 (3 预存 fail 同根因). 推独立 PR.")
     @pytest.mark.asyncio
     @pytest.mark.timeout(60)
     async def test_list_tools_endpoint(self):
-        """host.list_tools(format='openai' | 'mcp')。"""
+        """host.list_tools(format='openai' | 'mcp')。v0.4c core=5 server, 9 工具合计。"""
         from app.mcp.host import mcp_host
         await mcp_host.start(phases=["core"])
         try:
@@ -151,14 +146,14 @@ class TestMCPHostLifecycle:
                     break
                 await asyncio.sleep(0.5)
             tools_mcp = mcp_host.list_tools(format="mcp")
-            assert len(tools_mcp) == 4
+            assert len(tools_mcp) == 9, f"got {len(tools_mcp)}"
             for t in tools_mcp:
                 assert "name" in t
                 assert "inputSchema" in t
                 assert "meta" in t
                 assert "capability" in t["meta"]
             tools_openai = mcp_host.list_tools(format="openai")
-            assert len(tools_openai) == 4
+            assert len(tools_openai) == 9
             for t in tools_openai:
                 assert t["type"] == "function"
                 assert "function" in t
