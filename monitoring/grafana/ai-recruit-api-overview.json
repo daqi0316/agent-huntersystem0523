@@ -1,0 +1,127 @@
+{
+  "title": "AI 招聘 API — Phase C 1.1/1.2 监控",
+  "uid": "ai-recruit-api-overview",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "tags": ["ai-recruit", "api", "phase-c"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "请求速率 (req/s, by method)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum by (method) (rate(api_request_total[5m]))",
+          "legendFormat": "{{method}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "reqps", "label": "req/s"},
+        {"format": "short"}
+      ],
+      "alert": {
+        "name": "HighErrorRate (delegated to F18 prometheus-alerts.yml)"
+      }
+    },
+    {
+      "id": 2,
+      "title": "P95 延迟 (秒, 5min 滑窗)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "P95",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "s", "label": "秒", "max": 5},
+        {"format": "short"}
+      ],
+      "thresholds": [
+        {"value": 2, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "5xx 错误率 (%, 5min 滑窗)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(api_request_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(api_request_total[5m])), 1e-9) * 100",
+          "legendFormat": "5xx %",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "percent", "label": "%", "max": 5, "min": 0},
+        {"format": "short"}
+      ],
+      "thresholds": [
+        {"value": 1, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "进程 CPU (秒累计)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(process_cpu_seconds_total[5m])",
+          "legendFormat": "CPU rate",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "s", "label": "秒/秒"},
+        {"format": "short"}
+      ]
+    },
+    {
+      "id": 5,
+      "title": "进程内存 (RSS, MB)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 16, "w": 24, "h": 8},
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes / 1024 / 1024",
+          "legendFormat": "RSS MB",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "decmbytes", "label": "MB"},
+        {"format": "short"}
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "meta": {
+    "phase": "C1.2",
+    "estimated_d": 1.0,
+    "kpi": "dashboard 1 页可看 (5 图: req/P95/error/CPU/mem)",
+    "ops_review_required": true,
+    "note": "Grafana dashboard 模板, 5 图 覆盖 §5.3 Phase C KPI. alert 仍由 prometheus-alerts.yml (F18) 处理."
+  }
+}
