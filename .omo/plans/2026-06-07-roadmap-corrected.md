@@ -310,7 +310,7 @@
 |---|---|---|---|---|
 | B1: AI Agent E2E (Pipeline mock LLM) | 1.5d | M | mock LLM 入口 | 3 测 (1/组件) |
 | B2: AI Agent E2E (Orchestrator mock LLM) | 1.5d | M | mock LLM + 真 DB | 3 测 |
-| B3: AI Agent E2E (Router) — **跳因: v0.8 Router 已有 30+ E2E (test_router_dispatch.py), 新增价值低, 推 B3 retro-fit** | 1d | M | mock LLM | 2 测 |
+| B3: AI Agent E2E (Router) — **跳因: v0.8 Router 已有 30+ E2E (test_router_dispatch.py), 新增价值低, 推 B3 retro-fit (触发条件: Router 改动 > 50 行 OR 灰度比例 > 10% OR 新增 Router 端点 > 3, momus v2 G16)** | 1d | M | mock LLM | 2 测 |
 | B4: Knowledge/RAG E2E (Qdrant upload→query→cite) | 2d | M | mock LLM cite 格式 | 2 测 |
 | B5: Auth/Org E2E (5-8 隔离 case) | 1.5d | M | 真 DB 多 org | 1 测覆盖 |
 | B6: Frontend E2E 5 关键流程 (真后端) | 3d | H | 真 backend + 真 DB | 5 Playwright spec |
@@ -332,7 +332,7 @@
 | C1: Alert rule (error > 1%, P95 > 2s) | 0.5d | L | alert 模拟 | alertmanager 收到 test alert |
 | C2: structlog 集中日志 (跨服务统一字段) | 1.5d | M | 5 服务 log 格式验 | 1 query 跨 5 服务查得到 |
 | C2: 限流 audit + 文档化 (v0.7+v0.8+API) | 0.5d | L | 文档 1 页 | 1 文档列 3 套限流 |
-| C2: drill (故障定位 <5min) | 1d | M | 模拟 1 故障, 计时 | drill 报告 <5min |
+| C2: drill (故障定位 <5min) — **momus v2 G12: 唯一剩 Phase C 核心项 (C1 收尾 + F19 全栈 100% + F20 audit ship 后), 1d 估时已用 0, 必 ship** | 1d | M | 模拟 1 故障, 计时 | drill 报告 <5min |
 | **小计** | **5.5d** | — | — | — |
 
 **调整理由**:
@@ -359,6 +359,14 @@
 - RLS 改为 audit (1.5d) + 加 1 测
 - LLM 估时 2→3d (3 子项真实估)
 - 加 D7 (文档机制, 0.5d) + D8 (安全渗透, 2d, 战略价值高)
+
+**Phase D 拆 session 计划** (momus v2 G17, 8-10 session 估):
+- session 1: D7 文档机制 (0.5d) + D5 API rate limit (1d) = 1.5d
+- session 2: D3 RLS audit (1.5d)
+- session 3-4: D4 LLM 优化 (3d, 拆 2 PR 1.5d+1.5d)
+- session 4-5: D6 前端性能 (3d, 拆 3 PR 1d+1d+1d)
+- session 5-6: D1+D2 LangGraph (4d, 拆 2 PR; D1 POC 失败推 Phase E)
+- session 7: D8 安全渗透 (2d, H 风险, 跨组织采购, 需提前 budget)
 
 ### 5.5 Phase E: LangGraph 替代方案 (如 D1 POC 失败, 估 1.5-3.5d)
 

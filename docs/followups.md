@@ -4,8 +4,9 @@
 > **目的**: 集中所有散落 ship report 的推后项, 方便下次 session 起点直接看 "现在做什么"
 > **维护**: 每次 ship PR 后, 如有新推后项, 追加到对应类别
 > **审核**: momus audit 2026-06-08 §G6 推荐创建
+> **v2 更新**: momus v2 (本会话 40 commit 后) 找 8 新 gap G11-G18, 详见 `docs/mcp-v4-momus-audit-v2-2026-06-08.md`
 
-## 1. 推后总览 (12+ 项, 估时 ~8d 总)
+## 1. 推后总览 (原 22 项 + v2 新增 G11-G18)
 
 | # | 推后项 | 估时 | 优先级 | 引用 |
 |---|---|---|---|---|
@@ -32,7 +33,22 @@
 | F21 | C2.3 drill 故障定位 <5min | 1d | P1 | 规划 §5.3 |
 | F22 | Phase D 8 PR (D1-D8, 估 15d) | 15d | P3 | 规划 §5.4 |
 
-**总**: 22 项, 估时 ~25d (含 Phase D 8 PR).
+**总**: 22 项 (F1-F22) + 8 新项 (G11-G18) = 30 项, 估时 ~30d.
+
+## 1.5 v2 新增 (Momus audit v2 找 8 gap) (momus v2 2026-06-08, 估时 ~5d)
+
+| # | 推后项 | 估时 | 优先级 | 引用 |
+|---|---|---|---|---|
+| G11 | 4 momus 推后续 (G5 ship report 模板升级 0.1d + G7 check_baseline/e2e_run 0.3d + G8 ship report 模板加 2 行 0.1d) | 0.5d | P1 | momus v2 §G11 + momus v1 §G5/G7/G8 |
+| G12 | F21 drill 故障定位 <5min (Phase C 唯一剩核心项, C1 收尾 + F19 全栈 100% + F20 audit ship 后必 ship) | 1d | P1 | momus v2 §G12 + 规划 §5.3 |
+| G13 | F11-F14 retro-fit 4 项 (A6 retro-fit 18+ ship report 0.5d + CI 集成 lint 0.3d + B5 SQL 升级 0.5d + A3+A4 fixture FK 0.3d) | 1.6d | P1 | momus v2 §G13 + followups F11-F14 |
+| G14 | F15 PR-1a test_server_restart_on_kill 重构 (AsyncExitStack 重启 + chaos 测, 拆 2 PR 1.5d 内) | 1-2d | P2 | momus v2 §G14 + Fix-1 §6 + B6 partial §7 |
+| G15 | F6 mcp_host anyio lifecycle 设计问题 (4 测已恢复, 但根因未解 — 拆 singleton 为 instance-level 改 MCPHost.create() factory) | 0.5-1d | P2 | momus v2 §G15 + Fix-1 §3.3 + Phase A 推后 2 |
+| G16 | B3 retro-fit 触发条件文档化 (Router 改动 > 50 行 OR 灰度比例 > 10% OR 新增 Router 端点 > 3) | 0.1d | P2 | momus v2 §G16 + 规划 §5.2 B3 |
+| G17 | Phase D 拆 session 计划文档化 (8 PR 15d 拆 8-10 session, 详见 momus v2 §G17) | 0.1d | P3 | momus v2 §G17 + 规划 §5.4 |
+| G18 | 跨 PR KPI 一致性 + 测耗时瓶颈 (无总 dashboard, 78 E2E 16s 可优化) | 0.3-0.5d | P3 | momus v2 §G18 |
+
+**G11-G18 总**: 8 项, 估时 ~5d (G11 0.5 + G12 1 + G13 1.6 + G14 1.5 + G15 0.7 + G16 0.1 + G17 0.1 + G18 0.4).
 
 ## 2. 推荐下次 session 起点 (按优先级 + 估时 + 依赖)
 
