@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.core.logging import setup_logging
+    setup_logging(service="api")
     logger.info("Starting %s v0.1.0", settings.app_name)
 
     # P5-7: Sentry 启动 (无 DSN 则跳过)
