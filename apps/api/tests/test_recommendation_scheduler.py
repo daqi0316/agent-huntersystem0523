@@ -100,6 +100,35 @@ class TestRunRecommendationScan:
         assert mock_svc.generate_recommendations.await_count == 2
 
     @pytest.mark.asyncio
+    async def test_rollback_on_user_exception(self) -> None:
+        """Phase A 推后 (1): user 失败时显式 ``db.rollback()`` 重置 session.
+
+        防止 SQLAlchemy async session 留 abort 状态, 避免 background task
+        占着 connection 致后续 uvicorn HTTP 请求 hang. 见
+        docs/mcp-v4-fix-1-ship-report.md §3.1.
+        """
+        db = AsyncMock()
+        user1 = MagicMock()
+        user1.id = "u1"
+        user2 = MagicMock()
+        user2.id = "u2"
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all = MagicMock(return_value=[user1, user2])
+        db.execute = AsyncMock(return_value=mock_result)
+        db.rollback = AsyncMock()
+        mock_svc = MagicMock()
+        mock_svc.generate_recommendations = AsyncMock(
+            side_effect=[Exception("u1 fail"), [{"id": "r2"}]]
+        )
+        with patch(
+            "app.services.recommendation_scheduler.AsyncSessionLocal",
+            _mock_db_session(db),
+        ):
+            with _patched_rec_svc(mock_svc):
+                await run_recommendation_scan()
+        db.rollback.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_outer_exception_swallowed(self) -> None:
         """外层异常被吞掉，不传播."""
         db = AsyncMock()

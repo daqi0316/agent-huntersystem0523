@@ -23,7 +23,12 @@ RECOMMENDATION_SCAN_INTERVAL_MINUTES = 60
 
 
 async def run_recommendation_scan() -> None:
-    """执行一次全局推荐扫描: 对所有用户生成推荐。"""
+    """执行一次全局推荐扫描: 对所有用户生成推荐。
+
+    Phase A 推后 (1): 每个 user 失败时 ``await db.rollback()`` 重置 session,
+    避免 background task 占着 abort 的 connection 致 uvicorn HTTP hang.
+    根因推测见 docs/mcp-v4-fix-1-ship-report.md §3.1.
+    """
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(User))
@@ -40,6 +45,7 @@ async def run_recommendation_scan() -> None:
                     total += len(recs)
                 except Exception as e:
                     logger.error("Recommendation scan failed for user %s: %s", user.id, e)
+                    await db.rollback()
 
             logger.info(
                 "Recommendation scan complete: %d users scanned, %d recommendations generated",
