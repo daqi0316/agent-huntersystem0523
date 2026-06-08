@@ -89,20 +89,20 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Request activity (CPU proxy, req/s)",
-      "description": "api_request_total rate 作 CPU activity proxy (backend 未暴露 process_cpu_seconds_total). Phase C C1.2 启动. PromQL: sum(rate(api_request_total[1m]))",
+      "title": "Process CPU rate (cores)",
+      "description": "uvicorn process_cpu_seconds_total rate. F8 修: backend 改用 psutil 直接暴露. PromQL: rate(process_cpu_seconds_total[5m])",
       "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [
         {
-          "expr": "sum(rate(api_request_total[1m]))",
-          "legendFormat": "req_per_sec",
+          "expr": "rate(process_cpu_seconds_total[5m])",
+          "legendFormat": "cpu_cores",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "none",
           "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10, "lineColor": "orange"}
         }
       },
@@ -111,24 +111,24 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "GC rate (memory pressure proxy, collections/s)",
-      "description": "python_gc_collections_total rate 作 memory pressure proxy (backend 未暴露 process_resident_memory_bytes). Phase C C1.2 启动. PromQL: rate(python_gc_collections_total[5m])",
+      "title": "Process memory (RSS bytes)",
+      "description": "uvicorn process_resident_memory_bytes. F8 修: backend 改用 psutil 直接暴露. PromQL: process_resident_memory_bytes",
       "gridPos": {"x": 0, "y": 16, "w": 24, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [
         {
-          "expr": "rate(python_gc_collections_total[5m])",
-          "legendFormat": "gen{{generation}}",
+          "expr": "process_resident_memory_bytes",
+          "legendFormat": "rss_bytes",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
-          "custom": {"drawStyle": "line", "fillOpacity": 20, "lineColor": "purple"}
+          "unit": "bytes",
+          "custom": {"drawStyle": "line", "fillOpacity": 20, "lineColor": "blue"}
         }
       },
-      "options": {"legend": {"displayMode": "table", "placement": "right"}}
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
     }
   ]
 }

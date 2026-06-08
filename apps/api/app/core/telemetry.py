@@ -20,14 +20,32 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
+import psutil
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
+    REGISTRY,
     CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
     generate_latest,
 )
+
+# F8: 直接用 psutil 暴露 process_* 指标 (替代 ProcessCollector, 后者不可靠)
+_process = psutil.Process()
+_process_cpu_seconds_total = Counter(
+    "process_cpu_seconds_total",
+    "Total user and system CPU time spent in seconds",
+)
+_process_resident_memory_bytes = Gauge(
+    "process_resident_memory_bytes",
+    "Resident memory size in bytes",
+)
+_process_start_time_seconds = Gauge(
+    "process_start_time_seconds",
+    "Start time of the process since unix epoch in seconds",
+)
+_process_start_time_seconds.set(_process.create_time())
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +263,9 @@ def _normalize_path(path: str) -> str:
 
 
 def render_prometheus() -> tuple[bytes, str]:
+    cpu_times = _process.cpu_times()
+    _process_cpu_seconds_total.inc(cpu_times.user + cpu_times.system)
+    _process_resident_memory_bytes.set(_process.memory_info().rss)
     return generate_latest(), CONTENT_TYPE_LATEST
 
 

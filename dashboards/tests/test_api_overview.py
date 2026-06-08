@@ -64,7 +64,8 @@ def test_panels_use_real_metrics() -> None:
     expected_metrics = [
         "api_request_total",
         "http_request_duration_seconds_bucket",
-        "python_gc_collections_total",
+        "process_cpu_seconds_total",
+        "process_resident_memory_bytes",
     ]
     for m in expected_metrics:
         assert m in body, f"metric {m!r} not exposed by /metrics"
