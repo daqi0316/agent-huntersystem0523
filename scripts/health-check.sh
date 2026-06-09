@@ -92,7 +92,7 @@ for path in /login /agent; do
     if [ "$CCODE" = "200" ]; then
       ok "  _next chunk 200"
     else
-      fail "  _next chunk $CCODE（$CHUNK）— 浏览器会 'Failed to fetch'！"
+      fail "  _next chunk ${CCODE} (${CHUNK}) - 浏览器会 'Failed to fetch'"
     fi
   fi
 done
