@@ -81,3 +81,17 @@ class RejectionAnalyticsRead(BaseModel):
     by_stage: list[RejectionAnalyticsItem]
     by_job_profile: list[RejectionAnalyticsItem]
     by_preventable_by: list[RejectionAnalyticsItem]
+
+
+class RejectionPreventableAnalyticsItem(RejectionAnalyticsItem):
+    suggested_action: str
+
+
+class RejectionAnalyticsSliceRead(BaseModel):
+    total: int
+    items: list[RejectionAnalyticsItem]
+
+
+class RejectionPreventableAnalyticsRead(BaseModel):
+    total: int
+    items: list[RejectionPreventableAnalyticsItem]

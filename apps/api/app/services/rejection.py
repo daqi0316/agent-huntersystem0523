@@ -12,6 +12,7 @@ from app.models.rejection import (
     RejectionReason,
     RejectionSource,
 )
+from app.models.scorecard import InterviewScorecardSubmission, ScorecardDimension
 from app.schemas.rejection import CandidateRejectRequest, RejectionReasonCreate
 
 REJECTION_STAGE_TO_STATE: dict[str, RecruitmentCandidateState] = {
@@ -79,6 +80,9 @@ class RejectionService:
         reason = await self.get_reason_by_code(data.reason_code)
         if reason is None or not reason.is_active:
             raise ValueError("淘汰原因不存在或已停用")
+        stage_applicability = reason.stage_applicability or []
+        if stage_applicability and data.stage not in stage_applicability:
+            raise ValueError("淘汰原因不适用于当前阶段")
 
         application = None
         if data.application_id:
@@ -87,6 +91,26 @@ class RejectionService:
                 raise LookupError("申请不存在")
             if application.candidate_id != candidate_id:
                 raise ValueError("申请不属于该候选人")
+
+        scorecard_submission = None
+        if data.related_scorecard_submission_id:
+            scorecard_submission = await self._get_scorecard_submission(data.related_scorecard_submission_id)
+            if scorecard_submission is None:
+                raise LookupError("评分卡提交不存在")
+            if scorecard_submission.candidate_id != candidate_id:
+                raise ValueError("评分卡提交不属于该候选人")
+            if data.application_id and scorecard_submission.application_id != data.application_id:
+                raise ValueError("评分卡提交不属于该申请")
+
+        if data.related_dimension_id:
+            dimension = await self._get_scorecard_dimension(data.related_dimension_id)
+            if dimension is None:
+                raise LookupError("评分维度不存在")
+            if scorecard_submission is not None:
+                await self._ensure_dimension_belongs_to_submission(
+                    dimension.id,
+                    scorecard_submission.scorecard_template_id,
+                )
 
         record = CandidateRejectionRecord(
             candidate_id=candidate_id,
@@ -128,6 +152,26 @@ class RejectionService:
         result = await self.db.execute(select(Application).where(Application.id == application_id))
         return result.scalar_one_or_none()
 
+    async def _get_scorecard_submission(self, submission_id: str) -> InterviewScorecardSubmission | None:
+        result = await self.db.execute(
+            select(InterviewScorecardSubmission).where(InterviewScorecardSubmission.id == submission_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def _get_scorecard_dimension(self, dimension_id: str) -> ScorecardDimension | None:
+        result = await self.db.execute(select(ScorecardDimension).where(ScorecardDimension.id == dimension_id))
+        return result.scalar_one_or_none()
+
+    async def _ensure_dimension_belongs_to_submission(self, dimension_id: str, template_id: str) -> None:
+        result = await self.db.execute(
+            select(ScorecardDimension).where(
+                ScorecardDimension.id == dimension_id,
+                ScorecardDimension.scorecard_template_id == template_id,
+            )
+        )
+        if result.scalar_one_or_none() is None:
+            raise ValueError("评分维度不属于该评分卡模板")
+
     async def analytics(self) -> dict:
         records_result = await self.db.execute(select(CandidateRejectionRecord))
         records = list(records_result.scalars().all())
@@ -162,6 +206,31 @@ class RejectionService:
             ),
         }
 
+    async def analytics_by_reason(self) -> dict:
+        analytics = await self.analytics()
+        return {"total": analytics["total"], "items": analytics["by_reason"]}
+
+    async def analytics_by_stage(self) -> dict:
+        analytics = await self.analytics()
+        return {"total": analytics["total"], "items": analytics["by_stage"]}
+
+    async def analytics_by_job_profile(self) -> dict:
+        analytics = await self.analytics()
+        return {"total": analytics["total"], "items": analytics["by_job_profile"]}
+
+    async def analytics_preventable(self) -> dict:
+        analytics = await self.analytics()
+        return {
+            "total": analytics["total"],
+            "items": [
+                {
+                    **item,
+                    "suggested_action": self._preventable_action(item["key"]),
+                }
+                for item in analytics["by_preventable_by"]
+            ],
+        }
+
     @staticmethod
     def _preventable_value(reason: RejectionReason | None) -> str:
         if reason is None:
@@ -183,3 +252,15 @@ class RejectionService:
             }
             for item in sorted(counts.values(), key=lambda value: value["count"], reverse=True)
         ]
+
+    @staticmethod
+    def _preventable_action(preventable_by: str) -> str:
+        actions = {
+            RejectionPreventableBy.SOURCING.value: "优化寻访关键词、渠道准入和候选人来源质量",
+            RejectionPreventableBy.SCREENING.value: "前置硬性条件校验和简历初筛追问",
+            RejectionPreventableBy.SCORECARD.value: "调整评分卡维度、行为锚定和面试追问题",
+            RejectionPreventableBy.COMPENSATION.value: "提前校准薪酬预期、预算边界和谈判策略",
+            RejectionPreventableBy.PROCESS.value: "优化跟进 SLA、候选人沟通节奏和流程透明度",
+            RejectionPreventableBy.NONE.value: "作为不可预防样本沉淀，持续观察是否形成新模式",
+        }
+        return actions.get(preventable_by, "复盘对应环节并形成改进动作")

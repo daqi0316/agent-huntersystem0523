@@ -95,6 +95,14 @@ class DecisionChainRejectionSummary(BaseModel):
     suggested_action: str | None = None
     job_profile_id: str | None = None
     application_id: str | None = None
+    severity: str | None = None
+    preventable_by: str | None = None
+    stage_applicability: list[str] = Field(default_factory=list)
+    source: str = "human"
+    confidence: float | None = None
+    is_primary: bool = True
+    related_scorecard_submission_id: str | None = None
+    related_dimension_id: str | None = None
     created_at: datetime | None = None
 
 

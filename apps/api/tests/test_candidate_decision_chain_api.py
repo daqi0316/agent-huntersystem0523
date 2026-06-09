@@ -62,6 +62,15 @@ def _java_p7_profile():
     )
 
 
+def _rejection_reason():
+    return SimpleNamespace(
+        code="STABILITY_RISK",
+        severity="high",
+        preventable_by="screening",
+        stage_applicability=["screening", "technical"],
+    )
+
+
 class TestCandidateDecisionChainApi:
     def test_decision_chain_empty_sections(self) -> None:
         db = AsyncMock()
@@ -211,6 +220,7 @@ class TestCandidateDecisionChainApi:
             _execute_result([scorecard_dimension]),
             _execute_result([scorecard_template]),
             _execute_result([rejection]),
+            _execute_result([_rejection_reason()]),
             _execute_result([]),
             _execute_result([profile]),
         ]
@@ -233,4 +243,6 @@ class TestCandidateDecisionChainApi:
         assert data["scorecards"][0]["profile_version_id"] == "v1"
         assert data["scorecards"][0]["dimension_scores"][0]["evidence"] == "能解释 JVM 调优取舍"
         assert data["rejections"][0]["evidence"] == "三年三跳"
+        assert data["rejections"][0]["severity"] == "high"
+        assert data["rejections"][0]["preventable_by"] == "screening"
         assert data["missing_sections"] == []

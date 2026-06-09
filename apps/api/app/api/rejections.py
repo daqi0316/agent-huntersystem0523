@@ -76,3 +76,27 @@ async def reject_candidate(
 async def rejection_distribution(od=ORG_SCOPED_DEP):
     org_ctx, db = od
     return success(await RejectionService(db).analytics())
+
+
+@router.get("/analytics/by-job-profile")
+async def rejection_by_job_profile(od=ORG_SCOPED_DEP):
+    org_ctx, db = od
+    return success(await RejectionService(db).analytics_by_job_profile())
+
+
+@router.get("/analytics/by-stage")
+async def rejection_by_stage(od=ORG_SCOPED_DEP):
+    org_ctx, db = od
+    return success(await RejectionService(db).analytics_by_stage())
+
+
+@router.get("/analytics/by-reason")
+async def rejection_by_reason(od=ORG_SCOPED_DEP):
+    org_ctx, db = od
+    return success(await RejectionService(db).analytics_by_reason())
+
+
+@router.get("/analytics/preventable")
+async def rejection_preventable(od=ORG_SCOPED_DEP):
+    org_ctx, db = od
+    return success(await RejectionService(db).analytics_preventable())

@@ -21,6 +21,10 @@ interface RejectionAnalytics {
   by_preventable_by: AnalyticsItem[];
 }
 
+interface PreventableItem extends AnalyticsItem {
+  suggested_action: string;
+}
+
 const actionMap: Record<string, string> = {
   sourcing: "优化寻访关键词和渠道准入",
   screening: "前置初筛追问和硬性条件校验",
@@ -32,6 +36,7 @@ const actionMap: Record<string, string> = {
 
 export default function RejectionsPage() {
   const [analytics, setAnalytics] = useState<RejectionAnalytics | null>(null);
+  const [preventableItems, setPreventableItems] = useState<PreventableItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,6 +50,11 @@ export default function RejectionsPage() {
         "/rejections/analytics/distribution",
       );
       setAnalytics(res.data);
+      const preventable = await api.get<{
+        success: boolean;
+        data: { total: number; items: PreventableItem[] };
+      }>("/rejections/analytics/preventable");
+      setPreventableItems(preventable.data.items || []);
     } catch {
       toast.error("加载淘汰原因分析失败");
     } finally {
@@ -76,6 +86,13 @@ export default function RejectionsPage() {
       ))}
     </div>
   );
+
+  const preventableDisplayItems: PreventableItem[] = preventableItems.length
+    ? preventableItems
+    : analytics?.by_preventable_by.map((item) => ({
+        ...item,
+        suggested_action: actionMap[item.key] || "复盘对应环节并形成改进动作",
+      })) || [];
 
   return (
     <div className="space-y-6">
@@ -128,14 +145,14 @@ export default function RejectionsPage() {
                 <CardTitle>可预防动作</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {analytics.by_preventable_by.map((item) => (
+                {preventableDisplayItems.map((item) => (
                   <div key={item.key} className="rounded-lg border p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="font-medium">{item.label}</div>
                       <Badge>{item.count}</Badge>
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      {actionMap[item.key] || "复盘对应环节并形成改进动作"}
+                      {item.suggested_action}
                     </p>
                   </div>
                 ))}

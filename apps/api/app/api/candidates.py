@@ -24,7 +24,7 @@ from app.models.interview import Interview
 from app.models.interview_evaluation import InterviewEvaluation
 from app.models.job_position import JobPosition
 from app.models.job_profile import JobProfile
-from app.models.rejection import CandidateRejectionRecord
+from app.models.rejection import CandidateRejectionRecord, RejectionReason
 from app.models.scorecard import (
     InterviewScorecardDimensionScore,
     InterviewScorecardSubmission,
@@ -356,6 +356,14 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
         .order_by(CandidateRejectionRecord.created_at.asc())
     )
     rejections = list(rejection_result.scalars().all())
+    rejection_reason_codes = sorted({record.reason_code for record in rejections if record.reason_code})
+    if rejection_reason_codes:
+        rejection_reason_result = await db.execute(
+            select(RejectionReason).where(RejectionReason.code.in_(rejection_reason_codes))
+        )
+        rejection_reasons_by_code = {reason.code: reason for reason in rejection_reason_result.scalars().all()}
+    else:
+        rejection_reasons_by_code = {}
 
     timeline_result = await db.execute(
         select(CandidateTimelineEvent)
@@ -519,6 +527,20 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
                     "suggested_action": record.suggested_action,
                     "job_profile_id": record.job_profile_id,
                     "application_id": record.application_id,
+                    "severity": _enum_value(rejection_reasons_by_code.get(record.reason_code).severity)
+                    if record.reason_code in rejection_reasons_by_code
+                    else None,
+                    "preventable_by": _enum_value(rejection_reasons_by_code.get(record.reason_code).preventable_by)
+                    if record.reason_code in rejection_reasons_by_code
+                    else None,
+                    "stage_applicability": rejection_reasons_by_code.get(record.reason_code).stage_applicability
+                    if record.reason_code in rejection_reasons_by_code
+                    else [],
+                    "source": _enum_value(getattr(record, "source", "human")),
+                    "confidence": getattr(record, "confidence", None),
+                    "is_primary": getattr(record, "is_primary", True),
+                    "related_scorecard_submission_id": getattr(record, "related_scorecard_submission_id", None),
+                    "related_dimension_id": getattr(record, "related_dimension_id", None),
                     "created_at": record.created_at,
                 }
                 for record in rejections

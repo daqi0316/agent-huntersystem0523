@@ -36,6 +36,12 @@ def _reason():
     return reason
 
 
+def _reason_with_stage(stage: str = "technical"):
+    reason = _reason()
+    reason.stage_applicability = [stage]
+    return reason
+
+
 def _record():
     record = SimpleNamespace()
     record.id = "33333333-3333-3333-3333-333333333301"
@@ -136,6 +142,44 @@ class TestRejectionService:
 
         assert "淘汰原因不存在" in str(exc.value)
 
+    async def test_reject_candidate_rejects_reason_not_applicable_to_stage(self) -> None:
+        service = RejectionService(AsyncMock())
+        service._get_candidate = AsyncMock(return_value=SimpleNamespace(id="c1"))
+        service.get_reason_by_code = AsyncMock(return_value=_reason_with_stage("technical"))
+
+        with pytest.raises(ValueError) as exc:
+            await service.reject_candidate(
+                candidate_id="c1",
+                data=CandidateRejectRequest(
+                    reason_code="TECH_DEPTH_WEAK",
+                    stage="screening",
+                    evidence="证据",
+                ),
+                operator_id="u1",
+            )
+
+        assert "不适用于当前阶段" in str(exc.value)
+
+    async def test_reject_candidate_validates_scorecard_belongs_to_candidate(self) -> None:
+        service = RejectionService(AsyncMock())
+        service._get_candidate = AsyncMock(return_value=SimpleNamespace(id="c1"))
+        service.get_reason_by_code = AsyncMock(return_value=_reason())
+        service._get_scorecard_submission = AsyncMock(return_value=SimpleNamespace(candidate_id="other"))
+
+        with pytest.raises(ValueError) as exc:
+            await service.reject_candidate(
+                candidate_id="c1",
+                data=CandidateRejectRequest(
+                    reason_code="TECH_DEPTH_WEAK",
+                    stage="screening",
+                    evidence="证据",
+                    related_scorecard_submission_id="s1",
+                ),
+                operator_id="u1",
+            )
+
+        assert "评分卡提交不属于该候选人" in str(exc.value)
+
 
 def _make_app(db_mock) -> FastAPI:
     app = FastAPI()
@@ -231,6 +275,30 @@ class TestRejectionApi:
         assert resp.status_code == 200
         assert resp.json()["data"]["total"] == 1
 
+    def test_rejection_preventable_endpoint(self) -> None:
+        app = _make_app(MagicMock())
+        svc = MagicMock()
+        svc.analytics_preventable = AsyncMock(
+            return_value={
+                "total": 1,
+                "items": [
+                    {
+                        "key": "screening",
+                        "label": "screening",
+                        "count": 1,
+                        "percentage": 1.0,
+                        "suggested_action": "前置硬性条件校验和简历初筛追问",
+                    }
+                ],
+            }
+        )
+
+        with patch("app.api.rejections.RejectionService", return_value=svc):
+            resp = TestClient(app).get("/rejections/analytics/preventable")
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["items"][0]["suggested_action"]
+
 
 class TestRejectionAnalytics:
     async def test_analytics_groups_records(self) -> None:
@@ -246,3 +314,16 @@ class TestRejectionAnalytics:
         assert got["total"] == 1
         assert got["by_reason"][0]["key"] == "TECH_DEPTH_WEAK"
         assert got["by_preventable_by"][0]["key"] == "screening"
+
+    async def test_preventable_analytics_adds_suggested_action(self) -> None:
+        db = AsyncMock()
+        record_result = MagicMock()
+        record_result.scalars.return_value.all.return_value = [_record()]
+        reason_result = MagicMock()
+        reason_result.scalars.return_value.all.return_value = [_reason()]
+        db.execute.side_effect = [record_result, reason_result]
+
+        got = await RejectionService(db).analytics_preventable()
+
+        assert got["items"][0]["key"] == "screening"
+        assert "初筛" in got["items"][0]["suggested_action"]
