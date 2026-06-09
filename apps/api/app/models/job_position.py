@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, DateTime, Enum as SAEnum
+from sqlalchemy import String, Text, DateTime, ForeignKey, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -32,6 +32,12 @@ class JobPosition(Base):
     requirements: Mapped[str | None] = mapped_column(Text)
     location: Mapped[str | None] = mapped_column(String(255))
     salary_range: Mapped[str | None] = mapped_column(String(100))
+    job_profile_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("job_profiles.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    profile_version_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("job_profile_versions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     status: Mapped[JobStatus] = mapped_column(
         SAEnum(JobStatus, name="job_status"),
         default=JobStatus.DRAFT,

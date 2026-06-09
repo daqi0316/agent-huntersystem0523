@@ -108,7 +108,7 @@ async def create_job_profile_version(
 @router.post("/{profile_id}/versions/{version_id}/activate")
 async def activate_job_profile_version(profile_id: str, version_id: str, od=ORG_SCOPED_DEP):
     org_ctx, db = od
-    version = await JobProfileService(db).activate_version(profile_id, version_id)
+    version = await JobProfileService(db).activate_version(profile_id, version_id, activated_by=org_ctx.user_id)
     if version is None:
         return error("岗位画像版本不存在", status_code=404)
     return success(await JobProfileService(db).version_to_dict(version))

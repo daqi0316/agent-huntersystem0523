@@ -145,7 +145,12 @@ class TestCandidateDecisionChainApi:
             ai_summary="匹配 Java P7",
             created_at=created_at,
         )
-        job = SimpleNamespace(id="j1", title="Java 高级工程师")
+        job = SimpleNamespace(
+            id="j1",
+            title="Java 高级工程师",
+            job_profile_id="p1",
+            profile_version_id="v1",
+        )
         interview = SimpleNamespace(
             id="i1",
             application_id="a1",
@@ -235,6 +240,8 @@ class TestCandidateDecisionChainApi:
         data = resp.json()["data"]
         assert data["state_history"][0]["to_state"] == "screening_passed"
         assert data["applications"][0]["job_title"] == "Java 高级工程师"
+        assert data["applications"][0]["job_profile_id"] == "p1"
+        assert data["applications"][0]["profile_version_id"] == "v1"
         assert data["job_profiles"][0]["code"] == "Java_P7"
         assert data["interviews"][0]["type"] == "technical"
         assert data["interview_feedback"][0]["verdict"] == "hire"

@@ -3,8 +3,9 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -69,6 +70,7 @@ class ScorecardTemplate(Base):
 
 class ScorecardDimension(Base):
     __tablename__ = "scorecard_dimensions"
+    __table_args__ = (CheckConstraint("weight > 0 AND weight <= 1", name="ck_scorecard_dimensions_weight_range"),)
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     scorecard_template_id: Mapped[str] = mapped_column(
@@ -84,6 +86,10 @@ class ScorecardDimension(Base):
 
 class ScorecardBehaviorAnchor(Base):
     __tablename__ = "scorecard_behavior_anchors"
+    __table_args__ = (
+        CheckConstraint("score >= 1 AND score <= 5", name="ck_scorecard_behavior_anchors_score_range"),
+        UniqueConstraint("dimension_id", "score", name="uq_scorecard_behavior_anchors_dimension_score"),
+    )
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     dimension_id: Mapped[str] = mapped_column(
@@ -91,8 +97,8 @@ class ScorecardBehaviorAnchor(Base):
     )
     score: Mapped[int] = mapped_column(Integer, nullable=False)
     anchor_text: Mapped[str] = mapped_column(Text, nullable=False)
-    evidence_examples: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    red_flags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    evidence_examples: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    red_flags: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
 
 
 class InterviewScorecardSubmission(Base):
@@ -117,12 +123,19 @@ class InterviewScorecardSubmission(Base):
         enum_column(ScorecardVerdict, "scorecard_verdict"), nullable=False, default=ScorecardVerdict.CONSIDER
     )
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    risk_flags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    risk_flags: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class InterviewScorecardDimensionScore(Base):
     __tablename__ = "interview_scorecard_dimension_scores"
+    __table_args__ = (
+        CheckConstraint("score >= 1 AND score <= 5", name="ck_interview_scorecard_dimension_scores_score_range"),
+        CheckConstraint(
+            "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
+            name="ck_interview_scorecard_dimension_scores_confidence_range",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     submission_id: Mapped[str] = mapped_column(
@@ -137,3 +150,6 @@ class InterviewScorecardDimensionScore(Base):
     score: Mapped[int] = mapped_column(Integer, nullable=False)
     evidence: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence_ref_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("evidence_refs.id", ondelete="SET NULL"), nullable=True, index=True
+    )

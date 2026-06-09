@@ -1,6 +1,7 @@
 """候选人 CRUD API + 生命周期时间线。"""
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -25,6 +26,8 @@ from app.models.interview_evaluation import InterviewEvaluation
 from app.models.job_position import JobPosition
 from app.models.job_profile import JobProfile
 from app.models.rejection import CandidateRejectionRecord, RejectionReason
+from app.models.ai_decision_audit import AiDecisionAudit
+from app.models.evidence_ref import EvidenceRef
 from app.models.scorecard import (
     InterviewScorecardDimensionScore,
     InterviewScorecardSubmission,
@@ -69,7 +72,7 @@ def _coerce_enum(enum_cls, value: str, field: str):
         raise ValueError(f"{field} 必须是: {allowed}") from exc
 
 
-def _timeline_event_to_dict(event: CandidateTimelineEvent) -> dict:
+def _timeline_event_to_dict(event: CandidateTimelineEvent) -> dict[str, Any]:
     return {
         "id": event.id,
         "candidate_id": event.candidate_id,
@@ -85,7 +88,7 @@ def _timeline_event_to_dict(event: CandidateTimelineEvent) -> dict:
     }
 
 
-def _followup_task_to_dict(task: CandidateFollowupTask) -> dict:
+def _followup_task_to_dict(task: CandidateFollowupTask) -> dict[str, Any]:
     return {
         "id": task.id,
         "candidate_id": task.candidate_id,
@@ -103,7 +106,7 @@ def _followup_task_to_dict(task: CandidateFollowupTask) -> dict:
     }
 
 
-def _commitment_to_dict(commitment: CandidateCommitment) -> dict:
+def _commitment_to_dict(commitment: CandidateCommitment) -> dict[str, Any]:
     return {
         "id": commitment.id,
         "candidate_id": commitment.candidate_id,
@@ -382,7 +385,8 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
         }
     ]
 
-    profile_ids = sorted({record.job_profile_id for record in rejections if record.job_profile_id})
+    bound_profile_ids = [job.job_profile_id for job in jobs_by_id.values() if job.job_profile_id]
+    profile_ids = sorted({*(record.job_profile_id for record in rejections if record.job_profile_id), *bound_profile_ids})
     if profile_ids:
         profile_result = await db.execute(select(JobProfile).where(JobProfile.id.in_(profile_ids)))
         job_profiles = list(profile_result.scalars().all())
@@ -443,7 +447,9 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
                 {
                     "id": app.id,
                     "job_id": app.job_id,
-                    "job_title": jobs_by_id.get(app.job_id).title if app.job_id in jobs_by_id else None,
+                    "job_title": jobs_by_id[app.job_id].title if app.job_id in jobs_by_id else None,
+                    "job_profile_id": jobs_by_id[app.job_id].job_profile_id if app.job_id in jobs_by_id else None,
+                    "profile_version_id": jobs_by_id[app.job_id].profile_version_id if app.job_id in jobs_by_id else None,
                     "status": _enum_value(app.status),
                     "match_score": app.match_score,
                     "ai_summary": app.ai_summary,
@@ -484,11 +490,11 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
                     "candidate_id": submission.candidate_id,
                     "application_id": submission.application_id,
                     "scorecard_template_id": submission.scorecard_template_id,
-                    "scorecard_template_name": scorecard_templates_by_id.get(submission.scorecard_template_id).name
+                    "scorecard_template_name": scorecard_templates_by_id[submission.scorecard_template_id].name
                     if submission.scorecard_template_id in scorecard_templates_by_id
                     else None,
                     "profile_version_id": (
-                        scorecard_templates_by_id.get(submission.scorecard_template_id).profile_version_id
+                        scorecard_templates_by_id[submission.scorecard_template_id].profile_version_id
                         if submission.scorecard_template_id in scorecard_templates_by_id
                         else None
                     ),
@@ -502,7 +508,7 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
                         {
                             "id": score.id,
                             "dimension_id": score.dimension_id,
-                            "dimension_name": scorecard_dimensions_by_id.get(score.dimension_id).name
+                            "dimension_name": scorecard_dimensions_by_id[score.dimension_id].name
                             if score.dimension_id in scorecard_dimensions_by_id
                             else None,
                             "score": score.score,
@@ -893,4 +899,69 @@ async def transition_candidate_state(
             "triggered_actions": history.triggered_actions,
             "history_id": history.id,
         }
+    )
+
+
+@router.get("/{candidate_id}/evidence")
+async def list_candidate_evidence(candidate_id: str, source_type: str | None = None, od=ORG_SCOPED_DEP):
+    """查询候选人证据引用列表，可选按 source_type 过滤。"""
+    org_ctx, db = od
+    query = select(EvidenceRef).where(EvidenceRef.candidate_id == candidate_id).order_by(EvidenceRef.created_at.desc())
+    if source_type:
+        query = query.where(EvidenceRef.source_type == source_type)
+    result = await db.execute(query)
+    items = result.scalars().all()
+    return success(
+        [
+            {
+                "id": item.id,
+                "source_type": item.source_type.value,
+                "source_id": item.source_id,
+                "quote": item.quote,
+                "normalized_claim": item.normalized_claim,
+                "confidence": item.confidence,
+                "created_by_type": item.created_by_type.value,
+                "created_by_id": item.created_by_id,
+                "created_at": item.created_at,
+            }
+            for item in items
+        ]
+    )
+
+
+@router.get("/{candidate_id}/audits")
+async def list_candidate_ai_audits(
+    candidate_id: str, decision_type: str | None = None, od=ORG_SCOPED_DEP
+):
+    """查询候选人 AI 决策审计记录，可选按 decision_type 过滤。"""
+    org_ctx, db = od
+    query = (
+        select(AiDecisionAudit)
+        .where(AiDecisionAudit.candidate_id == candidate_id)
+        .order_by(AiDecisionAudit.created_at.desc())
+    )
+    if decision_type:
+        query = query.where(AiDecisionAudit.decision_type == decision_type)
+    result = await db.execute(query)
+    items = result.scalars().all()
+    return success(
+        [
+            {
+                "id": item.id,
+                "application_id": item.application_id,
+                "decision_type": item.decision_type.value,
+                "model_name": item.model_name,
+                "prompt_version": item.prompt_version,
+                "input_refs": item.input_refs,
+                "output_summary": item.output_summary,
+                "cited_standard_version_ids": item.cited_standard_version_ids,
+                "cited_evidence_ref_ids": item.cited_evidence_ref_ids,
+                "confidence": item.confidence,
+                "human_confirmed": item.human_confirmed,
+                "confirmed_by": item.confirmed_by,
+                "confirmed_at": item.confirmed_at,
+                "created_at": item.created_at,
+            }
+            for item in items
+        ]
     )

@@ -138,6 +138,15 @@ from app.models.compensation import (  # noqa: F401
     OfferNegotiationRecord,
     OfferNegotiationStatus,
 )
+from app.models.evidence_ref import (  # noqa: F401
+    EvidenceRef,
+    EvidenceSourceType,
+    EvidenceCreatedByType,
+)
+from app.models.ai_decision_audit import (  # noqa: F401
+    AiDecisionAudit,
+    AiDecisionType,
+)
 
 __all__ = [
     "Candidate", "CandidateStateHistory", "RecruitmentCandidateState", "JobPosition", "JobProfile",
@@ -167,4 +176,6 @@ __all__ = [
     "CandidateCommitment", "CandidateCommitmentPromisedBy", "CandidateCommitmentStatus",
     "CompensationBenchmark", "CandidateCompensationExpectation",
     "OfferNegotiationRecord", "OfferNegotiationStatus",
+    "EvidenceRef", "EvidenceSourceType", "EvidenceCreatedByType",
+    "AiDecisionAudit", "AiDecisionType",
 ]

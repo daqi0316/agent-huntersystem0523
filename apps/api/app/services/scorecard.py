@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.interview_evaluation import EvaluationVerdict, InterviewRound
+from app.models.application import Application
+from app.models.job_position import JobPosition
 from app.models.job_profile import JobProfile, JobProfileVersion, JobProfileVersionStatus
 from app.models.scorecard import (
     InterviewScorecardDimensionScore,
@@ -32,7 +35,7 @@ class ScorecardService:
         job_profile_id: str | None = None,
         round_type: str | None = None,
         status: str | None = None,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         from sqlalchemy import func
 
         query = select(ScorecardTemplate)
@@ -60,6 +63,7 @@ class ScorecardService:
     async def create_template(self, data: ScorecardTemplateCreate, created_by: str) -> ScorecardTemplate:
         round_type = ScorecardRoundType(data.round_type)
         status = ScorecardStatus(data.status)
+        self._validate_behavior_anchors(data)
         if status == ScorecardStatus.ACTIVE:
             await self._archive_active_templates(
                 job_profile_id=data.job_profile_id,
@@ -164,16 +168,21 @@ class ScorecardService:
         )
         return await self.create_template(payload, created_by=created_by)
 
-    async def get_template_for_interview(self, interview_id: str) -> dict | None:
+    async def get_template_for_interview(self, interview_id: str) -> dict[str, Any] | None:
         interview = await InterviewService(self.db)._get_by_id(interview_id)
         if interview is None:
             return None
+        profile_scoped_template = await self._active_template_for_interview_application(interview.application_id)
+        if profile_scoped_template is not None:
+            return await self.to_template_dict(profile_scoped_template)
+
         result = await self.db.execute(
             select(ScorecardTemplate)
             .where(ScorecardTemplate.status == ScorecardStatus.ACTIVE)
             .order_by(ScorecardTemplate.created_at.desc())
         )
-        template = result.scalars().first()
+        active_templates = list(result.scalars().all())
+        template = active_templates[0] if len(active_templates) == 1 else None
         return await self.to_template_dict(template) if template else None
 
     async def submit_for_interview(
@@ -190,6 +199,8 @@ class ScorecardService:
             raise ValueError("评分卡模板不存在")
         if template.status != ScorecardStatus.ACTIVE:
             raise ValueError("只能提交 active 状态评分卡")
+        if not await self._template_allowed_for_interview(template, interview.application_id):
+            raise ValueError("评分卡模板与该面试岗位不匹配")
         dimensions = await self._dimensions_for_template(template.id)
         dimensions_by_id = {d.id: d for d in dimensions}
         score_ids = {item.dimension_id for item in data.dimension_scores}
@@ -218,22 +229,23 @@ class ScorecardService:
         self.db.add(submission)
         await self.db.flush()
         for item in data.dimension_scores:
-            self.db.add(
-                InterviewScorecardDimensionScore(
-                    id=str(uuid.uuid4()),
-                    submission_id=submission.id,
-                    dimension_id=item.dimension_id,
-                    score=item.score,
-                    evidence=item.evidence,
-                    confidence=item.confidence,
-                )
-            )
+            score_kwargs = {
+                "id": str(uuid.uuid4()),
+                "submission_id": submission.id,
+                "dimension_id": item.dimension_id,
+                "score": item.score,
+                "evidence": item.evidence,
+                "confidence": item.confidence,
+            }
+            if item.evidence_ref_id:
+                score_kwargs["evidence_ref_id"] = item.evidence_ref_id
+            self.db.add(InterviewScorecardDimensionScore(**score_kwargs))
         await self._sync_legacy_evaluation(interview.id, submission, data)
         await self.db.commit()
         await self.db.refresh(submission)
         return submission
 
-    async def list_submissions_for_candidate(self, candidate_id: str) -> list[dict]:
+    async def list_submissions_for_candidate(self, candidate_id: str) -> list[dict[str, Any]]:
         result = await self.db.execute(
             select(InterviewScorecardSubmission)
             .where(InterviewScorecardSubmission.candidate_id == candidate_id)
@@ -241,7 +253,7 @@ class ScorecardService:
         )
         return [await self.to_submission_dict(item) for item in result.scalars().all()]
 
-    async def to_template_dict(self, template: ScorecardTemplate) -> dict:
+    async def to_template_dict(self, template: ScorecardTemplate) -> dict[str, Any]:
         dimensions = await self._dimensions_for_template(template.id)
         anchors_by_dimension = await self._anchors_by_dimension([d.id for d in dimensions])
         return {
@@ -281,7 +293,7 @@ class ScorecardService:
             ],
         }
 
-    async def to_submission_dict(self, submission: InterviewScorecardSubmission) -> dict:
+    async def to_submission_dict(self, submission: InterviewScorecardSubmission) -> dict[str, Any]:
         scores = await self._scores_for_submission(submission.id)
         dimension_ids = [s.dimension_id for s in scores]
         dimensions = await self._dimensions_by_ids(dimension_ids)
@@ -302,10 +314,11 @@ class ScorecardService:
                     "id": s.id,
                     "submission_id": s.submission_id,
                     "dimension_id": s.dimension_id,
-                    "dimension_name": dimensions.get(s.dimension_id).name if s.dimension_id in dimensions else None,
+                    "dimension_name": dimensions[s.dimension_id].name if s.dimension_id in dimensions else None,
                     "score": s.score,
                     "evidence": s.evidence,
                     "confidence": s.confidence,
+                    "evidence_ref_id": s.evidence_ref_id,
                 }
                 for s in scores
             ],
@@ -358,6 +371,45 @@ class ScorecardService:
         )
         return result.scalars().first()
 
+    async def _active_template_for_interview_application(self, application_id: str | None) -> ScorecardTemplate | None:
+        job_position = await self._job_position_for_application(application_id)
+        if job_position is None or job_position.job_profile_id is None:
+            return None
+        result = await self.db.execute(
+            select(ScorecardTemplate)
+            .where(
+                ScorecardTemplate.job_profile_id == job_position.job_profile_id,
+                ScorecardTemplate.status == ScorecardStatus.ACTIVE,
+            )
+            .order_by(ScorecardTemplate.created_at.desc())
+        )
+        return result.scalars().first()
+
+    async def _template_allowed_for_interview(self, template: ScorecardTemplate, application_id: str | None) -> bool:
+        result = await self.db.execute(select(ScorecardTemplate).where(ScorecardTemplate.status == ScorecardStatus.ACTIVE))
+        active_templates = list(result.scalars().all())
+        if template.job_profile_id is None:
+            return len(active_templates) == 1
+        if application_id is None:
+            return True
+        job_position = await self._job_position_for_application(application_id)
+        if job_position and job_position.job_profile_id == template.job_profile_id:
+            return True
+        matching_templates = [
+            item for item in active_templates if job_position and item.job_profile_id == job_position.job_profile_id
+        ]
+        return not matching_templates
+
+    async def _job_position_for_application(self, application_id: str | None) -> JobPosition | None:
+        if application_id is None:
+            return None
+        result = await self.db.execute(
+            select(JobPosition)
+            .join(Application, Application.job_id == JobPosition.id)
+            .where(Application.id == application_id)
+        )
+        return result.scalar_one_or_none()
+
     async def _archive_active_templates(self, job_profile_id: str | None, round_type: ScorecardRoundType) -> None:
         if job_profile_id is None:
             return
@@ -397,6 +449,13 @@ class ScorecardService:
             return {}
         result = await self.db.execute(select(ScorecardDimension).where(ScorecardDimension.id.in_(dimension_ids)))
         return {item.id: item for item in result.scalars().all()}
+
+    @staticmethod
+    def _validate_behavior_anchors(data: ScorecardTemplateCreate) -> None:
+        for dimension in data.dimensions:
+            scores = {anchor.score for anchor in dimension.anchors}
+            if not {1, 3, 5}.issubset(scores):
+                raise ValueError("每个评分维度必须提供 1/3/5 行为锚定")
 
     @staticmethod
     def _valid_uuid(value: str) -> bool:

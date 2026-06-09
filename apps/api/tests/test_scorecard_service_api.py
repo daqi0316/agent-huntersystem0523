@@ -26,14 +26,22 @@ def _template_payload() -> dict:
                 "weight": 0.6,
                 "description": "能深入讲解 JVM 和分布式事务",
                 "required": True,
-                "anchors": [{"score": 5, "anchor_text": "能解释线上调优取舍"}],
+                "anchors": [
+                    {"score": 1, "anchor_text": "无法解释核心技术原理"},
+                    {"score": 3, "anchor_text": "能完成日常开发但原理不深"},
+                    {"score": 5, "anchor_text": "能解释线上调优取舍"},
+                ],
             },
             {
                 "name": "项目经验",
                 "weight": 0.4,
                 "description": "主导过中大型项目",
                 "required": True,
-                "anchors": [{"score": 3, "anchor_text": "能描述项目流程"}],
+                "anchors": [
+                    {"score": 1, "anchor_text": "项目描述模糊"},
+                    {"score": 3, "anchor_text": "能描述项目流程"},
+                    {"score": 5, "anchor_text": "能说明架构演进和个人决策"},
+                ],
             },
         ],
     }
@@ -65,6 +73,15 @@ class TestScorecardSchema:
             ScorecardTemplateCreate(**payload)
 
         assert "权重总和必须等于 1.0" in str(exc.value)
+
+    def test_rejects_dimension_without_required_behavior_anchors(self) -> None:
+        payload = _template_payload()
+        payload["dimensions"][0]["anchors"] = [{"score": 5, "anchor_text": "只有高分锚定"}]
+
+        with pytest.raises(ValueError) as exc:
+            ScorecardTemplateCreate(**payload)
+
+        assert "1/3/5 行为锚定" in str(exc.value)
 
 
 def _make_app(db_mock) -> FastAPI:
@@ -158,3 +175,69 @@ class TestScorecardService:
         )
 
         assert got is None
+
+    def test_validate_behavior_anchors_rejects_missing_anchor_scores(self) -> None:
+        payload = _template_payload()
+        payload["dimensions"][1]["anchors"] = [
+            {"score": 1, "anchor_text": "弱"},
+            {"score": 3, "anchor_text": "中"},
+        ]
+
+        with pytest.raises(ValueError) as exc:
+            ScorecardTemplateCreate(**payload)
+
+        assert "1/3/5 行为锚定" in str(exc.value)
+
+    async def test_template_allowed_for_interview_allows_explicit_template_when_no_profile_mapping_exists(self) -> None:
+        db = AsyncMock()
+        active_templates_result = Mock()
+        active_templates_result.scalars.return_value.all.return_value = [
+            SimpleNamespace(id="template-a", job_profile_id="profile-a"),
+            SimpleNamespace(id="template-b", job_profile_id="profile-b"),
+        ]
+        job_result = Mock()
+        job_result.scalar_one_or_none.return_value = SimpleNamespace(id="job-position-1", job_profile_id=None)
+        db.execute.side_effect = [active_templates_result, job_result]
+
+        service = ScorecardService(db)
+        allowed = await service._template_allowed_for_interview(
+            SimpleNamespace(job_profile_id="profile-a"),
+            "22222222-2222-2222-2222-222222222222",
+        )
+
+        assert allowed is True
+
+    async def test_template_allowed_for_interview_rejects_different_template_when_exact_match_exists(self) -> None:
+        db = AsyncMock()
+        exact_template = SimpleNamespace(id="template-exact", job_profile_id="profile-exact")
+        selected_template = SimpleNamespace(id="template-selected", job_profile_id="profile-a")
+        active_templates_result = Mock()
+        active_templates_result.scalars.return_value.all.return_value = [selected_template, exact_template]
+        job_result = Mock()
+        job_result.scalar_one_or_none.return_value = SimpleNamespace(id="job-position-1", job_profile_id="profile-exact")
+        db.execute.side_effect = [active_templates_result, job_result]
+
+        service = ScorecardService(db)
+        allowed = await service._template_allowed_for_interview(
+            selected_template,
+            "22222222-2222-2222-2222-222222222222",
+        )
+
+        assert allowed is False
+
+    async def test_template_allowed_for_interview_accepts_single_active_template_compatibility(self) -> None:
+        db = AsyncMock()
+        active_template = SimpleNamespace(id="template-a", job_profile_id="profile-a")
+        active_templates_result = Mock()
+        active_templates_result.scalars.return_value.all.return_value = [active_template]
+        job_result = Mock()
+        job_result.scalar_one_or_none.return_value = SimpleNamespace(id="job-position-1", job_profile_id="profile-a")
+        db.execute.side_effect = [active_templates_result, job_result]
+
+        service = ScorecardService(db)
+        allowed = await service._template_allowed_for_interview(
+            active_template,
+            "22222222-2222-2222-2222-222222222222",
+        )
+
+        assert allowed is True

@@ -77,6 +77,8 @@ class JobProfileService:
         data: JobProfileVersionCreate,
         created_by: str,
     ) -> JobProfileVersion | None:
+        from datetime import datetime, timezone
+
         profile = await self.get_by_id(profile_id)
         if profile is None:
             return None
@@ -85,11 +87,12 @@ class JobProfileService:
         )
         next_version = (result.scalar() or 0) + 1
         status = JobProfileVersionStatus(data.status)
+        now = datetime.now(timezone.utc)
         if status == JobProfileVersionStatus.ACTIVE:
             await self.db.execute(
                 update(JobProfileVersion)
                 .where(JobProfileVersion.job_profile_id == profile_id)
-                .values(status=JobProfileVersionStatus.ARCHIVED)
+                .values(status=JobProfileVersionStatus.ARCHIVED, archived_at=now)
             )
         version = JobProfileVersion(
             id=str(uuid.uuid4()),
@@ -99,6 +102,9 @@ class JobProfileService:
             change_reason=data.change_reason,
             snapshot=self._snapshot(profile),
             created_by=created_by,
+            activated_by=created_by if status == JobProfileVersionStatus.ACTIVE else None,
+            activated_at=now if status == JobProfileVersionStatus.ACTIVE else None,
+            effective_from=now if status == JobProfileVersionStatus.ACTIVE else None,
         )
         self.db.add(version)
         await self.db.flush()
@@ -141,16 +147,23 @@ class JobProfileService:
         result = await self.db.execute(select(JobProfileVersion).where(JobProfileVersion.id == version_id))
         return result.scalar_one_or_none()
 
-    async def activate_version(self, profile_id: str, version_id: str) -> JobProfileVersion | None:
+    async def activate_version(self, profile_id: str, version_id: str, activated_by: str | None = None) -> JobProfileVersion | None:
+        from datetime import datetime, timezone
+
         version = await self.get_version(version_id)
         if version is None or version.job_profile_id != profile_id:
             return None
         await self.db.execute(
             update(JobProfileVersion)
             .where(JobProfileVersion.job_profile_id == profile_id)
-            .values(status=JobProfileVersionStatus.ARCHIVED)
+            .values(status=JobProfileVersionStatus.ARCHIVED, archived_at=datetime.now(timezone.utc))
         )
+        now = datetime.now(timezone.utc)
         version.status = JobProfileVersionStatus.ACTIVE
+        version.activated_by = activated_by
+        version.activated_at = now
+        version.effective_from = now
+        version.archived_at = None
         await self.db.commit()
         await self.db.refresh(version)
         return version
@@ -191,6 +204,11 @@ class JobProfileService:
             "snapshot": version.snapshot,
             "created_by": version.created_by,
             "created_at": version.created_at,
+            "effective_from": version.effective_from,
+            "effective_to": version.effective_to,
+            "activated_by": version.activated_by,
+            "activated_at": version.activated_at,
+            "archived_at": version.archived_at,
             "requirements": [self._requirement_to_dict(item) for item in requirements_result.scalars().all()],
             "dimensions": [self._dimension_to_dict(item) for item in dimensions_result.scalars().all()],
         }

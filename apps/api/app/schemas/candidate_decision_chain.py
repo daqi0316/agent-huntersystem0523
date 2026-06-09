@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -18,8 +19,8 @@ class DecisionChainStateHistoryItem(BaseModel):
     to_state: str
     reason: str
     operator_id: str
-    triggered_actions: list[dict]
-    metadata: dict | None = None
+    triggered_actions: list[dict[str, Any]]
+    metadata: dict[str, Any] | None = None
     created_at: datetime | None = None
 
 
@@ -30,7 +31,7 @@ class DecisionChainJobProfileSummary(BaseModel):
     level: str
     hard_requirements: list[str]
     soft_requirements: list[str]
-    evaluation_dimensions: list[dict]
+    evaluation_dimensions: list[dict[str, Any]]
     interview_focus: list[str]
 
 
@@ -38,6 +39,8 @@ class DecisionChainApplicationSummary(BaseModel):
     id: str
     job_id: str | None = None
     job_title: str | None = None
+    job_profile_id: str | None = None
+    profile_version_id: str | None = None
     status: str
     match_score: float | None = None
     ai_summary: str | None = None
@@ -80,7 +83,7 @@ class DecisionChainScorecardSummary(BaseModel):
     summary: str | None = None
     risk_flags: list[str]
     submitted_at: datetime | None = None
-    dimension_scores: list[dict] = Field(default_factory=list)
+    dimension_scores: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class DecisionChainRejectionSummary(BaseModel):
@@ -115,6 +118,26 @@ class DecisionChainTimelineEvidenceSummary(BaseModel):
     source: str
 
 
+class DecisionChainEvidenceRefSummary(BaseModel):
+    id: str
+    source_type: str
+    normalized_claim: str
+    confidence: float | None = None
+    created_by_type: str
+    quote: str | None = None
+    created_at: datetime | None = None
+
+
+class DecisionChainAiAuditSummary(BaseModel):
+    id: str
+    decision_type: str
+    model_name: str
+    output_summary: str
+    confidence: float | None = None
+    human_confirmed: bool = False
+    created_at: datetime | None = None
+
+
 class CandidateDecisionChainRead(BaseModel):
     candidate: DecisionChainCandidateSummary
     state_history: list[DecisionChainStateHistoryItem]
@@ -125,6 +148,8 @@ class CandidateDecisionChainRead(BaseModel):
     scorecards: list[DecisionChainScorecardSummary]
     rejections: list[DecisionChainRejectionSummary]
     timeline_evidence: list[DecisionChainTimelineEvidenceSummary]
+    evidence_refs: list[DecisionChainEvidenceRefSummary] = Field(default_factory=list)
+    ai_audits: list[DecisionChainAiAuditSummary] = Field(default_factory=list)
     missing_sections: list[str]
 
 

@@ -26,6 +26,8 @@ def _make_job(job_id="job-001", title="工程师"):
     j.id = job_id
     j.title = title
     j.department = "技术"
+    j.job_profile_id = None
+    j.profile_version_id = None
     return j
 
 
@@ -77,7 +79,12 @@ class TestGetById:
 class TestCreate:
     async def test_creates_and_refreshes(self, service, mock_db):
         from app.schemas.job import JobCreate
-        data = JobCreate(title="新职位", department="技术")
+        data = JobCreate(
+            title="新职位",
+            department="技术",
+            job_profile_id="11111111-1111-1111-1111-111111111107",
+            profile_version_id="22222222-2222-2222-2222-222222222222",
+        )
         result = await service.create(data)
         assert mock_db.add.called
         assert mock_db.commit.called
@@ -91,8 +98,12 @@ class TestUpdate:
         mr.scalar_one_or_none.return_value = j
         mock_db.execute.return_value = mr
         from app.schemas.job import JobUpdate
-        result = await service.update("00000000-0000-0000-0000-000000000001", JobUpdate(title="新职位"))
+        result = await service.update(
+            "00000000-0000-0000-0000-000000000001",
+            JobUpdate(title="新职位", job_profile_id="11111111-1111-1111-1111-111111111107"),
+        )
         assert result is not None
+        assert j.job_profile_id == "11111111-1111-1111-1111-111111111107"
 
     async def test_not_found(self, service, mock_db):
         mr = Mock()

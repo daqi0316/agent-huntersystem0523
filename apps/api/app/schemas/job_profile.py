@@ -134,5 +134,10 @@ class JobProfileVersionRead(BaseModel):
     snapshot: dict
     created_by: str
     created_at: datetime
+    effective_from: datetime | None = None
+    effective_to: datetime | None = None
+    activated_by: str | None = None
+    activated_at: datetime | None = None
+    archived_at: datetime | None = None
     requirements: list[JobProfileRequirementItemRead] = Field(default_factory=list)
     dimensions: list[JobProfileDimensionRead] = Field(default_factory=list)

@@ -17,6 +17,8 @@ interface JobItem {
   requirements?: string;
   location?: string;
   salary_range?: string;
+  job_profile_id?: string | null;
+  profile_version_id?: string | null;
   status: string;
   created_at: string;
 }
@@ -34,6 +36,8 @@ interface CreatePayload {
   requirements?: string;
   location?: string;
   salary_range?: string;
+  job_profile_id?: string;
+  profile_version_id?: string;
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -69,6 +73,11 @@ function DetailDialog({ job, onClose }: { job: JobItem; onClose: () => void }) {
             <h4 className="mb-1 font-medium">任职要求</h4>
             <p className="text-muted-foreground">{job.requirements || "暂无"}</p>
           </div>
+          <div>
+            <h4 className="mb-1 font-medium">招聘标准绑定</h4>
+            <p className="text-muted-foreground">画像：{job.job_profile_id || "未绑定"}</p>
+            <p className="text-muted-foreground">版本：{job.profile_version_id || "未绑定"}</p>
+          </div>
         </div>
         <div className="mt-4 flex justify-end">
           <Button variant="outline" onClick={onClose}>关闭</Button>
@@ -85,6 +94,8 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [desc, setDesc] = useState("");
   const [reqs, setReqs] = useState("");
   const [salary, setSalary] = useState("");
+  const [jobProfileId, setJobProfileId] = useState("");
+  const [profileVersionId, setProfileVersionId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
 
@@ -106,6 +117,8 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
       if (desc.trim()) payload.description = desc.trim();
       if (reqs.trim()) payload.requirements = reqs.trim();
       if (salary.trim()) payload.salary_range = salary.trim();
+      if (jobProfileId.trim()) payload.job_profile_id = jobProfileId.trim();
+      if (profileVersionId.trim()) payload.profile_version_id = profileVersionId.trim();
       await api.post("/jobs", payload);
       onCreated();
       onClose();
@@ -156,6 +169,16 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
             <label className="mb-1 block text-xs font-medium">任职要求</label>
             <textarea className="w-full rounded-lg border bg-transparent p-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" rows={3}
               value={reqs} onChange={(e) => setReqs(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium">岗位画像 ID</label>
+              <Input value={jobProfileId} onChange={(e) => setJobProfileId(e.target.value)} placeholder="job profile uuid" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">画像版本 ID</label>
+              <Input value={profileVersionId} onChange={(e) => setProfileVersionId(e.target.value)} placeholder="profile version uuid" />
+            </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={onClose}>取消</Button>
@@ -265,6 +288,12 @@ export default function JobsPage() {
                     <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(job.created_at).toLocaleDateString("zh-CN")}</span>
                   </div>
                   {job.salary_range && <span className="text-xs text-muted-foreground">{job.salary_range}</span>}
+                  {job.job_profile_id && (
+                    <div className="truncate text-xs text-muted-foreground">画像：{job.job_profile_id}</div>
+                  )}
+                  {job.profile_version_id && (
+                    <div className="truncate text-xs text-muted-foreground">版本：{job.profile_version_id}</div>
+                  )}
                 </CardContent>
               </Card>
             );

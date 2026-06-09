@@ -27,10 +27,14 @@ def mock_db():
 
 @pytest.fixture
 def override_auth(app):
-    from app.core.dependencies import get_current_user_id
-    app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    from app.core.org_context import OrgContext, org_scoped_db
+
+    async def fake_org_scoped_db():
+        yield OrgContext(org_id="org-1", user_id="user-1", role="hr"), AsyncMock()
+
+    app.dependency_overrides[org_scoped_db] = fake_org_scoped_db
     yield
-    app.dependency_overrides.pop(get_current_user_id, None)
+    app.dependency_overrides.pop(org_scoped_db, None)
 
 
 def _fake_job(**kwargs):
@@ -42,6 +46,8 @@ def _fake_job(**kwargs):
         "requirements": kwargs.get("requirements", ""),
         "location": kwargs.get("location", "北京"),
         "salary_range": kwargs.get("salary_range", "30k-50k"),
+        "job_profile_id": kwargs.get("job_profile_id"),
+        "profile_version_id": kwargs.get("profile_version_id"),
         "status": kwargs.get("status", "active"),
         "created_at": "2025-01-01T00:00:00",
         "updated_at": "2025-01-01T00:00:00",
@@ -90,11 +96,14 @@ class TestCreateJob:
                 "requirements": "5年Python",
                 "location": "北京",
                 "salary_range": "30k-50k",
+                "job_profile_id": "11111111-1111-1111-1111-111111111107",
+                "profile_version_id": "22222222-2222-2222-2222-222222222222",
                 "status": "active",
             })
         assert resp.status_code == 201
         data = resp.json()["data"]
         assert data["title"] == "高级后端工程师"
+        assert data["job_profile_id"] is None
         svc.create.assert_called_once()
 
 

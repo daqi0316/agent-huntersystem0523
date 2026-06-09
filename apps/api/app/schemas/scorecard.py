@@ -21,6 +21,14 @@ class ScorecardDimensionCreate(BaseModel):
     order_index: int = 0
     anchors: list[ScorecardAnchorCreate] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def validate_required_behavior_anchors(self):
+        scores = {anchor.score for anchor in self.anchors}
+        missing = {1, 3, 5} - scores
+        if missing:
+            raise ValueError("每个评分维度必须提供 1/3/5 行为锚定")
+        return self
+
 
 class ScorecardTemplateCreate(BaseModel):
     job_profile_id: str | None = None
@@ -49,6 +57,7 @@ class ScorecardDimensionScoreCreate(BaseModel):
     score: int = Field(..., ge=1, le=5)
     evidence: str = Field(..., min_length=1, max_length=4000)
     confidence: float | None = Field(None, ge=0, le=1)
+    evidence_ref_id: str | None = None
 
 
 class InterviewScorecardSubmissionCreate(BaseModel):
@@ -102,6 +111,7 @@ class InterviewScorecardDimensionScoreRead(BaseModel):
     score: int
     evidence: str
     confidence: float | None = None
+    evidence_ref_id: str | None = None
 
 
 class InterviewScorecardSubmissionRead(BaseModel):

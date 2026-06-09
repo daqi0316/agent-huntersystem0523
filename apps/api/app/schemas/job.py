@@ -10,6 +10,8 @@ class JobCreate(BaseModel):
     requirements: str | None = None
     location: str | None = None
     salary_range: str | None = None
+    job_profile_id: str | None = None
+    profile_version_id: str | None = None
 
 
 class JobUpdate(BaseModel):
@@ -19,6 +21,8 @@ class JobUpdate(BaseModel):
     requirements: str | None = None
     location: str | None = None
     salary_range: str | None = None
+    job_profile_id: str | None = None
+    profile_version_id: str | None = None
     status: str | None = None
 
 
@@ -30,6 +34,8 @@ class JobRead(BaseModel):
     requirements: str | None = None
     location: str | None = None
     salary_range: str | None = None
+    job_profile_id: str | None = None
+    profile_version_id: str | None = None
     status: str
     created_at: datetime
     updated_at: datetime

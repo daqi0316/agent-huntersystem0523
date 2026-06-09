@@ -69,7 +69,12 @@ class JobProfileVersion(Base):
     )
     change_reason: Mapped[str | None] = mapped_column(Text)
     snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    activated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

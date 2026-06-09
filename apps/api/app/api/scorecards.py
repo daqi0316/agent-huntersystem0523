@@ -10,6 +10,7 @@ from app.schemas.scorecard import (
     ScorecardFromJobProfileRequest,
     ScorecardTemplateCreate,
 )
+from app.models.scorecard import ScorecardStatus
 from app.services.scorecard import ScorecardService
 
 router = APIRouter()
@@ -102,6 +103,36 @@ async def submit_interview_scorecard(
     if submission is None:
         return error("面试不存在", status_code=404)
     return success(await service.to_submission_dict(submission))
+
+
+@router.post("/templates/{template_id}/activate")
+async def activate_scorecard_template(template_id: str, od=ORG_SCOPED_DEP):
+    org_ctx, db = od
+    service = ScorecardService(db)
+    template = await service.get_template(template_id)
+    if template is None:
+        return error("评分卡模板不存在", status_code=404)
+    if template.status == ScorecardStatus.ACTIVE:
+        return error("评分卡模板已是 active 状态", status_code=400)
+    template.status = ScorecardStatus.ACTIVE
+    await db.commit()
+    await db.refresh(template)
+    return success(await service.to_template_dict(template))
+
+
+@router.post("/templates/{template_id}/archive")
+async def archive_scorecard_template(template_id: str, od=ORG_SCOPED_DEP):
+    org_ctx, db = od
+    service = ScorecardService(db)
+    template = await service.get_template(template_id)
+    if template is None:
+        return error("评分卡模板不存在", status_code=404)
+    if template.status == ScorecardStatus.ARCHIVED:
+        return error("评分卡模板已是 archived 状态", status_code=400)
+    template.status = ScorecardStatus.ARCHIVED
+    await db.commit()
+    await db.refresh(template)
+    return success(await service.to_template_dict(template))
 
 
 @router.get("/candidates/{candidate_id}/submissions")
