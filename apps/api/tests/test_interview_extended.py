@@ -59,7 +59,7 @@ class TestRescheduleInterview:
         """interview_id 不存在 → NOT_FOUND."""
         db, fake_session = _mock_db_session()
         mock_svc = MagicMock()
-        mock_svc._get_by_id = AsyncMock(return_value=None)
+        mock_svc.reschedule = AsyncMock(return_value=(None, "NOT_FOUND"))
         with patch("app.tools.interview_extended.AsyncSessionLocal", fake_session):
             with _patched_svc(mock_svc):
                 result = await _handle_reschedule_interview(
@@ -79,7 +79,7 @@ class TestRescheduleInterview:
         interview.status = MagicMock()
         interview.status.value = "scheduled"
         mock_svc = MagicMock()
-        mock_svc._get_by_id = AsyncMock(return_value=interview)
+        mock_svc.reschedule = AsyncMock(return_value=({"id": "i1", "scheduled_at": "2025-06-15T10:00:00+00:00", "status": "scheduled"}, None))
         with patch("app.tools.interview_extended.AsyncSessionLocal", fake_session):
             with _patched_svc(mock_svc):
                 result = await _handle_reschedule_interview(
@@ -89,10 +89,12 @@ class TestRescheduleInterview:
                 )
         assert result["status"] == "success"
         assert result["data"]["interview_id"] == "i1"
-        assert interview.scheduled_at is not None
-        assert "[改期原因] candidate unavailable" in interview.notes
-        db.commit.assert_awaited_once()
-        db.refresh.assert_awaited_once()
+        assert result["data"]["scheduled_at"] == "2025-06-15T10:00:00+00:00"
+        mock_svc.reschedule.assert_awaited_once_with(
+            "i1",
+            new_time="2025-06-15T10:00:00+00:00",
+            reason="candidate unavailable",
+        )
 
     @pytest.mark.asyncio
     async def test_invalid_time_returns_error(self) -> None:
@@ -101,7 +103,7 @@ class TestRescheduleInterview:
         interview = MagicMock()
         interview.notes = None
         mock_svc = MagicMock()
-        mock_svc._get_by_id = AsyncMock(return_value=interview)
+        mock_svc.reschedule = AsyncMock(return_value=(None, "INVALID_TIME"))
         with patch("app.tools.interview_extended.AsyncSessionLocal", fake_session):
             with _patched_svc(mock_svc):
                 result = await _handle_reschedule_interview(
@@ -120,14 +122,19 @@ class TestRescheduleInterview:
         interview.notes = ""
         interview.status = "completed"
         mock_svc = MagicMock()
-        mock_svc._get_by_id = AsyncMock(return_value=interview)
+        mock_svc.reschedule = AsyncMock(return_value=({"id": "i1", "scheduled_at": "2025-06-15T10:00:00+00:00", "status": "completed"}, None))
         with patch("app.tools.interview_extended.AsyncSessionLocal", fake_session):
             with _patched_svc(mock_svc):
                 result = await _handle_reschedule_interview(
                     interview_id="i1", new_time="2025-06-15T10:00:00Z"
-                )
+        )
         assert result["status"] == "success"
-        assert interview.scheduled_at.tzinfo is not None
+        assert result["data"]["scheduled_at"] == "2025-06-15T10:00:00+00:00"
+        mock_svc.reschedule.assert_awaited_once_with(
+            "i1",
+            new_time="2025-06-15T10:00:00Z",
+            reason="",
+        )
 
 
 class TestCompleteInterview:

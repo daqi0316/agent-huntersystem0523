@@ -70,6 +70,7 @@ class TestCandidateDecisionChainApi:
             _execute_result([]),
             _execute_result([]),
             _execute_result([]),
+            _execute_result([]),
             MagicMock(scalar_one_or_none=MagicMock(return_value=None)),
         ]
         app = _make_app_with_org_override(db)
@@ -96,6 +97,7 @@ class TestCandidateDecisionChainApi:
     def test_decision_chain_uses_java_p7_fallback_profile(self) -> None:
         db = AsyncMock()
         db.execute.side_effect = [
+            _execute_result([]),
             _execute_result([]),
             _execute_result([]),
             _execute_result([]),
@@ -155,6 +157,33 @@ class TestCandidateDecisionChainApi:
             feedback="建议通过",
             created_at=created_at,
         )
+        scorecard = SimpleNamespace(
+            id="s1",
+            interview_id="i1",
+            candidate_id="11111111-1111-1111-1111-111111111111",
+            application_id="a1",
+            scorecard_template_id="t1",
+            interviewer_id="test-user-id",
+            overall_score=4.2,
+            verdict=EvaluationVerdict.HIRE,
+            summary="结构化评分建议通过",
+            risk_flags=[],
+            submitted_at=created_at,
+        )
+        dimension_score = SimpleNamespace(
+            id="ds1",
+            submission_id="s1",
+            dimension_id="d1",
+            score=4,
+            evidence="能解释 JVM 调优取舍",
+            confidence=0.8,
+        )
+        scorecard_dimension = SimpleNamespace(id="d1", name="技术深度")
+        scorecard_template = SimpleNamespace(
+            id="t1",
+            name="Java P7 技术面评分卡",
+            profile_version_id="v1",
+        )
         rejection = SimpleNamespace(
             id="r1",
             reason_code="STABILITY_RISK",
@@ -177,7 +206,12 @@ class TestCandidateDecisionChainApi:
             _execute_result([job]),
             _execute_result([interview]),
             _execute_result([feedback]),
+            _execute_result([scorecard]),
+            _execute_result([dimension_score]),
+            _execute_result([scorecard_dimension]),
+            _execute_result([scorecard_template]),
             _execute_result([rejection]),
+            _execute_result([]),
             _execute_result([profile]),
         ]
         app = _make_app_with_org_override(db)
@@ -194,5 +228,9 @@ class TestCandidateDecisionChainApi:
         assert data["job_profiles"][0]["code"] == "Java_P7"
         assert data["interviews"][0]["type"] == "technical"
         assert data["interview_feedback"][0]["verdict"] == "hire"
+        assert data["scorecards"][0]["overall_score"] == 4.2
+        assert data["scorecards"][0]["scorecard_template_name"] == "Java P7 技术面评分卡"
+        assert data["scorecards"][0]["profile_version_id"] == "v1"
+        assert data["scorecards"][0]["dimension_scores"][0]["evidence"] == "能解释 JVM 调优取舍"
         assert data["rejections"][0]["evidence"] == "三年三跳"
         assert data["missing_sections"] == []

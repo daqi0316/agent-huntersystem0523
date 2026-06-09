@@ -1,8 +1,21 @@
 from app.models.candidate import Candidate
 from app.models.candidate_state import CandidateStateHistory, RecruitmentCandidateState
 from app.models.job_position import JobPosition
-from app.models.job_profile import JobProfile
-from app.models.rejection import CandidateRejectionRecord, RejectionReason
+from app.models.job_profile import (
+    JobProfile,
+    JobProfileDimension,
+    JobProfileRequirementItem,
+    JobProfileRequirementType,
+    JobProfileVersion,
+    JobProfileVersionStatus,
+)
+from app.models.rejection import (
+    CandidateRejectionRecord,
+    RejectionPreventableBy,
+    RejectionReason,
+    RejectionSeverity,
+    RejectionSource,
+)
 from app.models.application import Application
 from app.models.interview import Interview
 from app.models.user import User, UserRole
@@ -26,6 +39,16 @@ from app.models.session_summary import SessionSummary
 from app.models.mcp_server import MCPServer
 from app.models.memory_fact import MemoryFact
 from app.models.interview_evaluation import InterviewEvaluation, InterviewRound, EvaluationVerdict
+from app.models.scorecard import (
+    InterviewScorecardDimensionScore,
+    InterviewScorecardSubmission,
+    ScorecardBehaviorAnchor,
+    ScorecardDimension,
+    ScorecardRoundType,
+    ScorecardStatus,
+    ScorecardTemplate,
+    ScorecardVerdict,
+)
 from app.models.conversation import ConversationSession, ConversationMessage
 from app.models.recommendation import Recommendation, RecommendationType
 from app.models.command_audit_log import CommandAuditLog
@@ -98,9 +121,30 @@ from app.models.notification import (  # noqa: F401
     Notification,
     NotificationType,
 )
+from app.models.candidate_timeline import (  # noqa: F401
+    CandidateCommitment,
+    CandidateCommitmentPromisedBy,
+    CandidateCommitmentStatus,
+    CandidateFollowupPriority,
+    CandidateFollowupStatus,
+    CandidateFollowupTask,
+    CandidateTimelineEvent,
+    CandidateTimelineEventType,
+    CandidateTimelineSource,
+)
+from app.models.compensation import (  # noqa: F401
+    CandidateCompensationExpectation,
+    CompensationBenchmark,
+    OfferNegotiationRecord,
+    OfferNegotiationStatus,
+)
 
 __all__ = [
-    "Candidate", "CandidateStateHistory", "RecruitmentCandidateState", "JobPosition", "JobProfile", "RejectionReason", "CandidateRejectionRecord", "Application", "Interview", "User", "UserRole",
+    "Candidate", "CandidateStateHistory", "RecruitmentCandidateState", "JobPosition", "JobProfile",
+    "JobProfileVersion", "JobProfileRequirementItem", "JobProfileDimension",
+    "JobProfileVersionStatus", "JobProfileRequirementType", "RejectionReason", "CandidateRejectionRecord",
+    "RejectionSeverity", "RejectionPreventableBy", "RejectionSource",
+    "Application", "Interview", "User", "UserRole",
     "Organization", "OrganizationPlan", "OrganizationStatus",
     "Membership", "MembershipRole", "MembershipStatus",
     "Invitation", "InvitationStatus",
@@ -115,4 +159,12 @@ __all__ = [
     "DataDeleteRequest", "DataDeleteStatus",
     "GRACE_PERIOD_DAYS", "EXPORT_RETENTION_DAYS", "EXPORT_DOWNLOAD_BASE",
     "Appeal", "AppealStatus", "APPEAL_SLA_DAYS",
+    "ScorecardTemplate", "ScorecardDimension", "ScorecardBehaviorAnchor",
+    "InterviewScorecardSubmission", "InterviewScorecardDimensionScore",
+    "ScorecardStatus", "ScorecardRoundType", "ScorecardVerdict",
+    "CandidateTimelineEvent", "CandidateTimelineEventType", "CandidateTimelineSource",
+    "CandidateFollowupTask", "CandidateFollowupStatus", "CandidateFollowupPriority",
+    "CandidateCommitment", "CandidateCommitmentPromisedBy", "CandidateCommitmentStatus",
+    "CompensationBenchmark", "CandidateCompensationExpectation",
+    "OfferNegotiationRecord", "OfferNegotiationStatus",
 ]

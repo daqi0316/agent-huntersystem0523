@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DecisionChainCandidateSummary(BaseModel):
@@ -66,6 +66,23 @@ class DecisionChainInterviewFeedbackSummary(BaseModel):
     created_at: datetime | None = None
 
 
+class DecisionChainScorecardSummary(BaseModel):
+    id: str
+    interview_id: str
+    candidate_id: str
+    application_id: str | None = None
+    scorecard_template_id: str
+    scorecard_template_name: str | None = None
+    profile_version_id: str | None = None
+    interviewer_id: str
+    overall_score: float
+    verdict: str
+    summary: str | None = None
+    risk_flags: list[str]
+    submitted_at: datetime | None = None
+    dimension_scores: list[dict] = Field(default_factory=list)
+
+
 class DecisionChainRejectionSummary(BaseModel):
     id: str
     reason_code: str
@@ -81,6 +98,15 @@ class DecisionChainRejectionSummary(BaseModel):
     created_at: datetime | None = None
 
 
+class DecisionChainTimelineEvidenceSummary(BaseModel):
+    id: str
+    event_type: str
+    title: str
+    content: str | None = None
+    occurred_at: datetime | None = None
+    source: str
+
+
 class CandidateDecisionChainRead(BaseModel):
     candidate: DecisionChainCandidateSummary
     state_history: list[DecisionChainStateHistoryItem]
@@ -88,7 +114,9 @@ class CandidateDecisionChainRead(BaseModel):
     applications: list[DecisionChainApplicationSummary]
     interviews: list[DecisionChainInterviewSummary]
     interview_feedback: list[DecisionChainInterviewFeedbackSummary]
+    scorecards: list[DecisionChainScorecardSummary]
     rejections: list[DecisionChainRejectionSummary]
+    timeline_evidence: list[DecisionChainTimelineEvidenceSummary]
     missing_sections: list[str]
 
 

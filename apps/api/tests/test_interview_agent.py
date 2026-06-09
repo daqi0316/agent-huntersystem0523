@@ -9,6 +9,7 @@ from app.agents.interview_agent import (
     INTERVIEW_ROUNDS,
     EVALUATION_FORM_PROMPT,
     FEEDBACK_SUMMARY_PROMPT,
+    TRANSCRIPT_FEEDBACK_PROMPT,
 )
 
 
@@ -97,6 +98,27 @@ async def test_summarize_feedback_fallback(agent):
 
 
 @pytest.mark.asyncio
+async def test_generate_feedback_from_transcript_requires_transcript(agent):
+    result = await agent.generate_feedback_from_transcript("张三", "")
+    assert result["status"] == "insufficient_data"
+    assert result["overall_score"] is None
+    assert "不能声称" in result["feedback"]
+
+
+@pytest.mark.asyncio
+async def test_generate_feedback_from_transcript_fallback_uses_quote(agent):
+    transcript = "候选人：我主导过支付系统重构，并把接口延迟降低了 40%。"
+    mock_llm = MagicMock()
+    mock_llm.chat = AsyncMock(side_effect=RuntimeError("LLM down"))
+    agent._llm = mock_llm
+    with patch.object(InterviewAgent, "llm", new_callable=PropertyMock, return_value=mock_llm):
+        result = await agent.generate_feedback_from_transcript("张三", transcript, "后端工程师")
+    assert result["status"] == "completed"
+    assert result["evidence_quotes"]
+    assert "支付系统重构" in result["evidence_quotes"][0]
+
+
+@pytest.mark.asyncio
 async def test_send_reminder_stub(agent):
     result = await agent.send_reminder("i-1")
     assert result["status"] == "sent"
@@ -163,7 +185,19 @@ async def test_run_action_reminder(agent):
     assert result["status"] == "completed"
 
 
+@pytest.mark.asyncio
+async def test_run_action_transcript_feedback(agent):
+    result = await agent.run({
+        "action": "transcript_feedback",
+        "candidate_name": "张三",
+        "transcript_text": "候选人：我负责过招聘系统后端。",
+    })
+    assert result["status"] == "completed"
+    assert result["result"]["status"] == "completed"
+
+
 def test_prompt_templates_defined():
     assert "{round_name}" in EVALUATION_FORM_PROMPT
     assert "{candidate_name}" in FEEDBACK_SUMMARY_PROMPT
     assert "{feedback_list}" in FEEDBACK_SUMMARY_PROMPT
+    assert "{transcript_text}" in TRANSCRIPT_FEEDBACK_PROMPT

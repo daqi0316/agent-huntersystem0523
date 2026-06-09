@@ -91,7 +91,7 @@ export default function SupportPage() {
 
   async function closeTicket() {
     if (!selected) return;
-    await api.post(`/support/tickets/${selected}/close`);
+    await api.post(`/support/tickets/${selected}/close`, {});
     loadTickets();
     setSelected(null);
   }

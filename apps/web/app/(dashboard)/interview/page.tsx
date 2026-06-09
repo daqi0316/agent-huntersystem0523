@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/common/data-table";
 import EvaluationDialog from "@/components/features/interview/evaluation-dialog";
 import { CalendarView } from "@/components/features/interview/calendar-view";
+import { InterviewRecorder } from "@/components/features/interview/interview-recorder";
 import { api } from "@/lib/trpc";
 import { useHumanLoopEvents } from "@/hooks/use-human-loop-events";
 
@@ -286,6 +287,13 @@ export default function InterviewPage() {
     );
   }, [selectedDate, interviews]);
 
+  const defaultRecordingInterviewId = useMemo(() => {
+    return interviews.find((i) => i.status === "confirmed")?.id
+      || interviews.find((i) => i.status === "completed")?.id
+      || interviews[0]?.id
+      || "";
+  }, [interviews]);
+
   const handleCreate = async () => {
     setSubmitting(true);
     try {
@@ -470,6 +478,8 @@ export default function InterviewPage() {
           );
         })}
       </div>
+
+      <InterviewRecorder defaultInterviewId={defaultRecordingInterviewId} />
 
       {/* Pending Proposals Section — enhanced */}
       {pendingProposals.length > 0 && (

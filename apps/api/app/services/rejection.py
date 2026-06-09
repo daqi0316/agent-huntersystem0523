@@ -6,9 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.application import Application, ApplicationStatus
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_state import RecruitmentCandidateState
-from app.models.rejection import CandidateRejectionRecord, RejectionReason
+from app.models.rejection import (
+    CandidateRejectionRecord,
+    RejectionPreventableBy,
+    RejectionReason,
+    RejectionSource,
+)
 from app.schemas.rejection import CandidateRejectRequest, RejectionReasonCreate
-
 
 REJECTION_STAGE_TO_STATE: dict[str, RecruitmentCandidateState] = {
     "screening": RecruitmentCandidateState.SCREENING_REJECTED,
@@ -98,6 +102,11 @@ class RejectionService:
             reusable_for_future=data.reusable_for_future,
             suggested_action=data.suggested_action,
             metadata_=data.metadata,
+            source=RejectionSource(data.source),
+            confidence=data.confidence,
+            is_primary=data.is_primary,
+            related_scorecard_submission_id=data.related_scorecard_submission_id,
+            related_dimension_id=data.related_dimension_id,
             operator_id=operator_id,
         )
         candidate.status = CandidateStatus.FAILED
@@ -118,3 +127,59 @@ class RejectionService:
     async def _get_application(self, application_id: str) -> Application | None:
         result = await self.db.execute(select(Application).where(Application.id == application_id))
         return result.scalar_one_or_none()
+
+    async def analytics(self) -> dict:
+        records_result = await self.db.execute(select(CandidateRejectionRecord))
+        records = list(records_result.scalars().all())
+        reasons_result = await self.db.execute(select(RejectionReason))
+        reasons = {item.code: item for item in reasons_result.scalars().all()}
+        total = len(records)
+        return {
+            "total": total,
+            "by_reason": self._distribution(
+                [(record.reason_code, record.primary_reason) for record in records], total
+            ),
+            "by_stage": self._distribution([(record.stage, record.stage) for record in records], total),
+            "by_job_profile": self._distribution(
+                [
+                    (
+                        record.job_profile_id or "unassigned",
+                        record.job_profile_id or "未关联岗位画像",
+                    )
+                    for record in records
+                ],
+                total,
+            ),
+            "by_preventable_by": self._distribution(
+                [
+                    (
+                        self._preventable_value(reasons.get(record.reason_code)),
+                        self._preventable_value(reasons.get(record.reason_code)),
+                    )
+                    for record in records
+                ],
+                total,
+            ),
+        }
+
+    @staticmethod
+    def _preventable_value(reason: RejectionReason | None) -> str:
+        if reason is None:
+            return RejectionPreventableBy.NONE.value
+        return reason.preventable_by.value if hasattr(reason.preventable_by, "value") else str(reason.preventable_by)
+
+    @staticmethod
+    def _distribution(items: list[tuple[str, str]], total: int) -> list[dict]:
+        counts: dict[str, dict] = {}
+        for key, label in items:
+            current = counts.setdefault(key, {"key": key, "label": label, "count": 0})
+            current["count"] += 1
+        return [
+            {
+                "key": item["key"],
+                "label": item["label"],
+                "count": item["count"],
+                "percentage": round(item["count"] / total, 4) if total else 0,
+            }
+            for item in sorted(counts.values(), key=lambda value: value["count"], reverse=True)
+        ]

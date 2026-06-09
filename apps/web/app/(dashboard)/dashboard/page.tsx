@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  TrendingUp, Users, Briefcase, Activity, ArrowUpRight,
+  TrendingUp, Users, Briefcase, Activity, ArrowUpRight, AlertTriangle, CircleDollarSign,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,6 +45,8 @@ const fallbackStats: DashboardStats = {
     { label: "招聘职位", value: 8, key: "jobs" },
     { label: "进行中面试", value: 14, key: "interviews" },
     { label: "本月入职", value: 3, key: "onboards" },
+    { label: "逾期跟进", value: 0, key: "overdue_followups" },
+    { label: "薪酬风险", value: 0, key: "compensation_risks" },
   ],
   trend: [
     { date: "05-01", count: 12 }, { date: "05-03", count: 8 },
@@ -69,6 +71,8 @@ const iconMap: Record<string, { icon: typeof Users; color: string }> = {
   jobs: { icon: Briefcase, color: "text-violet-600" },
   interviews: { icon: Activity, color: "text-amber-600" },
   onboards: { icon: TrendingUp, color: "text-green-600" },
+  overdue_followups: { icon: AlertTriangle, color: "text-red-600" },
+  compensation_risks: { icon: CircleDollarSign, color: "text-orange-600" },
 };
 
 const linkMap: Record<string, string> = {
@@ -76,6 +80,8 @@ const linkMap: Record<string, string> = {
   jobs: "/jobs",
   interviews: "/interview",
   onboards: "/interview",
+  overdue_followups: "/dashboard",
+  compensation_risks: "/reports",
 };
 
 export default function DashboardPage() {

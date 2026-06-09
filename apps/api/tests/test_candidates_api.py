@@ -15,6 +15,13 @@ from fastapi.testclient import TestClient
 
 from app.api.candidates import router as candidates_router
 from app.core.database import get_db
+from app.core.org_context import OrgContext, org_scoped_db
+from app.models.candidate_timeline import (
+    CandidateFollowupPriority,
+    CandidateFollowupStatus,
+    CandidateTimelineEventType,
+    CandidateTimelineSource,
+)
 from app.schemas.candidate import CandidateCreate, CandidateUpdate
 
 
@@ -37,7 +44,11 @@ def _patch_db(app: FastAPI, db_mock):
     async def fake_get_db():
         yield db_mock
 
+    async def fake_org_scoped_db():
+        yield OrgContext(org_id="test-org-id", user_id="test-user-id", role="hr"), db_mock
+
     app.dependency_overrides[get_db] = fake_get_db
+    app.dependency_overrides[org_scoped_db] = fake_org_scoped_db
 
 
 def _make_candidate(
@@ -214,7 +225,6 @@ class TestDeleteCandidate:
 
 
 def _make_app_for_timeline(db_mock):
-    """Return a fresh app wired with the db mock (no auth needed for this endpoint)."""
     app = FastAPI()
     app.include_router(candidates_router, prefix="/candidates")
     _patch_db(app, db_mock)
@@ -283,7 +293,6 @@ def _make_feedback(
 
 
 def _make_query_results(*results):
-    """Create mock query results list and return a side_effect function."""
     iter_results = iter(results)
     async def side_effect(*args, **kwargs):
         r = next(iter_results)
@@ -320,9 +329,13 @@ class TestCandidateTimeline:
         cand = _make_candidate(id="c1", name="Alice", source="referral")
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
-            _scalars_result([]),  # applications
-            _scalars_result([]),  # interviews
-            _scalars_result([]),  # interview_evaluations (where(False) still runs)
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
         ])
         app = _make_app_for_timeline(db)
         with patch("app.services.candidate.CandidateService.get_by_id", AsyncMock(return_value=cand)):
@@ -344,10 +357,14 @@ class TestCandidateTimeline:
         job = _make_job(title="高级工程师")
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
-            _scalars_result([app_obj]),  # applications
-            _scalar_one_result(job),     # job query
-            _scalars_result([]),         # interviews
-            _scalars_result([]),         # interview_evaluations
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([app_obj]),
+            _scalar_one_result(job),
+            _scalars_result([]),
+            _scalars_result([]),
         ])
         app = _make_app_for_timeline(db)
         with patch("app.services.candidate.CandidateService.get_by_id", AsyncMock(return_value=cand)):
@@ -369,6 +386,10 @@ class TestCandidateTimeline:
             app_obj = _make_application(status=final_status)
             db = MagicMock()
             db.execute = AsyncMock(side_effect=[
+                _scalars_result([]),
+                _scalars_result([]),
+                _scalars_result([]),
+                _scalars_result([]),
                 _scalars_result([app_obj]),
                 _scalar_one_result(_make_job()),
                 _scalars_result([]),
@@ -386,9 +407,13 @@ class TestCandidateTimeline:
         app_obj = _make_application(job_id=None)
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
-            _scalars_result([app_obj]),  # applications
-            _scalars_result([]),         # interviews
-            _scalars_result([]),         # interview_evaluations
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([app_obj]),
+            _scalars_result([]),
+            _scalars_result([]),
         ])
         app = _make_app_for_timeline(db)
         with patch("app.services.candidate.CandidateService.get_by_id", AsyncMock(return_value=cand)):
@@ -409,6 +434,10 @@ class TestCandidateTimeline:
             _scalars_result([]),
             _scalars_result([]),
             _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
         ])
         app = _make_app_for_timeline(db)
         with patch("app.services.candidate.CandidateService.get_by_id", AsyncMock(return_value=cand)):
@@ -424,6 +453,10 @@ class TestCandidateTimeline:
         iv = _make_interview(status="scheduled", type="技术面")
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
             _scalars_result([]),
             _scalars_result([iv]),
             _scalars_result([]),
@@ -444,6 +477,10 @@ class TestCandidateTimeline:
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
             _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
             _scalars_result([iv]),
             _scalars_result([]),
         ])
@@ -462,6 +499,10 @@ class TestCandidateTimeline:
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
             _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
             _scalars_result([iv]),
             _scalars_result([]),
         ])
@@ -478,6 +519,10 @@ class TestCandidateTimeline:
         fb = _make_feedback(interview_id="i1", overall_score=9)
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
             _scalars_result([]),
             _scalars_result([iv]),
             _scalars_result([fb]),
@@ -499,6 +544,10 @@ class TestCandidateTimeline:
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
             _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
             _scalars_result([iv]),
             _scalars_result([fb]),
         ])
@@ -515,6 +564,10 @@ class TestCandidateTimeline:
         iv = _make_interview(id="i1")
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
             _scalars_result([]),
             _scalars_result([iv]),
             RuntimeError("DB error"),
@@ -535,12 +588,16 @@ class TestCandidateTimeline:
             _scalars_result([]),
             _scalars_result([]),
             _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
         ])
         app = _make_app_for_timeline(db)
         with patch("app.services.candidate.CandidateService.get_by_id", AsyncMock(return_value=cand)):
             TestClient(app).get("/candidates/c1/timeline")
 
-        assert db.execute.await_count == 3
+        assert db.execute.await_count == 7
 
     def test_events_sorted_ascending_by_timestamp(self) -> None:
         """事件按 timestamp 升序排列."""
@@ -553,6 +610,10 @@ class TestCandidateTimeline:
         )
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
             _scalars_result([app_obj]),
             _scalar_one_result(_make_job()),
             _scalars_result([iv]),
@@ -577,6 +638,10 @@ class TestCandidateTimeline:
         db = MagicMock()
         db.execute = AsyncMock(side_effect=[
             _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
             _scalars_result([iv]),
             _scalars_result([]),
         ])
@@ -587,3 +652,51 @@ class TestCandidateTimeline:
         events = resp.json()["data"]["events"]
         for e in events:
             assert e["timestamp"] == ""
+
+    def test_stored_timeline_and_followups_returned(self) -> None:
+        cand = _make_candidate()
+        event = MagicMock()
+        event.id = "te1"
+        event.candidate_id = "c1"
+        event.application_id = None
+        event.event_type = CandidateTimelineEventType.WECHAT
+        event.title = "微信沟通"
+        event.content = "确认面试意向"
+        event.occurred_at = datetime(2026, 6, 2, 9, 0, 0, tzinfo=timezone.utc)
+        event.operator_id = "u1"
+        event.source = CandidateTimelineSource.MANUAL
+        event.metadata_ = {"channel": "wechat"}
+        event.created_at = event.occurred_at
+        task = MagicMock()
+        task.id = "ft1"
+        task.candidate_id = "c1"
+        task.application_id = None
+        task.due_at = datetime(2026, 6, 3, 9, 0, 0, tzinfo=timezone.utc)
+        task.task_type = "followup"
+        task.title = "明天跟进"
+        task.status = CandidateFollowupStatus.OVERDUE
+        task.priority = CandidateFollowupPriority.HIGH
+        task.owner_id = "u1"
+        task.auto_generated = True
+        task.trigger_rule = "no_reply_3d"
+        task.created_at = task.due_at
+        task.updated_at = task.due_at
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[
+            _scalars_result([]),
+            _scalars_result([event]),
+            _scalars_result([task]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+            _scalars_result([]),
+        ])
+        db.commit = AsyncMock()
+        app = _make_app_for_timeline(db)
+        with patch("app.services.candidate.CandidateService.get_by_id", AsyncMock(return_value=cand)):
+            resp = TestClient(app).get("/candidates/c1/timeline")
+
+        data = resp.json()["data"]
+        assert any(item["event_type"] == "wechat" for item in data["events"])
+        assert data["followup_tasks"][0]["status"] == "overdue"
+        assert data["overdue_count"] == 1

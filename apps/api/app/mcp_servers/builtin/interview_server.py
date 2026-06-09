@@ -1,8 +1,10 @@
 """mcp-interview server — 面试流（PR-9b Type B 业务服务）。
 
-包含 7 工具：
+包含 10 工具：
   - schedule_interview / cancel_interview / record_feedback（interview.py，PR-9a 已修）
   - reschedule_interview / complete_interview / get_interview_detail（interview_extended.py，PR-9a 已修）
+  - create_recording_evaluation（interview_recording.py）
+  - get_recording_status / transcribe_recording（interview_recording.py）
   - get_evaluations（screening.py，过渡，PR-9g 重命名后归位）
 """
 from __future__ import annotations
@@ -17,17 +19,21 @@ from app.tools.interview import handlers as interview_handlers
 from app.tools.interview import tools as interview_tools
 from app.tools.interview_extended import handlers as extended_handlers
 from app.tools.interview_extended import tools as extended_tools
+from app.tools.interview_recording import handlers as recording_handlers
+from app.tools.interview_recording import tools as recording_tools
 from app.tools.screening import handlers as screening_handlers
 from app.tools.screening import tools as screening_tools
 
 ALL_TOOLS = (
     interview_tools
     + extended_tools
+    + recording_tools
     + [t for t in screening_tools if t["function"]["name"] == "get_evaluations"]
 )
 ALL_HANDLERS: dict[str, callable] = {}
 ALL_HANDLERS.update(interview_handlers)
 ALL_HANDLERS.update(extended_handlers)
+ALL_HANDLERS.update(recording_handlers)
 ALL_HANDLERS["get_evaluations"] = screening_handlers["get_evaluations"]
 
 

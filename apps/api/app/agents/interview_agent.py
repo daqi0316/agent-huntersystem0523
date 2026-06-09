@@ -57,6 +57,25 @@ FEEDBACK_SUMMARY_PROMPT = """汇总以下评估反馈，生成最终建议。
   "next_steps": ["下一步行动"]
 }}"""
 
+TRANSCRIPT_FEEDBACK_PROMPT = """基于以下面试转录文本生成结构化面试反馈。
+
+候选人: {candidate_name}
+岗位: {job_title}
+面试转录文本:
+{transcript_text}
+
+输出 JSON:
+{{
+  "overall_score": 0-10,
+  "verdict": "strong_hire/hire/consider/pass",
+  "evidence_quotes": ["必须来自转录文本的原句"],
+  "strengths": ["有证据支撑的优势"],
+  "concerns": ["有证据支撑的风险"],
+  "feedback": "结构化反馈"
+}}
+
+约束：只能引用转录文本中出现的信息，不得编造未出现的表现。"""
+
 
 class InterviewAgent(BaseAgent):
     """面试官助理 Agent — 评价表生成 + 反馈汇总 + 安排 + 提醒 (LLM + 规则兜底)。"""
@@ -229,6 +248,46 @@ class InterviewAgent(BaseAgent):
             "next_steps": ["人工复核"],
         }
 
+    async def generate_feedback_from_transcript(
+        self,
+        candidate_name: str,
+        transcript_text: str,
+        job_title: str = "",
+    ) -> dict[str, Any]:
+        transcript_text = (transcript_text or "").strip()
+        if not transcript_text:
+            return {
+                "status": "insufficient_data",
+                "overall_score": None,
+                "verdict": "consider",
+                "evidence_quotes": [],
+                "strengths": [],
+                "concerns": ["缺少面试转录文本，不能基于录音生成评价"],
+                "feedback": "缺少面试转录文本，不能声称已基于录音表现完成评估。",
+            }
+
+        prompt = TRANSCRIPT_FEEDBACK_PROMPT.format(
+            candidate_name=candidate_name or "候选人",
+            job_title=job_title or "未指定岗位",
+            transcript_text=transcript_text,
+        )
+        if self.system_prompt:
+            llm_out = await self._llm_json_chat(prompt, temperature=0.2, max_tokens=1200)
+            if llm_out and "feedback" in llm_out:
+                llm_out["status"] = "completed"
+                return llm_out
+
+        evidence = transcript_text[:120]
+        return {
+            "status": "completed",
+            "overall_score": None,
+            "verdict": "consider",
+            "evidence_quotes": [evidence],
+            "strengths": [],
+            "concerns": [],
+            "feedback": f"已收到面试转录文本，可供人工复核。证据片段：{evidence}",
+        }
+
     # ── 面试安排 ──
 
     def schedule_interview_rounds(
@@ -274,6 +333,7 @@ class InterviewAgent(BaseAgent):
             "evaluation_form": "评价表生成完成",
             "collect_feedback": "面试反馈已收集",
             "summarize_feedback": "反馈汇总完成",
+            "transcript_feedback": "基于转录文本的反馈生成完成",
             "reminder": "面试提醒已发送",
         }
 
@@ -292,6 +352,12 @@ class InterviewAgent(BaseAgent):
             result = await self.summarize_feedback(
                 candidate_name=input_data.get("candidate_name", ""),
                 evaluations=input_data.get("evaluations", []),
+            )
+        elif action == "transcript_feedback":
+            result = await self.generate_feedback_from_transcript(
+                candidate_name=input_data.get("candidate_name", ""),
+                transcript_text=input_data.get("transcript_text", ""),
+                job_title=input_data.get("job_title", ""),
             )
         elif action == "reminder":
             result = await self.send_reminder(input_data.get("interview_id", ""))

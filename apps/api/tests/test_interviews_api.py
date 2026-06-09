@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.services.interview_recording import InterviewRecordingError
+
 
 pytestmark = pytest.mark.asyncio
 
@@ -130,6 +132,104 @@ async def test_get_interview_not_found(client):
         resp = await client.get("/api/v1/interviews/nonexistent-id")
 
     assert resp.status_code == 404
+
+
+async def test_upload_interview_recording_success(client):
+    mock_recording = MagicMock()
+    mock_service = MagicMock()
+    mock_service.upload_recording = AsyncMock(return_value=mock_recording)
+    mock_service.to_dict.return_value = {"id": "rec-1", "status": "recorded"}
+
+    with patch("app.api.interviews.InterviewRecordingService", return_value=mock_service):
+        resp = await client.post(
+            "/api/v1/interviews/12345678-1234-5678-1234-567812345678/recordings/upload",
+            data={"consent_confirmed": "true", "duration_seconds": "3.5"},
+            files={"file": ("recording.webm", b"audio", "audio/webm")},
+        )
+
+    assert resp.status_code == 201
+    assert resp.json()["data"]["status"] == "recorded"
+    call_kwargs = mock_service.upload_recording.call_args.kwargs
+    assert call_kwargs["consent_confirmed"] is True
+    assert call_kwargs["mime_type"] == "audio/webm"
+
+
+async def test_upload_interview_recording_requires_consent(client):
+    mock_service = MagicMock()
+    mock_service.upload_recording = AsyncMock(side_effect=InterviewRecordingError(
+        "CONSENT_REQUIRED", "录音前必须确认候选人/面试参与方已同意"
+    ))
+
+    with patch("app.api.interviews.InterviewRecordingService", return_value=mock_service):
+        resp = await client.post(
+            "/api/v1/interviews/12345678-1234-5678-1234-567812345678/recordings/upload",
+            data={"consent_confirmed": "false"},
+            files={"file": ("recording.webm", b"audio", "audio/webm")},
+        )
+
+    assert resp.status_code == 400
+    assert resp.json()["success"] is False
+
+
+async def test_transcribe_interview_recording_success(client):
+    mock_recording = MagicMock()
+    mock_service = MagicMock()
+    mock_service.transcribe_recording = AsyncMock(return_value=mock_recording)
+    mock_service.to_dict.return_value = {
+        "id": "rec-1",
+        "status": "transcribed",
+        "transcript_text": "mock transcript",
+    }
+
+    with patch("app.api.interviews.InterviewRecordingService", return_value=mock_service):
+        resp = await client.post(
+            "/api/v1/interviews/12345678-1234-5678-1234-567812345678/recordings/rec-1/transcribe"
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["status"] == "transcribed"
+
+
+async def test_create_recording_evaluation_requires_transcript(client):
+    mock_recording = MagicMock()
+    mock_recording.transcript_text = ""
+    mock_service = MagicMock()
+    mock_service.get_recording = AsyncMock(return_value=mock_recording)
+
+    with patch("app.api.interviews.InterviewRecordingService", return_value=mock_service):
+        resp = await client.post(
+            "/api/v1/interviews/12345678-1234-5678-1234-567812345678/recordings/rec-1/evaluation",
+            json={"candidate_name": "张三"},
+        )
+
+    assert resp.status_code == 400
+    assert "尚未转写" in resp.json()["error"]
+
+
+async def test_create_recording_evaluation_success(client):
+    mock_recording = MagicMock()
+    mock_recording.id = "rec-1"
+    mock_recording.transcript_text = "候选人：我负责过支付系统重构。"
+    mock_recording_svc = MagicMock()
+    mock_recording_svc.get_recording = AsyncMock(return_value=mock_recording)
+    mock_eval = MagicMock()
+    mock_interview_svc = MagicMock()
+    mock_interview_svc.save_evaluation = AsyncMock(return_value=mock_eval)
+    mock_interview_svc._eval_to_dict.return_value = {"id": "eval-1", "feedback": "ok"}
+
+    with (
+        patch("app.api.interviews.InterviewRecordingService", return_value=mock_recording_svc),
+        patch("app.api.interviews.InterviewService", return_value=mock_interview_svc),
+    ):
+        resp = await client.post(
+            "/api/v1/interviews/12345678-1234-5678-1234-567812345678/recordings/rec-1/evaluation",
+            json={"candidate_name": "张三", "job_title": "后端工程师", "round": "R1"},
+        )
+
+    assert resp.status_code == 201
+    data = resp.json()["data"]
+    assert data["evaluation"]["id"] == "eval-1"
+    assert mock_interview_svc.save_evaluation.call_args.kwargs["dimensions"]["recording_id"] == "rec-1"
 
 
 async def test_create_interview_success(client):

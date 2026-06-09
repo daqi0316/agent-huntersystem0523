@@ -19,6 +19,8 @@ from app.api.candidates import router as candidates_router
 from app.api.jobs import router as jobs_router
 from app.api.job_profiles import router as job_profiles_router
 from app.api.rejections import router as rejections_router
+from app.api.scorecards import router as scorecards_router
+from app.api.compensation import router as compensation_router
 from app.api.dashboard import router as dashboard_router
 from app.api.applications import router as applications_router
 from app.api.settings import router as settings_router
@@ -110,6 +112,8 @@ api_router.include_router(candidates_router, prefix="/candidates", tags=["Candid
 api_router.include_router(jobs_router, prefix="/jobs", tags=["Jobs"])
 api_router.include_router(job_profiles_router, prefix="/job-profiles", tags=["Job Profiles"])
 api_router.include_router(rejections_router, prefix="/rejections", tags=["Rejections"])
+api_router.include_router(scorecards_router, prefix="/scorecards", tags=["Scorecards"])
+api_router.include_router(compensation_router, tags=["Compensation"])
 
 # Dashboard Stats
 api_router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])

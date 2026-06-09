@@ -1,18 +1,18 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from datetime import datetime, timezone
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.job_profiles import router as job_profiles_router
 from app.core.database import get_db
 from app.core.org_context import OrgContext, org_scoped_db
 from app.models.job_profile import JobProfile
-from app.schemas.job_profile import JobProfileCreate
+from app.schemas.job_profile import JobProfileCreate, JobProfileVersionCreate
 from app.services.job_profile import JobProfileService
 
 
@@ -60,8 +60,8 @@ def _read_payload(code: str = "Java_P7") -> dict:
     payload.update(
         {
             "id": "11111111-1111-1111-1111-111111111107",
-            "created_at": datetime(2026, 6, 8, tzinfo=timezone.utc),
-            "updated_at": datetime(2026, 6, 8, tzinfo=timezone.utc),
+            "created_at": datetime(2026, 6, 8, tzinfo=UTC),
+            "updated_at": datetime(2026, 6, 8, tzinfo=UTC),
         }
     )
     return payload
@@ -140,8 +140,8 @@ def _make_app(db_mock) -> FastAPI:
     async def fake_get_db():
         yield db_mock
 
-    async def fake_org_scoped_db(db=Depends(get_db)):
-        yield OrgContext(org_id="test-org-id", user_id="test-user-id", role="hr"), db
+    async def fake_org_scoped_db():
+        yield OrgContext(org_id="test-org-id", user_id="test-user-id", role="hr"), db_mock
 
     app.dependency_overrides[get_db] = fake_get_db
     app.dependency_overrides[org_scoped_db] = fake_org_scoped_db
@@ -201,3 +201,54 @@ class TestJobProfileApi:
             )
 
         assert resp.status_code == 404
+
+    def test_list_profile_templates(self) -> None:
+        app = _make_app(MagicMock())
+        svc = MagicMock()
+        svc.template_library = AsyncMock(
+            return_value=[
+                {
+                    "id": "11111111-1111-1111-1111-111111111107",
+                    "code": "Java_P7",
+                    "title": "高级 Java 工程师",
+                    "level": "P7",
+                    "department": "技术部",
+                    "hard_requirement_count": 1,
+                    "soft_requirement_count": 1,
+                    "dimension_count": 2,
+                }
+            ]
+        )
+
+        with patch("app.api.job_profiles.JobProfileService", return_value=svc):
+            resp = TestClient(app).get("/job-profiles/templates/library")
+
+        assert resp.status_code == 200
+        assert resp.json()["data"][0]["code"] == "Java_P7"
+
+    def test_create_profile_version_not_found(self) -> None:
+        app = _make_app(MagicMock())
+        svc = MagicMock()
+        svc.create_version = AsyncMock(return_value=None)
+
+        with patch("app.api.job_profiles.JobProfileService", return_value=svc):
+            resp = TestClient(app).post(
+                "/job-profiles/11111111-1111-1111-1111-111111111107/versions",
+                json={"change_reason": "初始化版本", "status": "draft"},
+            )
+
+        assert resp.status_code == 404
+        assert "岗位画像不存在" in resp.json()["error"]
+
+
+class TestJobProfileVersionService:
+    async def test_create_version_returns_none_for_missing_profile(self, service) -> None:
+        service.get_by_id = AsyncMock(return_value=None)
+
+        got = await service.create_version(
+            "11111111-1111-1111-1111-111111111107",
+            JobProfileVersionCreate(change_reason="初始化版本"),
+            created_by="test-user-id",
+        )
+
+        assert got is None

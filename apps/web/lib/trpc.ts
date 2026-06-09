@@ -104,6 +104,33 @@ async function request<T>(
   return body as T;
 }
 
+async function upload<T>(path: string, formData: FormData): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: formData,
+  });
+
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    if (!res.ok) throw new ApiError(`请求失败 (${res.status})`, res.status);
+    return undefined as T;
+  }
+
+  if (body && typeof body === "object" && "success" in body) {
+    const b = body as Record<string, unknown>;
+    if (b.success === false) {
+      throw new ApiError((b.error as string) || `请求失败 (${res.status})`, res.status);
+    }
+    if ("data" in b && b.data !== undefined) return b.data as T;
+  }
+
+  if (!res.ok) throw new ApiError(`请求失败 (${res.status})`, res.status);
+  return body as T;
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body: unknown) =>
@@ -116,6 +143,7 @@ export const api = {
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  upload,
 };
 
 /**

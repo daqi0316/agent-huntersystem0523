@@ -91,3 +91,48 @@ class JobProfileRead(JobProfileBase):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class JobProfileVersionCreate(BaseModel):
+    change_reason: str | None = None
+    status: str = Field("draft", max_length=50)
+
+
+class JobProfileRequirementItemRead(BaseModel):
+    id: str
+    profile_version_id: str
+    type: str
+    category: str | None = None
+    label: str
+    description: str | None = None
+    must_have: bool
+    weight: float | None = None
+    evidence_required: str | None = None
+    red_flag_if_missing: bool
+    order_index: int
+
+
+class JobProfileDimensionRead(BaseModel):
+    id: str
+    profile_version_id: str
+    name: str
+    category: str | None = None
+    weight: float
+    description: str | None = None
+    must_have: str | None = None
+    key_questions: list[str]
+    red_flags: list[str]
+    order_index: int
+
+
+class JobProfileVersionRead(BaseModel):
+    id: str
+    job_profile_id: str
+    version: int
+    status: str
+    change_reason: str | None = None
+    snapshot: dict
+    created_by: str
+    created_at: datetime
+    requirements: list[JobProfileRequirementItemRead] = Field(default_factory=list)
+    dimensions: list[JobProfileDimensionRead] = Field(default_factory=list)

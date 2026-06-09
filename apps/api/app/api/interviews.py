@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.org_context import org_scoped_db
@@ -12,6 +12,10 @@ from app.schemas.common import ListResponse
 from app.services.application import ApplicationService
 from app.services.candidate import CandidateService
 from app.services.interview import InterviewService
+from app.services.interview_recording import (
+    InterviewRecordingError,
+    InterviewRecordingService,
+)
 from app.models.interview_evaluation import InterviewRound, EvaluationVerdict
 
 
@@ -47,6 +51,23 @@ class FeedbackSummaryRequest(BaseModel):
     evaluations: list[dict] = []
 
 
+class RecordingFeedbackRequest(BaseModel):
+    candidate_name: str = "候选人"
+    job_title: str = ""
+    round: str = "R1"
+
+
+def _recording_error_response(exc: InterviewRecordingError):
+    status_code = 404 if exc.code == "NOT_FOUND" else 400
+    return error(exc.message, status_code=status_code)
+
+
+def _parse_interview_round(value: str) -> InterviewRound:
+    if value in InterviewRound.__members__:
+        return InterviewRound[value]
+    return InterviewRound(value)
+
+
 router = APIRouter()
 
 
@@ -77,6 +98,130 @@ async def get_interview(interview_id: str, od = Depends(org_scoped_db)):
     if not interview:
         return error("面试不存在", status_code=404)
     return success(service._to_dict(interview))
+
+
+@router.get("/{interview_id}/recordings")
+async def list_interview_recordings(interview_id: str, od = Depends(org_scoped_db)):
+    org_ctx, db = od
+    service = InterviewRecordingService(db)
+    interview = await InterviewService(db)._get_by_id(interview_id)
+    if not interview:
+        return error("面试不存在", status_code=404)
+    recordings = await service.list_recordings(interview_id)
+    return success([service.to_dict(r) for r in recordings])
+
+
+@router.get("/{interview_id}/recordings/{recording_id}")
+async def get_interview_recording(interview_id: str, recording_id: str, od = Depends(org_scoped_db)):
+    org_ctx, db = od
+    service = InterviewRecordingService(db)
+    recording = await service.get_recording(interview_id, recording_id)
+    if not recording:
+        return error("录音不存在", status_code=404)
+    return success(service.to_dict(recording))
+
+
+@router.post("/{interview_id}/recordings/upload", status_code=201)
+async def upload_interview_recording(
+    interview_id: str,
+    file: UploadFile = File(...),
+    consent_confirmed: bool = Form(False),
+    duration_seconds: float | None = Form(None),
+    sample_rate: int | None = Form(None),
+    channels: int | None = Form(None),
+    od = Depends(org_scoped_db),
+):
+    org_ctx, db = od
+    file_bytes = await file.read()
+    service = InterviewRecordingService(db)
+    try:
+        recording = await service.upload_recording(
+            interview_id=interview_id,
+            file_bytes=file_bytes,
+            filename=file.filename or "recording.webm",
+            mime_type=file.content_type or "",
+            user_id=org_ctx.user_id,
+            consent_confirmed=consent_confirmed,
+            duration_seconds=duration_seconds,
+            sample_rate=sample_rate,
+            channels=channels,
+        )
+    except InterviewRecordingError as exc:
+        return _recording_error_response(exc)
+    return success(service.to_dict(recording))
+
+
+@router.post("/{interview_id}/recordings/{recording_id}/transcribe")
+async def transcribe_interview_recording(interview_id: str, recording_id: str, od = Depends(org_scoped_db)):
+    org_ctx, db = od
+    service = InterviewRecordingService(db)
+    try:
+        recording = await service.transcribe_recording(interview_id, recording_id)
+    except InterviewRecordingError as exc:
+        return _recording_error_response(exc)
+    return success(service.to_dict(recording))
+
+
+@router.post("/{interview_id}/recordings/{recording_id}/evaluation", status_code=201)
+async def create_recording_evaluation(
+    interview_id: str,
+    recording_id: str,
+    body: RecordingFeedbackRequest,
+    od = Depends(org_scoped_db),
+):
+    org_ctx, db = od
+    recording_svc = InterviewRecordingService(db)
+    recording = await recording_svc.get_recording(interview_id, recording_id)
+    if not recording:
+        return error("录音不存在", status_code=404)
+    if not recording.transcript_text:
+        return error("录音尚未转写，不能生成面试评价", status_code=400)
+
+    from app.agents.interview_agent import InterviewAgent
+    agent = InterviewAgent()
+    feedback = await agent.generate_feedback_from_transcript(
+        candidate_name=body.candidate_name,
+        transcript_text=recording.transcript_text,
+        job_title=body.job_title,
+    )
+    if feedback.get("status") == "insufficient_data":
+        return error("缺少转录文本，不能生成面试评价", status_code=400)
+
+    try:
+        round_enum = _parse_interview_round(body.round) if body.round else InterviewRound.R1
+        verdict_enum = EvaluationVerdict(feedback.get("verdict") or EvaluationVerdict.CONSIDER.value)
+    except ValueError:
+        return error("无效的面试轮次或评估结论", status_code=400)
+
+    interview_svc = InterviewService(db)
+    evidence_quotes = feedback.get("evidence_quotes") or []
+    strengths = feedback.get("strengths") or []
+    concerns = feedback.get("concerns") or []
+    key_observations = "\n".join(str(x) for x in evidence_quotes[:5])
+    red_flags = "\n".join(str(x) for x in concerns[:5])
+    dimensions = {
+        "source": "interview_recording",
+        "recording_id": recording.id,
+        "model_status": feedback.get("status"),
+        "strengths": strengths,
+        "evidence_quotes": evidence_quotes,
+    }
+    evaluation = await interview_svc.save_evaluation(
+        interview_id=interview_id,
+        round=round_enum,
+        overall_score=feedback.get("overall_score"),
+        verdict=verdict_enum,
+        dimensions=dimensions,
+        key_observations=key_observations,
+        red_flags=red_flags,
+        feedback=feedback.get("feedback") or "",
+    )
+    return success({
+        "interview_id": interview_id,
+        "recording_id": recording.id,
+        "feedback": feedback,
+        "evaluation": interview_svc._eval_to_dict(evaluation),
+    })
 
 
 @router.post("", status_code=201)
@@ -257,7 +402,7 @@ async def save_evaluation(
     org_ctx, db = od
     service = InterviewService(db)
     try:
-        round_enum = InterviewRound(body.round) if body.round else InterviewRound.R1
+        round_enum = _parse_interview_round(body.round) if body.round else InterviewRound.R1
         verdict_enum = EvaluationVerdict(body.verdict) if body.verdict else EvaluationVerdict.CONSIDER
     except ValueError:
         return error("无效的面试轮次或评估结论", status_code=400)

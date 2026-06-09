@@ -31,6 +31,9 @@ import {
   GitBranch,
   ClipboardList,
   AlertTriangle,
+  MessageSquare,
+  CheckCircle2,
+  CircleDollarSign,
 } from "lucide-react";
 
 import { api, ApiError } from "@/lib/trpc";
@@ -132,8 +135,99 @@ interface CandidateDecisionChainRead {
   applications: DecisionChainApplicationSummary[];
   interviews: DecisionChainInterviewSummary[];
   interview_feedback: DecisionChainInterviewFeedbackSummary[];
+  timeline_evidence: CandidateTimelineEvent[];
   rejections: DecisionChainRejectionSummary[];
   missing_sections: string[];
+}
+
+interface CandidateTimelineEvent {
+  id: string;
+  event_type: string;
+  type?: string;
+  title: string;
+  content?: string | null;
+  description?: string | null;
+  occurred_at?: string | null;
+  timestamp?: string | null;
+  source?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface CandidateFollowupTask {
+  id: string;
+  due_at: string;
+  task_type: string;
+  title: string;
+  status: string;
+  priority: string;
+  owner_id: string | null;
+  auto_generated: boolean;
+  trigger_rule: string | null;
+}
+
+interface CandidateCommitment {
+  id: string;
+  promised_by: string;
+  content: string;
+  due_at: string | null;
+  status: string;
+  related_event_id: string | null;
+}
+
+interface CandidateTimelineRead {
+  candidate_id: string;
+  candidate_name: string;
+  events: CandidateTimelineEvent[];
+  followup_tasks: CandidateFollowupTask[];
+  commitments: CandidateCommitment[];
+  overdue_count: number;
+  total: number;
+}
+
+interface CompensationExpectation {
+  id: string;
+  current_base: number | null;
+  current_total: number | null;
+  expected_base: number | null;
+  expected_total: number | null;
+  minimum_acceptable: number | null;
+  notice_period: string | null;
+  competing_offers: unknown[];
+  notes: string | null;
+  created_at: string;
+}
+
+interface OfferNegotiationRecord {
+  id: string;
+  expected_total: number | null;
+  first_offer_total: number | null;
+  final_offer_total: number | null;
+  market_p50: number | null;
+  budget_min: number | null;
+  budget_max: number | null;
+  negotiation_status: string;
+  accepted: boolean | null;
+  reject_reason: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+interface CompensationRisk {
+  risk_label: string;
+  risk_score: number;
+  expected_total: number | null;
+  market_p50: number | null;
+  budget_min: number | null;
+  budget_max: number | null;
+  gap_to_market_p50_pct: number | null;
+  gap_to_budget_max_pct: number | null;
+  reasons: string[];
+}
+
+interface CandidateCompensationRead {
+  expectations: CompensationExpectation[];
+  offers: OfferNegotiationRecord[];
+  risk: CompensationRisk;
 }
 
 const STATUS_VARIANT: Record<
@@ -156,6 +250,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
   const [candidate, setCandidate] = useState<CandidateRead | null>(null);
   const [decisionChain, setDecisionChain] =
     useState<CandidateDecisionChainRead | null>(null);
+  const [timeline, setTimeline] = useState<CandidateTimelineRead | null>(null);
+  const [compensation, setCompensation] = useState<CandidateCompensationRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -163,12 +259,16 @@ export default function CandidateDetailPage({ params }: PageProps) {
     setLoading(true);
     setError(null);
     try {
-      const [data, chain] = await Promise.all([
+      const [data, chain, timelineData, compensationData] = await Promise.all([
         api.get<CandidateRead>(`/candidates/${id}`),
         api.get<CandidateDecisionChainRead>(`/candidates/${id}/decision-chain`),
+        api.get<CandidateTimelineRead>(`/candidates/${id}/timeline`),
+        api.get<CandidateCompensationRead>(`/candidates/${id}/compensation`),
       ]);
       setCandidate(data);
       setDecisionChain(chain);
+      setTimeline(timelineData);
+      setCompensation(compensationData);
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         notFound();
@@ -246,6 +346,12 @@ export default function CandidateDetailPage({ params }: PageProps) {
   const interviews = decisionChain?.interviews ?? [];
   const interviewFeedback = decisionChain?.interview_feedback ?? [];
   const rejections = decisionChain?.rejections ?? [];
+  const timelineEvents = timeline?.events ?? [];
+  const followupTasks = timeline?.followup_tasks ?? [];
+  const commitments = timeline?.commitments ?? [];
+  const expectations = compensation?.expectations ?? [];
+  const offers = compensation?.offers ?? [];
+  const compensationRisk = compensation?.risk;
 
   return (
     <main
@@ -409,6 +515,182 @@ export default function CandidateDetailPage({ params }: PageProps) {
           </CardContent>
         </Card>
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MessageSquare className="h-4 w-4" />
+              候选人关系时间线
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {timelineEvents.length > 0 ? (
+              <div className="space-y-3">
+                {timelineEvents.map((event) => {
+                  const occurredAt = event.occurred_at || event.timestamp;
+                  return (
+                    <div key={event.id} className="relative rounded-lg border p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">{event.event_type || event.type}</Badge>
+                        {event.source && <Badge variant="secondary">{event.source}</Badge>}
+                      </div>
+                      <div className="mt-2 text-sm font-medium">{event.title}</div>
+                      <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">
+                        {event.content || event.description || "无内容"}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {occurredAt ? new Date(occurredAt).toLocaleString("zh-CN") : "时间未采集"}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                关系时间线未采集
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CheckCircle2 className="h-4 w-4" />
+              跟进任务
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {timeline?.overdue_count ? (
+              <Badge variant="destructive">逾期 {timeline.overdue_count}</Badge>
+            ) : null}
+            {followupTasks.length > 0 ? (
+              followupTasks.map((task) => (
+                <div key={task.id} className="rounded-lg border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={task.status === "overdue" ? "destructive" : "outline"}>
+                      {task.status}
+                    </Badge>
+                    <Badge variant="secondary">{task.priority}</Badge>
+                    {task.auto_generated && <Badge variant="outline">自动</Badge>}
+                  </div>
+                  <div className="mt-2 text-sm font-medium">{task.title}</div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {new Date(task.due_at).toLocaleString("zh-CN")}
+                    {task.trigger_rule ? ` · ${task.trigger_rule}` : ""}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                暂无跟进任务
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ClipboardList className="h-4 w-4" />
+            候选人承诺
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {commitments.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {commitments.map((item) => (
+                <div key={item.id} className="rounded-lg border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{item.promised_by}</Badge>
+                    <Badge variant={item.status === "overdue" ? "destructive" : "secondary"}>
+                      {item.status}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">
+                    {item.content}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {item.due_at ? new Date(item.due_at).toLocaleString("zh-CN") : "无截止时间"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              暂无承诺记录
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CircleDollarSign className="h-4 w-4" />
+            薪酬期望与 Offer 风险
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {compensationRisk && (
+            <div className="rounded-lg border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={compensationRisk.risk_label === "high" ? "destructive" : "outline"}>
+                  {compensationRisk.risk_label}
+                </Badge>
+                <Badge variant="secondary">风险分 {compensationRisk.risk_score}</Badge>
+                {compensationRisk.gap_to_budget_max_pct !== null && (
+                  <Badge variant="outline">预算差 {compensationRisk.gap_to_budget_max_pct}%</Badge>
+                )}
+              </div>
+              <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+                <div>期望总包：{compensationRisk.expected_total ?? "未采集"}</div>
+                <div>市场 P50：{compensationRisk.market_p50 ?? "未采集"}</div>
+                <div>预算下限：{compensationRisk.budget_min ?? "未采集"}</div>
+                <div>预算上限：{compensationRisk.budget_max ?? "未采集"}</div>
+              </div>
+              <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                {compensationRisk.reasons.map((reason) => <div key={reason}>· {reason}</div>)}
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg border p-3">
+              <div className="mb-2 text-sm font-medium">候选人薪酬期望</div>
+              {expectations.length > 0 ? expectations.slice(0, 3).map((item) => (
+                <div key={item.id} className="border-t py-2 text-sm first:border-t-0 first:pt-0">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline">期望 {item.expected_total ?? "未采集"}</Badge>
+                    <Badge variant="secondary">最低 {item.minimum_acceptable ?? "未采集"}</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">离职期：{item.notice_period || "未采集"}</p>
+                  {item.notes && <p className="mt-1 text-xs text-muted-foreground">{item.notes}</p>}
+                </div>
+              )) : <p className="text-sm text-muted-foreground">薪酬期望未采集</p>}
+            </div>
+
+            <div className="rounded-lg border p-3">
+              <div className="mb-2 text-sm font-medium">Offer 谈判记录</div>
+              {offers.length > 0 ? offers.slice(0, 3).map((item) => (
+                <div key={item.id} className="border-t py-2 text-sm first:border-t-0 first:pt-0">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline">{item.negotiation_status}</Badge>
+                    <Badge variant="secondary">最终 {item.final_offer_total ?? "未采集"}</Badge>
+                    {item.accepted !== null && <Badge>{item.accepted ? "接受" : "未接受"}</Badge>}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    首轮 {item.first_offer_total ?? "未采集"} · 预算 {item.budget_min ?? "?"}-{item.budget_max ?? "?"}
+                  </p>
+                  {item.reject_reason && <p className="mt-1 text-xs text-muted-foreground">拒绝原因：{item.reject_reason}</p>}
+                </div>
+              )) : <p className="text-sm text-muted-foreground">Offer 谈判未采集</p>}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">

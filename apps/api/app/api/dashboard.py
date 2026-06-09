@@ -31,6 +31,8 @@ async def dashboard_stats(
     total_jobs = await _count(db, "job_positions")
     active_interviews = await _count_with_condition(db, "interviews", "status", "scheduled")
     monthly_onboards = await _count_this_month(db, "candidates", "hired")
+    overdue_followups = await _count_overdue_followups(db)
+    compensation_risks = await _count_compensation_risks(db)
 
     # 最近动态（最后 6 条按创建时间倒序）
     recent_activities = await _recent_activities(db)
@@ -44,6 +46,8 @@ async def dashboard_stats(
             {"label": "招聘职位", "value": total_jobs or 0, "key": "jobs"},
             {"label": "进行中面试", "value": active_interviews or 0, "key": "interviews"},
             {"label": "本月入职", "value": monthly_onboards or 0, "key": "onboards"},
+            {"label": "逾期跟进", "value": overdue_followups or 0, "key": "overdue_followups"},
+            {"label": "薪酬风险", "value": compensation_risks or 0, "key": "compensation_risks"},
         ],
         "trend": trend,
         "recent_activities": recent_activities,
@@ -79,6 +83,35 @@ async def _count_this_month(db: AsyncSession, table: str, status_value: str) -> 
                 f"WHERE status = :status AND created_at >= :first_day"
             ),
             {"status": status_value, "first_day": first_day},
+        )
+        return result.scalar() or 0
+    except Exception:
+        return 0
+
+
+async def _count_overdue_followups(db: AsyncSession) -> int:
+    try:
+        now = datetime.now(timezone.utc)
+        result = await db.execute(
+            text(
+                "SELECT COUNT(*) FROM candidate_followup_tasks "
+                "WHERE (status = 'overdue') OR (status = 'pending' AND due_at < :now)"
+            ),
+            {"now": now},
+        )
+        return result.scalar() or 0
+    except Exception:
+        return 0
+
+
+async def _count_compensation_risks(db: AsyncSession) -> int:
+    try:
+        result = await db.execute(
+            text(
+                "SELECT COUNT(*) FROM offer_negotiation_records "
+                "WHERE expected_total IS NOT NULL AND budget_max IS NOT NULL "
+                "AND expected_total > budget_max"
+            )
         )
         return result.scalar() or 0
     except Exception:

@@ -29,8 +29,8 @@ export default function LegalAcceptPage() {
 
   useEffect(() => {
     Promise.all([
-      api.get<{ data: Agreement[] }>("/legal/agreements").then((r) => r.data || []),
-      api.get<{ data: AcceptanceStatus }>("/legal/status").then((r) => r.data),
+      api.get<{ data: Agreement[] }>("/legal/agreements").then((r: { data: Agreement[] }) => r.data || []),
+      api.get<{ data: AcceptanceStatus }>("/legal/status").then((r: { data: AcceptanceStatus }) => r.data),
     ]).then(([a, s]) => {
       setAgreements(a);
       setStatus(s);
