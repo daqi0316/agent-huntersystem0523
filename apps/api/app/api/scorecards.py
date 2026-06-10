@@ -9,6 +9,7 @@ from app.schemas.scorecard import (
     InterviewScorecardSubmissionCreate,
     ScorecardFromJobProfileRequest,
     ScorecardTemplateCreate,
+    ScorecardTemplateUpdate,
 )
 from app.models.scorecard import ScorecardStatus
 from app.services.scorecard import ScorecardService
@@ -52,6 +53,23 @@ async def get_scorecard_template(template_id: str, od=ORG_SCOPED_DEP):
     org_ctx, db = od
     service = ScorecardService(db)
     template = await service.get_template(template_id)
+    if template is None:
+        return error("评分卡模板不存在", status_code=404)
+    return success(await service.to_template_dict(template))
+
+
+@router.put("/templates/{template_id}")
+async def update_scorecard_template(
+    template_id: str,
+    data: ScorecardTemplateUpdate,
+    od=ORG_SCOPED_DEP,
+):
+    org_ctx, db = od
+    service = ScorecardService(db)
+    try:
+        template = await service.update_template(template_id, data, updated_by=org_ctx.user_id)
+    except ValueError as exc:
+        return error(str(exc), status_code=400)
     if template is None:
         return error("评分卡模板不存在", status_code=404)
     return success(await service.to_template_dict(template))
@@ -109,14 +127,12 @@ async def submit_interview_scorecard(
 async def activate_scorecard_template(template_id: str, od=ORG_SCOPED_DEP):
     org_ctx, db = od
     service = ScorecardService(db)
-    template = await service.get_template(template_id)
+    try:
+        template = await service.activate_template(template_id)
+    except ValueError as exc:
+        return error(str(exc), status_code=400)
     if template is None:
         return error("评分卡模板不存在", status_code=404)
-    if template.status == ScorecardStatus.ACTIVE:
-        return error("评分卡模板已是 active 状态", status_code=400)
-    template.status = ScorecardStatus.ACTIVE
-    await db.commit()
-    await db.refresh(template)
     return success(await service.to_template_dict(template))
 
 

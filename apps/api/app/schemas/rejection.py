@@ -40,6 +40,7 @@ class CandidateRejectRequest(BaseModel):
     is_primary: bool = True
     related_scorecard_submission_id: str | None = None
     related_dimension_id: str | None = None
+    evidence_ref_id: str | None = None
 
 
 class CandidateRejectionRecordRead(BaseModel):
@@ -62,6 +63,7 @@ class CandidateRejectionRecordRead(BaseModel):
     is_primary: bool = True
     related_scorecard_submission_id: str | None = None
     related_dimension_id: str | None = None
+    evidence_ref_id: str | None = None
     operator_id: str
     created_at: datetime
 

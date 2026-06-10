@@ -19,9 +19,30 @@ async def _handle_generate_jd(title="", requirements="", preferences=""):
     prompt += "\n输出格式：\n## 职位名称\n### 岗位职责\n### 任职要求\n### 加分项\n### 薪资范围"
     try:
         result = await llm.chat([{"role": "user", "content": prompt}], temperature=0.3, max_tokens=2048)
-        return {"title": title, "jd": result}
+        jd_result = {"title": title, "jd": result}
+        try:
+            from app.agentops.events import get_event_emitter, BusinessEventType
+            await get_event_emitter().emit(
+                event_type=BusinessEventType.JD_GENERATION_COMPLETED,
+                entity_type="job",
+                entity_id=title,
+                domain_fields={"jd_length": len(result)},
+                tags=["jd", "ai"],
+            )
+        except Exception:
+            pass
+        return jd_result
     except Exception as e:
         logger.warning("JD generation failed: %s", e)
+        try:
+            from app.agentops.events import get_event_emitter, BusinessEventType
+            await get_event_emitter().emit(
+                event_type=BusinessEventType.JD_GENERATION_FAILED,
+                entity_type="job", entity_id=title,
+                error=str(e),
+            )
+        except Exception:
+            pass
         return {"title": title, "jd": f"## {title}\n\n{requirements}", "fallback": True}
 
 

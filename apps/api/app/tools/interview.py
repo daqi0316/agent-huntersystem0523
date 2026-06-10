@@ -21,6 +21,17 @@ async def _handle_cancel_interview(interview_id: str = "", reason: str = "") -> 
         result = await svc.cancel(interview_id)
         if not result:
             return {"status": "failed", "error": {"code": "NOT_FOUND", "message": "面试不存在"}}
+        try:
+            from app.agentops.events import get_event_emitter, BusinessEventType
+            await get_event_emitter().emit(
+                event_type=BusinessEventType.INTERVIEW_CANCELLED,
+                entity_type="interview",
+                entity_id=interview_id,
+                domain_fields={"reason": reason or ""},
+                tags=["interview"],
+            )
+        except Exception:
+            pass
         return {"status": "success", "data": {"interview_id": interview_id, "status": "cancelled", "reason": reason}}
 
 
@@ -46,7 +57,19 @@ async def _handle_schedule_interview(candidate_id="", job_id="", scheduled_time=
             return {"id": None, "status": "failed", "error": {"code": "NOT_FOUND", "message": "候选人不存在"}}
         if result.get("error"):
             return result
-        return {"id": result["id"], "status": "scheduled"}
+        interview_id = result["id"]
+        try:
+            from app.agentops.events import get_event_emitter, BusinessEventType
+            await get_event_emitter().emit(
+                event_type=BusinessEventType.INTERVIEW_SCHEDULED,
+                entity_type="interview",
+                entity_id=interview_id,
+                domain_fields={"candidate_id": candidate_id, "job_id": job_id, "scheduled_time": scheduled_time},
+                tags=["interview"],
+            )
+        except Exception:
+            pass
+        return {"id": interview_id, "status": "scheduled"}
 
 
 async def _handle_record_feedback(interview_id="", score=0, evaluation=""):

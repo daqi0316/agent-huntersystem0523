@@ -20,6 +20,7 @@ from sqlalchemy import select, desc, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
+from app.agentops.core.context import get_context as get_agentops_context
 from app.models.operation_log import OperationLog, OperationStatus, ErrorCategory
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,11 @@ class OperationService:
 
     # ── 操作日志 CRUD ──
 
+    def _current_trace_id(self) -> str:
+        """从当前 AgentOpsContext 自动读取 trace_id（如果有）。"""
+        ctx = get_agentops_context()
+        return ctx.trace_id if ctx else ""
+
     async def create(
         self,
         user_id: str = "",
@@ -73,7 +79,9 @@ class OperationService:
         input_summary: str = "",
         error_category: str = "",
         metadata_json: dict | None = None,
+        trace_id: str = "",
     ) -> OperationLog:
+        trace_id = trace_id or self._current_trace_id()
         op = OperationLog(
             id=str(uuid.uuid4()),
             user_id=user_id or None,
@@ -83,6 +91,7 @@ class OperationService:
             input_summary=input_summary,
             error_category=error_category or None,
             metadata_json=metadata_json or {},
+            trace_id=trace_id or None,
             immutable=False,
         )
         if self.db:
@@ -209,7 +218,13 @@ class OperationService:
     # ── SSE 流生成器 ──
 
     async def sse_generator(self, user_id: str | None = None):
-        """SSE 事件生成器 — 订阅 event_bus 并推送相关事件。"""
+        """SSE 事件生成器 — 订阅 event_bus 并推送相关事件。
+
+        推送三种事件类型:
+          - "operation": 操作创建/更新
+          - "business_event": 业务事件（screening/jd/interview/evaluation）
+          - "heartbeat": 保活（30s 无事件时）
+        """
         queue: asyncio.Queue[dict] = asyncio.Queue()
 
         def on_event(data: dict):
@@ -219,16 +234,20 @@ class OperationService:
 
         unsub_created = event_bus.subscribe("operation.created", on_event)
         unsub_updated = event_bus.subscribe("operation.updated", on_event)
+        unsub_biz = event_bus.subscribe("business_event", on_event)
 
         try:
             while True:
                 try:
                     data = await asyncio.wait_for(queue.get(), timeout=30.0)
                     from app.core.sse import sse_event
-                    yield sse_event("operation", data)
+                    # data has no event_type key for operation events; use type field
+                    evt_type = data.get("event_type", "operation")
+                    yield sse_event(evt_type, data)
                 except asyncio.TimeoutError:
                     from app.core.sse import sse_event
                     yield sse_event("heartbeat", {"ts": datetime.now(timezone.utc).isoformat()})
         finally:
             unsub_created()
             unsub_updated()
+            unsub_biz()

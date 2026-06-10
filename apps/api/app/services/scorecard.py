@@ -20,7 +20,11 @@ from app.models.scorecard import (
     ScorecardTemplate,
     ScorecardVerdict,
 )
-from app.schemas.scorecard import InterviewScorecardSubmissionCreate, ScorecardTemplateCreate
+from app.schemas.scorecard import (
+    InterviewScorecardSubmissionCreate,
+    ScorecardTemplateCreate,
+    ScorecardTemplateUpdate,
+)
 from app.services.interview import InterviewService
 
 
@@ -109,6 +113,56 @@ class ScorecardService:
         await self.db.refresh(template)
         return template
 
+    async def update_template(
+        self, template_id: str, data: ScorecardTemplateUpdate, updated_by: str
+    ) -> ScorecardTemplate | None:
+        template = await self.get_template(template_id)
+        if template is None:
+            return None
+        if template.status != ScorecardStatus.DRAFT:
+            raise ValueError("仅 draft 状态的评分卡模板可编辑")
+        if data.name is not None:
+            template.name = data.name
+        if data.round_type is not None:
+            template.round_type = ScorecardRoundType(data.round_type)
+        if data.dimensions is not None:
+            for dim in data.dimensions:
+                scores = {a.score for a in dim.anchors}
+                if not {1, 3, 5}.issubset(scores):
+                    raise ValueError("每个评分维度必须提供 1/3/5 行为锚定")
+            old_dims = await self._dimensions_for_template(template.id)
+            for dim in old_dims:
+                await self.db.delete(dim)
+            await self.db.flush()
+            for dim_index, dim_data in enumerate(data.dimensions):
+                dimension = ScorecardDimension(
+                    id=str(uuid.uuid4()),
+                    scorecard_template_id=template.id,
+                    name=dim_data.name,
+                    category=dim_data.category,
+                    weight=dim_data.weight,
+                    description=dim_data.description,
+                    required=dim_data.required,
+                    order_index=dim_data.order_index if dim_data.order_index else dim_index,
+                )
+                self.db.add(dimension)
+                await self.db.flush()
+                for anchor_data in dim_data.anchors:
+                    self.db.add(
+                        ScorecardBehaviorAnchor(
+                            id=str(uuid.uuid4()),
+                            dimension_id=dimension.id,
+                            score=anchor_data.score,
+                            anchor_text=anchor_data.anchor_text,
+                            evidence_examples=anchor_data.evidence_examples,
+                            red_flags=anchor_data.red_flags,
+                        )
+                    )
+            template.total_weight = sum(d.weight for d in data.dimensions)
+        await self.db.commit()
+        await self.db.refresh(template)
+        return template
+
     async def create_from_job_profile(
         self,
         profile_id: str,
@@ -172,6 +226,19 @@ class ScorecardService:
         interview = await InterviewService(self.db)._get_by_id(interview_id)
         if interview is None:
             return None
+
+        # 优先匹配面试创建时冻结的版本
+        if interview.profile_version_id:
+            frozen_result = await self.db.execute(
+                select(ScorecardTemplate).where(
+                    ScorecardTemplate.profile_version_id == interview.profile_version_id,
+                    ScorecardTemplate.status == ScorecardStatus.ACTIVE,
+                )
+            )
+            frozen_template = frozen_result.scalar_one_or_none()
+            if frozen_template is not None:
+                return await self.to_template_dict(frozen_template)
+
         profile_scoped_template = await self._active_template_for_interview_application(interview.application_id)
         if profile_scoped_template is not None:
             return await self.to_template_dict(profile_scoped_template)
@@ -244,6 +311,23 @@ class ScorecardService:
         await self.db.commit()
         await self.db.refresh(submission)
         return submission
+
+    async def activate_template(self, template_id: str) -> ScorecardTemplate | None:
+        template = await self.get_template(template_id)
+        if template is None:
+            return None
+        if template.status == ScorecardStatus.ACTIVE:
+            raise ValueError("评分卡模板已是 active 状态")
+        # 自动 archive 同 profile+round_type 的旧 active 模板
+        if template.job_profile_id:
+            await self._archive_active_templates(
+                job_profile_id=template.job_profile_id,
+                round_type=template.round_type,
+            )
+        template.status = ScorecardStatus.ACTIVE
+        await self.db.commit()
+        await self.db.refresh(template)
+        return template
 
     async def list_submissions_for_candidate(self, candidate_id: str) -> list[dict[str, Any]]:
         result = await self.db.execute(

@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.api.scorecards import router as scorecards_router
 from app.core.database import get_db
 from app.core.org_context import OrgContext, org_scoped_db
-from app.schemas.scorecard import ScorecardTemplateCreate
+from app.schemas.scorecard import ScorecardTemplateCreate, ScorecardDimensionScoreCreate, ScorecardTemplateUpdate
 from app.services.scorecard import ScorecardService
 
 
@@ -83,6 +83,36 @@ class TestScorecardSchema:
 
         assert "1/3/5 行为锚定" in str(exc.value)
 
+    def test_rejects_low_score_without_confidence(self) -> None:
+        with pytest.raises(ValueError) as exc:
+            ScorecardDimensionScoreCreate(
+                dimension_id="d1",
+                score=2,
+                evidence="表现不佳",
+                confidence=None,
+            )
+        assert "confidence" in str(exc.value).lower()
+
+    def test_rejects_high_score_without_confidence(self) -> None:
+        with pytest.raises(ValueError) as exc:
+            ScorecardDimensionScoreCreate(
+                dimension_id="d1",
+                score=5,
+                evidence="表现极好",
+                confidence=None,
+            )
+        assert "confidence" in str(exc.value).lower()
+
+    def test_accepts_mid_score_without_confidence(self) -> None:
+        s = ScorecardDimensionScoreCreate(
+            dimension_id="d1",
+            score=3,
+            evidence="表现正常",
+            confidence=None,
+        )
+        assert s.score == 3
+        assert s.confidence is None
+
 
 def _make_app(db_mock) -> FastAPI:
     app = FastAPI()
@@ -131,6 +161,47 @@ class TestScorecardApi:
         assert resp.status_code == 201
         assert resp.json()["data"]["name"] == "Java P7 技术面评分卡"
         assert svc.create_template.await_args.kwargs["created_by"] == "test-user-id"
+
+    def test_update_template(self) -> None:
+        app = _make_app(MagicMock())
+        svc = MagicMock()
+        svc.update_template = AsyncMock(return_value=SimpleNamespace(id="33333333-3333-3333-3333-333333333333"))
+        svc.to_template_dict = AsyncMock(return_value=_template_read())
+
+        with patch("app.api.scorecards.ScorecardService", return_value=svc):
+            resp = TestClient(app).put(
+                "/scorecards/templates/33333333-3333-3333-3333-333333333333",
+                json={"name": "新名称"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["name"] == "Java P7 技术面评分卡"
+
+    def test_update_template_not_found(self) -> None:
+        app = _make_app(MagicMock())
+        svc = MagicMock()
+        svc.update_template = AsyncMock(return_value=None)
+
+        with patch("app.api.scorecards.ScorecardService", return_value=svc):
+            resp = TestClient(app).put(
+                "/scorecards/templates/nonexistent",
+                json={"name": "新名称"},
+            )
+
+        assert resp.status_code == 404
+        assert "不存在" in resp.json()["error"]
+
+    def test_update_template_validates_schema(self) -> None:
+        app = _make_app(MagicMock())
+
+        with patch("app.api.scorecards.ScorecardService"):
+            # 空 body → schema 校验失败
+            resp = TestClient(app).put(
+                "/scorecards/templates/33333333-3333-3333-3333-333333333333",
+                json={},
+            )
+        # FastAPI 的 Pydantic 校验会返回 422
+        assert resp.status_code == 422
 
     def test_submit_interview_scorecard_not_found(self) -> None:
         app = _make_app(MagicMock())
@@ -187,6 +258,105 @@ class TestScorecardService:
             ScorecardTemplateCreate(**payload)
 
         assert "1/3/5 行为锚定" in str(exc.value)
+
+    async def test_update_template_draft_success(self) -> None:
+        db = AsyncMock()
+        template = SimpleNamespace(
+            id="33333333-3333-3333-3333-333333333333",
+            name="旧名称",
+            round_type="technical",
+            status="draft",
+            total_weight=1.0,
+            created_by="test-user-id",
+        )
+        svc = ScorecardService(db)
+
+        # get_template 返回 draft 模板
+        svc.get_template = AsyncMock(return_value=template)
+        svc._dimensions_for_template = AsyncMock(return_value=[])
+        svc.to_template_dict = AsyncMock(return_value={
+            "id": template.id,
+            "name": "新名称",
+            "round_type": "technical",
+            "status": "draft",
+            "total_weight": 1.0,
+        })
+
+        from app.schemas.scorecard import ScorecardTemplateUpdate, ScorecardDimensionCreate, ScorecardAnchorCreate
+
+        update = ScorecardTemplateUpdate(
+            name="新名称",
+            round_type="technical",
+            dimensions=[
+                ScorecardDimensionCreate(
+                    name="沟通能力",
+                    weight=0.5,
+                    required=True,
+                    anchors=[
+                        ScorecardAnchorCreate(score=1, anchor_text="无法沟通"),
+                        ScorecardAnchorCreate(score=3, anchor_text="能正常沟通"),
+                        ScorecardAnchorCreate(score=5, anchor_text="沟通极佳"),
+                    ],
+                ),
+                ScorecardDimensionCreate(
+                    name="技术能力",
+                    weight=0.5,
+                    required=True,
+                    anchors=[
+                        ScorecardAnchorCreate(score=1, anchor_text="技术薄弱"),
+                        ScorecardAnchorCreate(score=3, anchor_text="能完成任务"),
+                        ScorecardAnchorCreate(score=5, anchor_text="技术卓越"),
+                    ],
+                ),
+            ],
+        )
+        got = await svc.update_template(template.id, update, updated_by="test-user")
+        assert got is not None
+        assert got.name == "新名称"
+
+    async def test_update_template_rejects_non_draft(self) -> None:
+        db = AsyncMock()
+        template = SimpleNamespace(id="t1", name="旧", round_type="technical", status="active")
+        svc = ScorecardService(db)
+        svc.get_template = AsyncMock(return_value=template)
+
+        from app.schemas.scorecard import ScorecardTemplateUpdate
+
+        with pytest.raises(ValueError, match="仅 draft"):
+            await svc.update_template("t1", ScorecardTemplateUpdate(name="新"), updated_by="u")
+
+    async def test_update_template_returns_none_for_missing(self) -> None:
+        svc = ScorecardService(AsyncMock())
+        svc.get_template = AsyncMock(return_value=None)
+
+        from app.schemas.scorecard import ScorecardTemplateUpdate
+
+        got = await svc.update_template("nonexistent", ScorecardTemplateUpdate(name="新"), updated_by="u")
+        assert got is None
+
+    async def test_update_template_rejects_missing_anchors(self) -> None:
+        db = AsyncMock()
+        template = SimpleNamespace(id="t1", name="旧", round_type="technical", status="draft")
+        svc = ScorecardService(db)
+        svc.get_template = AsyncMock(return_value=template)
+        svc._dimensions_for_template = AsyncMock(return_value=[])
+
+        from app.schemas.scorecard import ScorecardTemplateUpdate, ScorecardDimensionCreate, ScorecardAnchorCreate
+
+        with pytest.raises(ValueError, match="1/3/5"):
+            await svc.update_template(
+                "t1",
+                ScorecardTemplateUpdate(
+                    dimensions=[
+                        ScorecardDimensionCreate(
+                            name="测试",
+                            weight=1.0,
+                            anchors=[ScorecardAnchorCreate(score=5, anchor_text="仅高分")],
+                        )
+                    ]
+                ),
+                updated_by="u",
+            )
 
     async def test_template_allowed_for_interview_allows_explicit_template_when_no_profile_mapping_exists(self) -> None:
         db = AsyncMock()

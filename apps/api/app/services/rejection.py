@@ -129,6 +129,7 @@ class RejectionService:
             source=RejectionSource(data.source),
             confidence=data.confidence,
             is_primary=data.is_primary,
+            evidence_ref_id=data.evidence_ref_id,
             related_scorecard_submission_id=data.related_scorecard_submission_id,
             related_dimension_id=data.related_dimension_id,
             operator_id=operator_id,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ interface ListResponse<T> {
 }
 
 export default function ScorecardsPage() {
+  const router = useRouter();
   const [templates, setTemplates] = useState<ScorecardTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [interviewId, setInterviewId] = useState("");
@@ -172,7 +174,10 @@ export default function ScorecardsPage() {
               <button
                 key={template.id}
                 className={`w-full rounded-lg border p-3 text-left transition hover:bg-muted ${selectedTemplate?.id === template.id ? "border-primary" : ""}`}
-                onClick={() => setSelectedTemplateId(template.id)}
+                onClick={() => {
+                  setSelectedTemplateId(template.id);
+                  router.push(`/dashboard/scorecards/${template.id}`);
+                }}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-medium">{template.name}</div>

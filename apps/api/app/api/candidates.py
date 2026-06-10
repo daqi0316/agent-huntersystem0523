@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.org_context import org_scoped_db
 from app.core.response import error, success
@@ -24,10 +24,11 @@ from app.models.candidate_timeline import (
 from app.models.interview import Interview
 from app.models.interview_evaluation import InterviewEvaluation
 from app.models.job_position import JobPosition
-from app.models.job_profile import JobProfile
+from app.models.job_profile import JobProfile, JobProfileVersion, JobProfileVersionStatus
 from app.models.rejection import CandidateRejectionRecord, RejectionReason
 from app.models.ai_decision_audit import AiDecisionAudit
 from app.models.evidence_ref import EvidenceRef
+from app.models.compensation import CandidateCompensationExpectation, OfferNegotiationRecord
 from app.models.scorecard import (
     InterviewScorecardDimensionScore,
     InterviewScorecardSubmission,
@@ -340,14 +341,40 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
                 select(ScorecardTemplate).where(ScorecardTemplate.id.in_(scorecard_template_ids))
             )
             scorecard_templates_by_id = {template.id: template for template in template_result.scalars().all()}
+            profile_version_ids = sorted({
+                t.profile_version_id for t in scorecard_templates_by_id.values() if t.profile_version_id
+            })
+            if profile_version_ids:
+                latest_ver_result = await db.execute(
+                    select(JobProfileVersion.job_profile_id, func.max(JobProfileVersion.version))
+                    .where(
+                        JobProfileVersion.id.in_(profile_version_ids),
+                        JobProfileVersion.status == JobProfileVersionStatus.ACTIVE,
+                    )
+                    .group_by(JobProfileVersion.job_profile_id)
+                )
+                latest_active_versions = dict(latest_ver_result.all())
+                latest_active_version_ids: set[str] = set()
+                if latest_active_versions:
+                    subq = select(JobProfileVersion.id).where(
+                        JobProfileVersion.job_profile_id.in_(list(latest_active_versions.keys())),
+                        JobProfileVersion.version == func.any_(list(latest_active_versions.values())),
+                        JobProfileVersion.status == JobProfileVersionStatus.ACTIVE,
+                    )
+                    latest_id_result = await db.execute(subq)
+                    latest_active_version_ids = {row[0] for row in latest_id_result.all()}
+            else:
+                latest_active_version_ids = set()
         else:
             scorecard_templates_by_id = {}
+            latest_active_version_ids = set()
     else:
         interview_feedback = []
         scorecard_submissions = []
         scorecard_dimension_scores = []
         scorecard_dimensions_by_id = {}
         scorecard_templates_by_id = {}
+        latest_active_version_ids = set()
 
     dimension_scores_by_submission: dict[str, list[InterviewScorecardDimensionScore]] = {}
     for score in scorecard_dimension_scores:
@@ -385,6 +412,20 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
         }
     ]
 
+    evidence_ref_result = await db.execute(
+        select(EvidenceRef)
+        .where(EvidenceRef.candidate_id == candidate_id)
+        .order_by(EvidenceRef.created_at.desc())
+    )
+    evidence_refs = list(evidence_ref_result.scalars().all())
+
+    ai_audit_result = await db.execute(
+        select(AiDecisionAudit)
+        .where(AiDecisionAudit.candidate_id == candidate_id)
+        .order_by(AiDecisionAudit.created_at.desc())
+    )
+    ai_audits = list(ai_audit_result.scalars().all())
+
     bound_profile_ids = [job.job_profile_id for job in jobs_by_id.values() if job.job_profile_id]
     profile_ids = sorted({*(record.job_profile_id for record in rejections if record.job_profile_id), *bound_profile_ids})
     if profile_ids:
@@ -397,6 +438,51 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
         fallback_profile = fallback_profile_result.scalar_one_or_none()
         job_profiles = [fallback_profile] if fallback_profile else []
 
+    comp_expectation_result = await db.execute(
+        select(CandidateCompensationExpectation)
+        .where(CandidateCompensationExpectation.candidate_id == candidate_id)
+        .order_by(CandidateCompensationExpectation.created_at.desc())
+        .limit(1)
+    )
+    comp_expectation = comp_expectation_result.scalar_one_or_none()
+
+    comp_offer_result = await db.execute(
+        select(OfferNegotiationRecord)
+        .where(OfferNegotiationRecord.candidate_id == candidate_id)
+        .order_by(OfferNegotiationRecord.created_at.desc())
+        .limit(1)
+    )
+    latest_offer = comp_offer_result.scalar_one_or_none()
+
+    compensation_risk: dict[str, Any] = {"has_expectation": False}
+    if comp_expectation:
+        compensation_risk["has_expectation"] = True
+        compensation_risk["expected_total"] = comp_expectation.expected_total
+        compensation_risk["minimum_acceptable"] = comp_expectation.minimum_acceptable
+        compensation_risk["current_total"] = comp_expectation.current_total
+
+        if latest_offer:
+            compensation_risk["market_p50"] = latest_offer.market_p50
+            compensation_risk["budget_min"] = latest_offer.budget_min
+            compensation_risk["budget_max"] = latest_offer.budget_max
+            reasons: list[str] = []
+            expected = comp_expectation.expected_total
+            if expected is not None and latest_offer.budget_max is not None and expected > latest_offer.budget_max:
+                gap = round((expected - latest_offer.budget_max) / latest_offer.budget_max * 100, 1)
+                compensation_risk["gap_to_budget_max_pct"] = gap
+                reasons.append(f"预期薪酬超过预算上限 {gap}%")
+            if expected is not None and latest_offer.market_p50 is not None and expected > latest_offer.market_p50:
+                gap = round((expected - latest_offer.market_p50) / latest_offer.market_p50 * 100, 1)
+                compensation_risk["gap_to_market_p50_pct"] = gap
+                reasons.append(f"预期薪酬超过市场 P50 {gap}%")
+            if reasons:
+                compensation_risk["risk_label"] = "high" if any("预算上限" in r for r in reasons) else "medium"
+                compensation_risk["risk_score"] = 3 if compensation_risk["risk_label"] == "high" else 2
+                compensation_risk["reasons"] = reasons
+            else:
+                compensation_risk["risk_label"] = "low"
+                compensation_risk["risk_score"] = 1
+
     missing_sections = []
     if not state_history:
         missing_sections.append("state_history")
@@ -408,6 +494,10 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
         missing_sections.append("interviews")
     if not interview_feedback:
         missing_sections.append("interview_feedback")
+    if not evidence_refs:
+        missing_sections.append("evidence_refs")
+    if not ai_audits:
+        missing_sections.append("ai_audits")
 
     return success(
         {
@@ -498,6 +588,12 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
                         if submission.scorecard_template_id in scorecard_templates_by_id
                         else None
                     ),
+                    "profile_version_is_current": (
+                        scorecard_templates_by_id[submission.scorecard_template_id].profile_version_id in latest_active_version_ids
+                        if submission.scorecard_template_id in scorecard_templates_by_id
+                        and scorecard_templates_by_id[submission.scorecard_template_id].profile_version_id is not None
+                        else True
+                    ),
                     "interviewer_id": submission.interviewer_id,
                     "overall_score": submission.overall_score,
                     "verdict": _enum_value(submission.verdict),
@@ -514,6 +610,7 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
                             "score": score.score,
                             "evidence": score.evidence,
                             "confidence": score.confidence,
+                            "evidence_ref_id": score.evidence_ref_id,
                         }
                         for score in dimension_scores_by_submission.get(submission.id, [])
                     ],
@@ -547,6 +644,7 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
                     "is_primary": getattr(record, "is_primary", True),
                     "related_scorecard_submission_id": getattr(record, "related_scorecard_submission_id", None),
                     "related_dimension_id": getattr(record, "related_dimension_id", None),
+                    "evidence_ref_id": getattr(record, "evidence_ref_id", None),
                     "created_at": record.created_at,
                 }
                 for record in rejections
@@ -561,6 +659,33 @@ async def candidate_decision_chain(candidate_id: str, od=ORG_SCOPED_DEP):
                     "source": _enum_value(event.source),
                 }
                 for event in timeline_evidence
+            ],
+            "compensation_risk": compensation_risk,
+            "evidence_refs": [
+                {
+                    "id": ref.id,
+                    "source_type": ref.source_type.value,
+                    "source_id": ref.source_id,
+                    "quote": ref.quote,
+                    "normalized_claim": ref.normalized_claim,
+                    "confidence": ref.confidence,
+                    "created_by_type": ref.created_by_type.value,
+                    "created_by_id": ref.created_by_id,
+                    "created_at": ref.created_at,
+                }
+                for ref in evidence_refs
+            ],
+            "ai_audits": [
+                {
+                    "id": audit.id,
+                    "decision_type": audit.decision_type.value,
+                    "model_name": audit.model_name,
+                    "output_summary": audit.output_summary,
+                    "confidence": audit.confidence,
+                    "human_confirmed": audit.human_confirmed,
+                    "created_at": audit.created_at,
+                }
+                for audit in ai_audits
             ],
             "missing_sections": missing_sections,
         }

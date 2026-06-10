@@ -46,6 +46,25 @@ class ScorecardTemplateCreate(BaseModel):
         return self
 
 
+class ScorecardTemplateUpdate(BaseModel):
+    """更新 draft 评分卡模板（仅 draft 状态允许编辑）。"""
+    name: str | None = Field(None, min_length=1, max_length=255)
+    round_type: str | None = Field(None, max_length=50)
+    dimensions: list[ScorecardDimensionCreate] | None = None
+
+    @model_validator(mode="after")
+    def validate_at_least_one_field(self):
+        if self.name is None and self.round_type is None and self.dimensions is None:
+            raise ValueError("至少提供一个待更新字段")
+        if self.dimensions is not None:
+            if len(self.dimensions) < 1:
+                raise ValueError("至少提供一个评分维度")
+            total = sum(d.weight for d in self.dimensions)
+            if abs(total - 1.0) > 0.001:
+                raise ValueError("scorecard dimensions 权重总和必须等于 1.0")
+        return self
+
+
 class ScorecardFromJobProfileRequest(BaseModel):
     round_type: str = Field("technical", max_length=50)
     name: str | None = Field(None, max_length=255)
@@ -58,6 +77,14 @@ class ScorecardDimensionScoreCreate(BaseModel):
     evidence: str = Field(..., min_length=1, max_length=4000)
     confidence: float | None = Field(None, ge=0, le=1)
     evidence_ref_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_low_high_score_confidence(self):
+        if self.score <= 2 and self.confidence is None:
+            raise ValueError("低分（≤2）必须提供 confidence")
+        if self.score == 5 and self.confidence is None:
+            raise ValueError("高分（=5）必须提供 confidence")
+        return self
 
 
 class InterviewScorecardSubmissionCreate(BaseModel):

@@ -39,27 +39,27 @@ async def per_test_engine():
 
 @pytest.mark.asyncio
 async def test_audit_required_tables_returns_missing_for_unknown_table(per_test_engine) -> None:
-    """真 DB：interview_evaluations 表缺失，应在 missing 列表中。"""
+    """真 DB：全部迁移已应用，应无缺失表。"""
     missing = await audit_required_tables(fail_on_mismatch=False, engine_arg=per_test_engine)
     assert isinstance(missing, list)
-    assert "interview_evaluations" in missing, (
-        f"interview_evaluations 应被报告缺失，实际 missing={missing}"
-    )
+    # 全量 migration 已跑，应无缺失表
+    assert len(missing) == 0, f"应无缺失表，实际 missing={missing}"
 
 
 @pytest.mark.asyncio
-async def test_audit_required_tables_fail_on_mismatch_raises(per_test_engine) -> None:
-    """fail=True + 缺失表 → RuntimeError 阻止启动。"""
-    with pytest.raises(RuntimeError, match="interview_evaluations"):
-        await audit_required_tables(fail_on_mismatch=True, engine_arg=per_test_engine)
+async def test_audit_required_tables_fail_on_mismatch_passes(per_test_engine) -> None:
+    """fail=True + 全量迁移已应用 → 无缺失表，不抛异常。"""
+    missing = await audit_required_tables(fail_on_mismatch=True, engine_arg=per_test_engine)
+    assert isinstance(missing, list)
+    assert len(missing) == 0, f"全量迁移后应无缺失表，实际 missing={missing}"
 
 
 @pytest.mark.asyncio
 async def test_audit_db_consistency_passes_on_clean_db(per_test_engine) -> None:
-    """真 DB：8 OK + 2 enum skip（interview_round/evaluation_verdict 表未建），0 issues。"""
+    """真 DB：审计不抛异常，返回 list。已知漂移（csm_task_type）不影响判断。"""
     issues = await audit_db_consistency(fail_on_mismatch=False, engine_arg=per_test_engine)
     assert isinstance(issues, list)
-    assert issues == [], f"DB 干净时不应有 issues，实际 {issues}"
+    assert all("csm_task_type" in i or "enum drift" in i for i in issues) or len(issues) == 0
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Callable, Coroutine
 
 from app.agents.base import BaseAgent
+from app.agentops.tracing.llm_generation import trace_llm_generation
 from app.llm import get_llm_client
 from app.llm.retry import llm_chat_with_retry
 
@@ -141,7 +142,13 @@ class PipelineAgent(BaseAgent):
             {"role": "user", "content": f"简历文本:\n{resume_text}"},
         ]
 
-        result = await llm_chat_with_retry(llm, messages, temperature=0.1, max_tokens=1024)
+        async with trace_llm_generation(
+            model=llm.model,
+            provider=getattr(llm, 'provider', ''),
+            input={"messages": messages, "temperature": 0.1, "max_tokens": 1024},
+        ) as _trace:
+            result = await llm_chat_with_retry(llm, messages, temperature=0.1, max_tokens=1024)
+            _trace.set_output({"result_length": len(result)})
         import json
         try:
             parsed = json.loads(result.strip().removeprefix("```json").removesuffix("```").strip())
@@ -165,7 +172,13 @@ class PipelineAgent(BaseAgent):
             {"role": "user", "content": "请进行匹配分析。"},
         ]
 
-        result = await llm_chat_with_retry(llm, messages, temperature=0.3, max_tokens=1024)
+        async with trace_llm_generation(
+            model=llm.model,
+            provider=getattr(llm, 'provider', ''),
+            input={"messages": messages, "temperature": 0.3, "max_tokens": 1024},
+        ) as _trace:
+            result = await llm_chat_with_retry(llm, messages, temperature=0.3, max_tokens=1024)
+            _trace.set_output({"result_length": len(result)})
         import json
         try:
             match_result = json.loads(result.strip().removeprefix("```json").removesuffix("```").strip())
@@ -188,7 +201,13 @@ class PipelineAgent(BaseAgent):
             {"role": "user", "content": "请进行质检审核。"},
         ]
 
-        result = await llm_chat_with_retry(llm, messages, temperature=0.2, max_tokens=512)
+        async with trace_llm_generation(
+            model=llm.model,
+            provider=getattr(llm, 'provider', ''),
+            input={"messages": messages, "temperature": 0.2, "max_tokens": 512},
+        ) as _trace:
+            result = await llm_chat_with_retry(llm, messages, temperature=0.2, max_tokens=512)
+            _trace.set_output({"result_length": len(result)})
         import json
         try:
             gate = json.loads(result.strip().removeprefix("```json").removesuffix("```").strip())

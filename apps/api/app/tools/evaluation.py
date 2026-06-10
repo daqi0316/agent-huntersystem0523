@@ -56,6 +56,21 @@ async def _handle_save_evaluation(
         except ValueError as e:
             return {"status": "failed", "error": {"code": "NOT_FOUND", "message": str(e)}}
 
+        try:
+            from app.agentops.events import get_event_emitter, BusinessEventType
+            await get_event_emitter().emit(
+                event_type=BusinessEventType.EVALUATION_COMPLETED,
+                entity_type="interview",
+                entity_id=interview_id,
+                domain_fields={
+                    "overall_score": overall_score,
+                    "verdict": verdict,
+                    "dimensions": dimensions,
+                },
+                tags=["evaluation"],
+            )
+        except Exception:
+            pass
         return {
             "status": "success",
             "data": {

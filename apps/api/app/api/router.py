@@ -48,6 +48,7 @@ from app.api.mcp_ab import router as mcp_ab_router  # PR-1b: A/B routing admin
 from app.api.ai_compliance import router as ai_compliance_router
 from app.api.anti_abuse import router as anti_abuse_router
 from app.api.onboarding import router as onboarding_router
+from app.api.candidate_onboarding import router as candidate_onboarding_router
 from app.api.growth import router as growth_router
 from app.api.dashboard_growth import router as dashboard_growth_router
 from app.api.experiment import router as experiment_router
@@ -59,6 +60,11 @@ from app.api.dingtalk_oauth import router as dingtalk_oauth_router
 from app.api.notification_sms import router as notification_sms_router
 from app.api.wechat_template import router as wechat_template_router
 from app.api.feishu_wecom_oauth import router as feishu_wecom_oauth_router
+from app.api.recruiting_intelligence import router as recruiting_intelligence_router
+from app.api.company_knowledge import router as company_knowledge_router
+from app.api.interviewer_calibration import router as interviewer_calibration_router
+from app.api.evidence_refs import router as evidence_refs_router
+from app.api.red_flag_rules import router as red_flag_rules_router
 
 api_router = APIRouter()
 
@@ -156,6 +162,7 @@ api_router.include_router(payment_router, prefix="/payment", tags=["Payment"])
 api_router.include_router(privacy_router, prefix="/privacy", tags=["Privacy"])
 api_router.include_router(ai_compliance_router, prefix="/ai-compliance", tags=["AI Compliance"])
 api_router.include_router(anti_abuse_router, tags=["Anti-Abuse"])
+api_router.include_router(candidate_onboarding_router, tags=["Candidate Onboarding"])
 api_router.include_router(onboarding_router, tags=["Onboarding"])
 api_router.include_router(growth_router, tags=["Growth"])
 api_router.include_router(dashboard_growth_router, tags=["Growth Dashboard"])
@@ -169,6 +176,17 @@ api_router.include_router(notification_sms_router, tags=["Notification"])
 api_router.include_router(wechat_template_router, tags=["Notification"])
 api_router.include_router(feishu_wecom_oauth_router, prefix="/oauth", tags=["OAuth"])
 api_router.include_router(mcp_ab_router)  # PR-1b: /api/v1/mcp/ab/*
+
+# P2-1: 招聘结果回流
+api_router.include_router(recruiting_intelligence_router, prefix="/recruiting-intelligence", tags=["Recruiting Intelligence"])
+
+# P2-2: 公司专属招聘知识库
+api_router.include_router(company_knowledge_router, prefix="/company-knowledge", tags=["Company Knowledge"])
+
+# 面试官校准
+api_router.include_router(interviewer_calibration_router, prefix="/interviewer-calibration", tags=["Interviewer Calibration"])
+api_router.include_router(evidence_refs_router, prefix="/evidence-refs", tags=["Evidence Refs"])
+api_router.include_router(red_flag_rules_router, prefix="/red-flag-rules", tags=["Red Flag Rules"])
 
 # A1: Admin 运维端点 (限流状态查询/重置)
 from app.api.admin import router as admin_router  # noqa: E402

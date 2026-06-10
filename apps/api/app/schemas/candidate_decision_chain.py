@@ -77,6 +77,7 @@ class DecisionChainScorecardSummary(BaseModel):
     scorecard_template_id: str
     scorecard_template_name: str | None = None
     profile_version_id: str | None = None
+    profile_version_is_current: bool = True
     interviewer_id: str
     overall_score: float
     verdict: str
@@ -106,6 +107,7 @@ class DecisionChainRejectionSummary(BaseModel):
     is_primary: bool = True
     related_scorecard_submission_id: str | None = None
     related_dimension_id: str | None = None
+    evidence_ref_id: str | None = None
     created_at: datetime | None = None
 
 
@@ -138,6 +140,21 @@ class DecisionChainAiAuditSummary(BaseModel):
     created_at: datetime | None = None
 
 
+class DecisionChainCompensationRiskSummary(BaseModel):
+    has_expectation: bool = False
+    expected_total: float | None = None
+    minimum_acceptable: float | None = None
+    current_total: float | None = None
+    market_p50: float | None = None
+    budget_min: float | None = None
+    budget_max: float | None = None
+    risk_label: str | None = None
+    risk_score: int | None = None
+    gap_to_market_p50_pct: float | None = None
+    gap_to_budget_max_pct: float | None = None
+    reasons: list[str] = Field(default_factory=list)
+
+
 class CandidateDecisionChainRead(BaseModel):
     candidate: DecisionChainCandidateSummary
     state_history: list[DecisionChainStateHistoryItem]
@@ -150,6 +167,7 @@ class CandidateDecisionChainRead(BaseModel):
     timeline_evidence: list[DecisionChainTimelineEvidenceSummary]
     evidence_refs: list[DecisionChainEvidenceRefSummary] = Field(default_factory=list)
     ai_audits: list[DecisionChainAiAuditSummary] = Field(default_factory=list)
+    compensation_risk: DecisionChainCompensationRiskSummary = Field(default_factory=DecisionChainCompensationRiskSummary)
     missing_sections: list[str]
 
 

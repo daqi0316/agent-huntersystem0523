@@ -55,6 +55,7 @@ async def _do_extract_and_link(
                 rr.status = RawResumeStatus.FAILED
                 rr.error_message = "low_confidence_or_extraction_error"
                 await db.commit()
+        await _emit_resume_event("failed", raw_resume_id, error="low_confidence_or_extraction_error")
         return {
             "status": "failed",
             "error": {"code": "LOW_CONFIDENCE", "message": "解析置信度过低，无法提取有效信息", "retryable": True},
@@ -159,6 +160,11 @@ async def _do_extract_and_link(
     }
 
     result["confidence"] = 0.85 if candidate.name and candidate.email else 0.6
+    await _emit_resume_event("success", raw_resume_id, candidate_id=candidate_id, domain_fields={
+        "quality_score": result.get("quality_score"),
+        "confidence": result.get("confidence"),
+        "skill_count": len(result.get("skills", [])),
+    })
     return {"status": "success", "data": result}
 
 
@@ -439,6 +445,26 @@ async def _handle_get_profile(candidate_id: str = "") -> dict[str, Any]:
                 "created_at": candidate.created_at.isoformat() if candidate.created_at and hasattr(candidate.created_at, "isoformat") else str(candidate.created_at),
             },
         }
+
+
+async def _emit_resume_event(status: str, raw_resume_id: str, candidate_id: str = "", domain_fields: dict | None = None, error: str = "") -> None:
+    """Fire-and-forget resume_parsing business event."""
+    try:
+        from app.agentops.events import get_event_emitter, BusinessEventType
+        emitter = get_event_emitter()
+        event_type = {
+            "success": BusinessEventType.RESUME_PARSING_COMPLETED,
+            "failed": BusinessEventType.RESUME_PARSING_FAILED,
+        }.get(status, BusinessEventType.RESUME_PARSING_COMPLETED)
+        await emitter.emit(
+            event_type=event_type,
+            entity_type="raw_resume",
+            entity_id=raw_resume_id,
+            domain_fields=domain_fields or {},
+            error=error,
+        )
+    except Exception:
+        pass
 
 
 def _compute_quality(candidate: Any) -> int:

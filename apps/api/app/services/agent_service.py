@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -26,10 +27,17 @@ from app.tools.metadata import get_metadata, get_max_retries, should_escalate, E
 
 from app.commands import CommandContext, CommandResult, CommandErrorCode
 from app.commands.executor import CommandExecutor
-from app.commands.registry import get_default_registry, register_all
+from app.commands.registry import get_default_registry
+
+from app.agentops.core.schemas import EventType, LLMGenerationEvent, SpanEvent, ToolInvocationEvent, TraceEvent
+from app.agentops.core.context import AgentOpsContext, set_context, reset_context
+from app.agentops.privacy.sanitizer import sanitize_payload
+from app.agentops.runtime import get_agentops_provider
+from app.agentops.tracing import agent_span
 
 logger = logging.getLogger(__name__)
 
+import contextlib
 import re
 
 
@@ -788,251 +796,497 @@ async def chat_with_tools(
     """
     await _register_builtins()
 
-    last_user_msg = ""
-    for m in reversed(messages):
-        if m.get("role") == "user" and m.get("content", "").strip():
-            last_user_msg = m["content"].strip()
-            break
+    _trace_provider = get_agentops_provider()
+    _trace_id = str(uuid.uuid4())
+    _trace_token = set_context(AgentOpsContext(
+        trace_id=_trace_id,
+        user_id=user_id or "",
+        session_id=session_id or "",
+    ))
+    _trace_active = False
 
-    if last_user_msg and last_user_msg.strip().startswith("/"):
-        registry = get_default_registry()
-        executor = CommandExecutor(registry=registry)
-        ctx = CommandContext(
-            session_id=session_id or "",
-            user_id=user_id or "",
-            permissions=command_context.permissions if command_context else [],
-            user_role=command_context.user_role if command_context else None,
-            db=command_context.db if command_context else None,
-        )
-        result = await executor.execute(last_user_msg.strip(), ctx)
-        if result.action == "passthrough":
-            pass
-        else:
-            return {
-                "reply": result.message,
-                "tool_calls": [],
-                "model": "",
-                "session_id": session_id,
-            }
-
-    if last_user_msg:
-        if attachment:
-            att = attachment
-            last_user_msg = (
-                f"{last_user_msg}\n\n[附件文件]\n"
-                f"文件名: {att.get('filename', 'resume')}\n"
-                f"类型: {att.get('file_type', 'pdf')}\n"
-                f"路径: {att.get('file_url', '')}\n"
-                f"请调用 parse_resume 工具解析此文件，file_url 为 {att.get('file_url', '')}，file_type 为 {att.get('file_type', '')}，filename 为 {att.get('filename', '')}。"
-            )
-        # Step 1: Orchestrator 统一处理 (Phase V PR-V.3 graph-based ainvoke)
-        try:
-            from app.graphs.orchestrator_graph import (
-                create_orchestrator_graph,
-                make_initial_orchestrator_state,
-            )
-
-            graph = create_orchestrator_graph(
-                checkpointer=None,
-                with_interrupt=False,
-            )
-            initial_state = make_initial_orchestrator_state(
+    async def _trace_completed(result: dict) -> None:
+        with contextlib.suppress(Exception):
+            await _trace_provider.record_event(TraceEvent(
+                name="chat_with_tools",
+                event_type=EventType.TRACE_COMPLETED,
+                trace_id=_trace_id,
                 user_id=user_id or "",
-                input_text=last_user_msg,
-            )
-            final_state = await graph.ainvoke(initial_state)
-            result = _adapt_graph_result_to_legacy(final_state)
+                session_id=session_id or "",
+                output=sanitize_payload({
+                    "trace_id": _trace_id,
+                    "model": result.get("model", ""),
+                    "tool_call_count": len(result.get("tool_calls", [])),
+                    "reply_length": len(result.get("reply", "")),
+                    "has_agent_actions": bool(result.get("agent_actions")),
+                }),
+            ))
 
-            # Handle awaiting_approval — 返回审批响应，不继续执行
-            if result.get("status") == "awaiting_approval":
-                logger.info("Task requires approval, returning approval response")
-                approval_resp = _build_approval_response(result)
-                await _save_conversation_turn(
-                    last_user_msg, approval_resp.get("reply", ""), user_id, session_id
-                )
-                return {**approval_resp, "session_id": session_id}
-
-            # Handle successful dispatch
-            if result.get("status") != "no_handler":
-                reply = _summarize_orch_result(result)
-                if reply:
-                    await _save_conversation_turn(last_user_msg, reply, user_id, session_id)
-                    return {
-                        "reply": reply,
-                        "tool_calls": [],
-                        "model": f"orchestrator/{result.get('status', 'completed')}",
-                        "agent_actions": _extract_agent_actions(result),
-                        "session_id": session_id,
-                    }
-        except Exception as e:
-            logger.warning("Orchestrator failed, fallback to LLM tool loop: %s", e)
-
-    llm = get_llm_client()
-    tools = _get_tools()
-    handlers = _get_handlers()
-
-    system_content = system_prompt if system_prompt is not None else SYSTEM_PROMPT
-    system_content = await _inject_memory_context(system_content, user_id, messages)
-    from datetime import datetime, timedelta
-    now = datetime.now()
-    yesterday = now - timedelta(days=1)
-    tomorrow = now + timedelta(days=1)
-    date_ctx = (
-        f"\n\n## 当前时间锚点\n"
-        f"服务器时间：{now.strftime('%Y-%m-%d %H:%M:%S')} ({now.strftime('%A')})\n"
-        f"用户口中的'今天'={now.strftime('%Y-%m-%d')}，'昨天'={yesterday.strftime('%Y-%m-%d')}，'明天'={tomorrow.strftime('%Y-%m-%d')}。\n"
-        f"涉及'昨天/今天/明天'的问题：先确定目标日期，再调 web_search（带日期关键词）。"
-    )
-    system_content = (system_content + date_ctx) if system_content else system_content
-    msgs = [system_content] if system_content else []
-
-    cb = None
     try:
-        from app.core.context_builder import ContextBuilder
-        from app.core.qdrant import get_qdrant
-        qdrant_client = await get_qdrant()
-        async with AsyncSessionLocal() as db:
-            cb = ContextBuilder(
-                db=db,
-                llm=llm,
-                qdrant=QdrantService(client=qdrant_client, collection=getattr(settings, "qdrant_memory_collection", "memory")) if qdrant_client else None,
-                model=llm.model,
-            )
-            msgs = await cb.build(user_id, messages[-20:])
-    except Exception as e:
-        logger.warning("ContextBuilder.build() failed: %s, using fallback", e)
-        system_msg = {"role": "system", "content": system_content}
-        msgs = [system_msg] + messages[-20:]
+        await _trace_provider.start_trace(TraceEvent(
+            name="chat_with_tools",
+            trace_id=_trace_id,
+            user_id=user_id or "",
+            session_id=session_id or "",
+            input=sanitize_payload({
+                "message_count": len(messages),
+                "last_user_message": messages[-1].get("content", "")[:500] if messages else "",
+                "user_id": user_id,
+                "session_id": session_id,
+                "has_attachment": attachment is not None,
+            }),
+        ))
+        _trace_active = True
+    except Exception:
+        logger.warning("agentops: start_trace failed", exc_info=True)
 
-    # LLM 推理（带工具，指数退避重试）
-    last_err: Exception | None = None
-    for attempt in range(3):
-        try:
-            response = await llm.client.chat.completions.create(
-                model=llm.model,
-                messages=msgs,
-                tools=tools,
-                tool_choice="auto",
-                temperature=temperature,
-                max_tokens=max_tokens,
-                extra_body={"thinking": {"type": "disabled"}},
-            )
-            break
-        except Exception as e:
-            last_err = e
-            if attempt < 2:
-                delay = 1.0 * (2 ** attempt)
-                logger.warning("LLM call failed (attempt %d/3): %s, retrying in %.1fs...", attempt + 1, e, delay)
-                await asyncio.sleep(delay)
-            else:
-                logger.error("LLM call failed after 3 attempts: %s", e)
-                raise last_err from None
-
-    choice = response.choices[0]
-    reply = choice.message.content or ""
-    tool_calls = choice.message.tool_calls or []
-
-    # 执行工具调用（含重试 + escalation 策略）
-    tool_results = []
-    for tc in tool_calls:
-        fn = tc.function
-        tool_name = fn.name
-        meta = get_metadata(tool_name)
-        max_retries = get_max_retries(tool_name)
-        escalation = should_escalate(tool_name)
-
-        last_error = None
-        succeeded = False
-
-        for attempt in range(max_retries + 1):
-            try:
-                args = json.loads(fn.arguments)
-                handler = handlers.get(tool_name)
-                if not handler:
-                    last_error = f"Unknown tool: {tool_name}"
-                    break
-                result = handler(**args)
-                if asyncio.iscoroutine(result):
-                    result = await result
-                if isinstance(result, dict) and result.get("status") == "failed":
-                    err = result.get("error", {})
-                    err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-                    if attempt < max_retries and meta.retryable:
-                        logger.warning("Tool %s attempt %d failed (retriable): %s — retrying", tool_name, attempt + 1, err_msg)
-                        last_error = err_msg
-                        await asyncio.sleep(0.25 * (attempt + 1))
-                        continue
-                    else:
-                        last_error = err_msg
-                else:
-                    succeeded = True
-                    tool_results.append({"tool": tool_name, "args": args, "result": result, "needs_human": escalation != EscalationMode.NONE})
-                    break
-            except Exception as e:
-                last_error = str(e)
-                if attempt < max_retries and meta.retryable:
-                    logger.warning("Tool %s exception attempt %d: %s — retrying", tool_name, attempt + 1, last_error)
-                    await asyncio.sleep(0.25 * (attempt + 1))
-                    continue
+    try:
+        last_user_msg = ""
+        for m in reversed(messages):
+            if m.get("role") == "user" and m.get("content", "").strip():
+                last_user_msg = m["content"].strip()
                 break
 
-        if not succeeded and last_error is not None:
-            logger.error("Tool %s exhausted retries (or non-retryable): %s", tool_name, last_error)
-            tool_results.append({"tool": tool_name, "args": json.loads(fn.arguments) if fn.arguments else {}, "error": last_error, "needs_human": escalation != EscalationMode.NONE})
-
-    # 如果有工具调用，把结果给 LLM 生成最终回复
-    if tool_results:
-        if cb is not None:
-            try:
-                msgs2 = await cb.build_with_tools(
-                    user_id, messages, reply, tool_calls, tool_results
-                )
-            except Exception as e:
-                logger.warning("Second build_with_tools failed: %s", e)
-                msgs2 = _build_tool_messages_manually(msgs, reply, tool_calls, tool_results)
-        else:
-            msgs2 = _build_tool_messages_manually(msgs, reply, tool_calls, tool_results)
-        try:
-            final = await asyncio.wait_for(
-                llm.client.chat.completions.create(
-                    model=llm.model,
-                    messages=msgs2,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    extra_body={"thinking": {"type": "disabled"}},
-                ),
-                timeout=20.0,
+        if last_user_msg and last_user_msg.strip().startswith("/"):
+            registry = get_default_registry()
+            executor = CommandExecutor(registry=registry)
+            ctx = CommandContext(
+                session_id=session_id or "",
+                user_id=user_id or "",
+                permissions=command_context.permissions if command_context else [],
+                user_role=command_context.user_role if command_context else None,
+                db=command_context.db if command_context else None,
             )
-            reply = final.choices[0].message.content or ""
-        except asyncio.TimeoutError:
-            logger.warning("Second LLM call timed out after 20s, using fallback")
-            reply = ""
+            result = await executor.execute(last_user_msg.strip(), ctx)
+            if result.action == "passthrough":
+                pass
+            else:
+                resp = {
+                    "reply": result.message,
+                    "tool_calls": [],
+                    "model": "",
+                    "session_id": session_id,
+                    "trace_id": _trace_id,
+                }
+                if _trace_active:
+                    await _trace_completed(resp)
+                return resp
+
+        if last_user_msg:
+            if attachment:
+                att = attachment
+                last_user_msg = (
+                    f"{last_user_msg}\n\n[附件文件]\n"
+                    f"文件名: {att.get('filename', 'resume')}\n"
+                    f"类型: {att.get('file_type', 'pdf')}\n"
+                    f"路径: {att.get('file_url', '')}\n"
+                    f"请调用 parse_resume 工具解析此文件，file_url 为 {att.get('file_url', '')}，file_type 为 {att.get('file_type', '')}，filename 为 {att.get('filename', '')}。"
+                )
+            # Step 1: Orchestrator 统一处理 (Phase V PR-V.3 graph-based ainvoke)
+            try:
+                from app.graphs.orchestrator_graph import (
+                    create_orchestrator_graph,
+                    make_initial_orchestrator_state,
+                )
+
+                graph = create_orchestrator_graph(
+                    checkpointer=None,
+                    with_interrupt=False,
+                )
+                initial_state = make_initial_orchestrator_state(
+                    user_id=user_id or "",
+                    input_text=last_user_msg,
+                )
+
+                # ── orchestrator span: start ──
+                _orch_start = time.monotonic()
+                with contextlib.suppress(Exception):
+                    await _trace_provider.start_span(SpanEvent(
+                        name="orchestrator",
+                        trace_id=_trace_id,
+                        session_id=session_id or "",
+                        user_id=user_id or "",
+                        input=sanitize_payload({"query": last_user_msg}),
+                    ))
+
+                final_state = await graph.ainvoke(initial_state)
+                result = _adapt_graph_result_to_legacy(final_state)
+
+                # ── orchestrator span: completed (non-error) ──
+                async def _record_orch_completed(status: str, extra: dict | None = None) -> None:
+                    dur = (time.monotonic() - _orch_start) * 1000
+                    out = {"status": status}
+                    if extra:
+                        out.update(extra)
+                    with contextlib.suppress(Exception):
+                        await _trace_provider.record_event(SpanEvent(
+                            event_type=EventType.SPAN_COMPLETED,
+                            name="orchestrator",
+                            trace_id=_trace_id,
+                            session_id=session_id or "",
+                            user_id=user_id or "",
+                            duration_ms=dur,
+                            output=sanitize_payload(out),
+                        ))
+
+                # Handle awaiting_approval — 返回审批响应，不继续执行
+                if result.get("status") == "awaiting_approval":
+                    logger.info("Task requires approval, returning approval response")
+                    await _record_orch_completed("awaiting_approval")
+                    approval_resp = _build_approval_response(result)
+                    async with agent_span("save_conversation_turn", input={"session_id": session_id, "type": "awaiting_approval"}):
+                        await _save_conversation_turn(
+                            last_user_msg, approval_resp.get("reply", ""), user_id, session_id
+                        )
+                    resp = {**approval_resp, "session_id": session_id, "trace_id": _trace_id}
+                    if _trace_active:
+                        await _trace_completed(resp)
+                    return resp
+
+                # Handle successful dispatch
+                if result.get("status") != "no_handler":
+                    reply = _summarize_orch_result(result)
+                    if reply:
+                        await _record_orch_completed(result.get("status", "completed"), {"reply_length": len(reply)})
+                        async with agent_span("save_conversation_turn", input={"session_id": session_id, "type": "orchestrator"}):
+                            await _save_conversation_turn(last_user_msg, reply, user_id, session_id)
+                        resp = {
+                            "reply": reply,
+                            "tool_calls": [],
+                            "model": f"orchestrator/{result.get('status', 'completed')}",
+                            "agent_actions": _extract_agent_actions(result),
+                            "session_id": session_id,
+                            "trace_id": _trace_id,
+                        }
+                        if _trace_active:
+                            await _trace_completed(resp)
+                        return resp
+
+                # no_handler or empty reply — orchestrator ran but fell through to LLM loop
+                await _record_orch_completed(result.get("status", "no_handler"))
+
+            except Exception as e:
+                dur = (time.monotonic() - _orch_start) * 1000 if "_orch_start" in dir() else 0
+                with contextlib.suppress(Exception):
+                    await _trace_provider.record_event(SpanEvent(
+                        event_type=EventType.SPAN_FAILED,
+                        name="orchestrator",
+                        trace_id=_trace_id,
+                        session_id=session_id or "",
+                        user_id=user_id or "",
+                        duration_ms=dur,
+                        error=str(e),
+                    ))
+                logger.warning("Orchestrator failed, fallback to LLM tool loop: %s", e)
+
+        llm = get_llm_client()
+        tools = _get_tools()
+        handlers = _get_handlers()
+
+        async def _trace_completion(kwargs: dict):
+            """Record LLM generation trace around a chat completion call."""
+            start = time.monotonic()
+            base = LLMGenerationEvent(
+                name="llm.chat",
+                trace_id=_trace_id,
+                session_id=session_id or "",
+                user_id=user_id or "",
+                model=kwargs.get('model', llm.model),
+                provider=getattr(llm, 'provider', ''),
+                parameters={'temperature': kwargs.get('temperature'), 'max_tokens': kwargs.get('max_tokens')},
+                input=sanitize_payload({"messages": kwargs.get('messages', [])}),
+            )
+            with contextlib.suppress(Exception):
+                await _trace_provider.record_generation(base)
+            try:
+                resp = await llm.client.chat.completions.create(**kwargs)
+            except Exception as e:
+                with contextlib.suppress(Exception):
+                    await _trace_provider.record_generation(LLMGenerationEvent(
+                        name="llm.chat",
+                        event_type=EventType.LLM_GENERATION_FAILED,
+                        trace_id=_trace_id,
+                        session_id=session_id or "",
+                        user_id=user_id or "",
+                        duration_ms=(time.monotonic() - start) * 1000,
+                        error=str(e),
+                    ))
+                raise
+            duration_ms = (time.monotonic() - start) * 1000
+            usage = resp.usage
+            with contextlib.suppress(Exception):
+                await _trace_provider.record_generation(LLMGenerationEvent(
+                    name="llm.chat",
+                    event_type=EventType.LLM_GENERATION_COMPLETED,
+                    trace_id=_trace_id,
+                    session_id=session_id or "",
+                    user_id=user_id or "",
+                    model=resp.model or kwargs.get('model', llm.model),
+                    provider=getattr(llm, 'provider', ''),
+                    prompt_tokens=usage.prompt_tokens if usage else 0,
+                    completion_tokens=usage.completion_tokens if usage else 0,
+                    total_tokens=usage.total_tokens if usage else 0,
+                    duration_ms=duration_ms,
+                    output=sanitize_payload({
+                        "content": resp.choices[0].message.content if resp.choices else "",
+                        "tool_calls": [
+                            {"name": tc.function.name, "args": tc.function.arguments}
+                            for tc in (resp.choices[0].message.tool_calls or [])
+                        ],
+                    }),
+                ))
+            return resp
+
+        async def _trace_tool_call(tc):
+            """Record tool invocation trace around a tool call with retry loop.
+            
+            Returns (succeeded, last_error, result, args).
+            """
+            fn = tc.function
+            tool_name = fn.name
+            meta = get_metadata(tool_name)
+            max_retries = get_max_retries(tool_name)
+            escalation = should_escalate(tool_name)
+            start = time.monotonic()
+
+            base = ToolInvocationEvent(
+                name="tool.invoke",
+                event_type=EventType.TOOL_INVOCATION_STARTED,
+                trace_id=_trace_id,
+                session_id=session_id or "",
+                user_id=user_id or "",
+                tool_name=tool_name,
+                tool_category=meta.capability.value,
+                needs_human=escalation != EscalationMode.NONE,
+                input=sanitize_payload({"arguments": fn.arguments}),
+            )
+            with contextlib.suppress(Exception):
+                await _trace_provider.record_tool_call(base)
+
+            last_error: str | None = None
+            succeeded = False
+            retry_count = 0
+            result = None
+            args: dict = {}
+
+            for attempt in range(max_retries + 1):
+                try:
+                    args = json.loads(fn.arguments)
+                    handler = handlers.get(tool_name)
+                    if not handler:
+                        last_error = f"Unknown tool: {tool_name}"
+                        break
+                    handler_result = handler(**args)
+                    if asyncio.iscoroutine(handler_result):
+                        handler_result = await handler_result
+                    if isinstance(handler_result, dict) and handler_result.get("status") == "failed":
+                        err = handler_result.get("error", {})
+                        err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                        if attempt < max_retries and meta.retryable:
+                            logger.warning("Tool %s attempt %d failed (retriable): %s — retrying", tool_name, attempt + 1, err_msg)
+                            last_error = err_msg
+                            retry_count += 1
+                            await asyncio.sleep(0.25 * (attempt + 1))
+                            continue
+                        else:
+                            last_error = err_msg
+                    else:
+                        succeeded = True
+                        result = handler_result
+                        break
+                except Exception as e:
+                    last_error = str(e)
+                    if attempt < max_retries and meta.retryable:
+                        logger.warning("Tool %s exception attempt %d: %s — retrying", tool_name, attempt + 1, last_error)
+                        retry_count += 1
+                        await asyncio.sleep(0.25 * (attempt + 1))
+                        continue
+                    break
+
+            duration_ms = (time.monotonic() - start) * 1000
+
+            if succeeded:
+                with contextlib.suppress(Exception):
+                    await _trace_provider.record_tool_call(ToolInvocationEvent(
+                        name="tool.invoke",
+                        event_type=EventType.TOOL_INVOCATION_COMPLETED,
+                        trace_id=_trace_id,
+                        session_id=session_id or "",
+                        user_id=user_id or "",
+                        tool_name=tool_name,
+                        tool_category=meta.capability.value,
+                        success=True,
+                        retry_count=retry_count,
+                        needs_human=escalation != EscalationMode.NONE,
+                        duration_ms=duration_ms,
+                        output=sanitize_payload({"result": result}),
+                    ))
+            else:
+                with contextlib.suppress(Exception):
+                    await _trace_provider.record_tool_call(ToolInvocationEvent(
+                        name="tool.invoke",
+                        event_type=EventType.TOOL_INVOCATION_FAILED,
+                        trace_id=_trace_id,
+                        session_id=session_id or "",
+                        user_id=user_id or "",
+                        tool_name=tool_name,
+                        tool_category=meta.capability.value,
+                        success=False,
+                        retry_count=retry_count,
+                        needs_human=escalation != EscalationMode.NONE,
+                        duration_ms=duration_ms,
+                        error=last_error or "",
+                    ))
+
+            return succeeded, last_error, result, args
+
+        system_content = system_prompt if system_prompt is not None else SYSTEM_PROMPT
+        system_content = await _inject_memory_context(system_content, user_id, messages)
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        yesterday = now - timedelta(days=1)
+        tomorrow = now + timedelta(days=1)
+        date_ctx = (
+            f"\n\n## 当前时间锚点\n"
+            f"服务器时间：{now.strftime('%Y-%m-%d %H:%M:%S')} ({now.strftime('%A')})\n"
+            f"用户口中的'今天'={now.strftime('%Y-%m-%d')}，'昨天'={yesterday.strftime('%Y-%m-%d')}，'明天'={tomorrow.strftime('%Y-%m-%d')}。\n"
+            f"涉及'昨天/今天/明天'的问题：先确定目标日期，再调 web_search（带日期关键词）。"
+        )
+        system_content = (system_content + date_ctx) if system_content else system_content
+        msgs = [system_content] if system_content else []
+
+        cb = None
+        try:
+            from app.core.context_builder import ContextBuilder
+            from app.core.qdrant import get_qdrant
+            qdrant_client = await get_qdrant()
+            async with AsyncSessionLocal() as db:
+                cb = ContextBuilder(
+                    db=db,
+                    llm=llm,
+                    qdrant=QdrantService(client=qdrant_client, collection=getattr(settings, "qdrant_memory_collection", "memory")) if qdrant_client else None,
+                    model=llm.model,
+                )
+                msgs = await cb.build(user_id, messages[-20:])
         except Exception as e:
-            logger.warning("Second LLM call failed: %s, using fallback", e)
-            reply = ""
+            logger.warning("ContextBuilder.build() failed: %s, using fallback", e)
+            system_msg = {"role": "system", "content": system_content}
+            msgs = [system_msg] + messages[-20:]
 
-        if not reply or not reply.strip():
-            reply = _build_fallback_reply(tool_results)
+        # LLM 推理（带工具，指数退避重试）
+        last_err: Exception | None = None
+        for attempt in range(3):
+            try:
+                response = await _trace_completion({
+                    "model": llm.model,
+                    "messages": msgs,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "extra_body": {"thinking": {"type": "disabled"}},
+                })
+                break
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    delay = 1.0 * (2 ** attempt)
+                    logger.warning("LLM call failed (attempt %d/3): %s, retrying in %.1fs...", attempt + 1, e, delay)
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error("LLM call failed after 3 attempts: %s", e)
+                    raise last_err from None
 
-    # Step 3: Save conversation turn
-    await _save_conversation_turn(last_user_msg, reply, user_id, session_id)
+        choice = response.choices[0]
+        reply = choice.message.content or ""
+        tool_calls = choice.message.tool_calls or []
 
-    if session_id and user_id:
-        asyncio.create_task(_background_summarize(messages, user_id, session_id))
-        asyncio.create_task(_background_record_facts(user_id, session_id, tool_results))
-        asyncio.create_task(_background_record_preferences(user_id, session_id, messages))
+        # 执行工具调用（含 trace + 重试 + escalation 策略）
+        tool_results = []
+        for tc in tool_calls:
+            succeeded, last_error, result, args = await _trace_tool_call(tc)
+            fn = tc.function
+            tool_name = fn.name
+            escalation = should_escalate(tool_name)
+            if succeeded:
+                tool_results.append({"tool": tool_name, "args": args, "result": result, "needs_human": escalation != EscalationMode.NONE})
+            else:
+                logger.error("Tool %s exhausted retries (or non-retryable): %s", tool_name, last_error)
+                tool_results.append({"tool": tool_name, "args": args or json.loads(fn.arguments) if fn.arguments else {}, "error": last_error or "", "needs_human": escalation != EscalationMode.NONE})
 
-    return {
-        "reply": _strip_thinking(reply),
-        "tool_calls": [
-            {
-                "name": t["tool"],
-                "args": t.get("args", {}),
-                "error": t.get("error"),
-                "needs_human": t.get("needs_human", False),
-            }
-            for t in tool_results
-        ],
-        "model": llm.model,
-        "session_id": session_id,
-    }
+        # 如果有工具调用，把结果给 LLM 生成最终回复
+        if tool_results:
+            if cb is not None:
+                try:
+                    msgs2 = await cb.build_with_tools(
+                        user_id, messages, reply, tool_calls, tool_results
+                    )
+                except Exception as e:
+                    logger.warning("Second build_with_tools failed: %s", e)
+                    msgs2 = _build_tool_messages_manually(msgs, reply, tool_calls, tool_results)
+            else:
+                msgs2 = _build_tool_messages_manually(msgs, reply, tool_calls, tool_results)
+            try:
+                final = await asyncio.wait_for(
+                    _trace_completion({
+                        "model": llm.model,
+                        "messages": msgs2,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "extra_body": {"thinking": {"type": "disabled"}},
+                    }),
+                    timeout=20.0,
+                )
+                reply = final.choices[0].message.content or ""
+            except asyncio.TimeoutError:
+                logger.warning("Second LLM call timed out after 20s, using fallback")
+                reply = ""
+            except Exception as e:
+                logger.warning("Second LLM call failed: %s, using fallback", e)
+                reply = ""
+
+            if not reply or not reply.strip():
+                reply = _build_fallback_reply(tool_results)
+
+        # Step 3: Save conversation turn
+        async with agent_span("save_conversation_turn", input={"session_id": session_id, "type": "llm_loop"}):
+            await _save_conversation_turn(last_user_msg, reply, user_id, session_id)
+
+        if session_id and user_id:
+            asyncio.create_task(_background_summarize(messages, user_id, session_id))
+            asyncio.create_task(_background_record_facts(user_id, session_id, tool_results))
+            asyncio.create_task(_background_record_preferences(user_id, session_id, messages))
+
+        final_resp = {
+            "reply": _strip_thinking(reply),
+            "tool_calls": [
+                {
+                    "name": t["tool"],
+                    "args": t.get("args", {}),
+                    "error": t.get("error"),
+                    "needs_human": t.get("needs_human", False),
+                }
+                for t in tool_results
+            ],
+            "model": llm.model,
+            "session_id": session_id,
+            "trace_id": _trace_id,
+        }
+        if _trace_active:
+            await _trace_completed(final_resp)
+        return final_resp
+
+    except Exception as e:
+        if _trace_active:
+            with contextlib.suppress(Exception):
+                await _trace_provider.record_event(TraceEvent(
+                    name="chat_with_tools",
+                    event_type=EventType.TRACE_FAILED,
+                    trace_id=_trace_id,
+                    user_id=user_id or "",
+                    session_id=session_id or "",
+                    error=str(e),
+                ))
+        raise
+    finally:
+        reset_context(_trace_token)

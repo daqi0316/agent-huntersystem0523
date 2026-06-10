@@ -47,6 +47,9 @@ class OperationLog(Base):
     output_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True, comment="关联的 Langfuse AgentOps trace ID",
+    )
     immutable: Mapped[bool] = mapped_column(Boolean, default=True, comment="不可变标记，true 后禁止 update")
     superseded_by: Mapped[str | None] = mapped_column(
         UUID(as_uuid=False), nullable=True, comment="修正链：如需更正，新记录指向被替代的记录",

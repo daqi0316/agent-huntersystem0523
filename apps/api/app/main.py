@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     # ── Schema 审计（防止 model enum/UUID 与 DB 不一致时静默 500）──
     # L2 启动期护栏：L1 编译期（pre-commit）+ 测试期（集成测试）失效时的兜底
     try:
-        from app.core.schema_audit import audit_db_consistency, audit_required_tables
+        from app.core.schema_audit import audit_check_constraints, audit_db_consistency, audit_required_tables
         await audit_db_consistency(fail_on_mismatch=False)
         logger.info("Schema audit passed")
     except Exception as e:
@@ -60,6 +60,14 @@ async def lifespan(app: FastAPI):
         await audit_required_tables(fail_on_mismatch=False)
     except Exception as e:
         logger.warning("Required-tables audit skipped: %s", e)
+
+    # ── CHECK 约束审计（验证 m2_8 不变量约束确实存在）──
+    # 权重总和=1.0 / evidence 非空 / 低高分 confidence 必须存在
+    try:
+        from app.core.schema_audit import audit_check_constraints
+        await audit_check_constraints(fail_on_mismatch=False)
+    except Exception as e:
+        logger.warning("Check-constraint audit skipped: %s", e)
 
     # ── 加载已启用的 MCP Server ──
     try:
@@ -112,6 +120,11 @@ async def lifespan(app: FastAPI):
         logger.info("Aggregation loop cancelled")
     await close_redis()
     await close_qdrant()
+    try:
+        from app.agentops.runtime import shutdown_agentops
+        await shutdown_agentops()
+    except Exception as e:
+        logger.warning("AgentOps shutdown skipped: %s", e)
     logger.info("Shutdown complete")
 
 

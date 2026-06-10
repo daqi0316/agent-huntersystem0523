@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -29,6 +30,9 @@ def _now() -> datetime:
 REQUIRED_CANDIDATE_COLS = ["name", "email"]
 REQUIRED_JOB_COLS = ["title"]
 
+# 单次导入容量上限：防止 OOM (10 MB raw CSV → ~50k rows)
+MAX_CSV_BYTES = 10 * 1024 * 1024
+
 
 @dataclass
 class ImportResult:
@@ -50,10 +54,41 @@ def _classify_risk(total: float) -> str:
     return RiskLevel.UNKNOWN
 
 
+def _validate_csv_size(csv_text: str) -> None:
+    """文件大小防护：超过上限抛 ValueError。"""
+    size = len(csv_text.encode("utf-8"))
+    if size > MAX_CSV_BYTES:
+        raise ValueError(
+            f"CSV 文件过大 ({size / 1024 / 1024:.1f} MB)"
+            f"，上限 {MAX_CSV_BYTES / 1024 / 1024:.0f} MB"
+        )
+
+
+def _check_missing_columns(reader: csv.DictReader, required: list[str]) -> list[str]:
+    """检查 DictReader 是否有全部必要列。"""
+    if not reader.fieldnames:
+        return required  # 空 CSV → 全部必要列缺失
+    return [c for c in required if c not in reader.fieldnames]
+
+
+def _validate_email(addr: str) -> bool:
+    """极简 email 有效性检查：防止明显非法数据进入 DB。"""
+    return "@" in addr and "." in addr.split("@")[-1]
+
+
 async def import_candidates_csv(
     db: AsyncSession, org_id: str, user_id: str, csv_text: str
 ) -> tuple[BatchImportRequest, ImportResult]:
-    """CSV 格式: name, email, phone?, location?, source?"""
+    """CSV 格式: name, email, phone?
+
+    安全防护：
+    - 文件大小上限 10 MB
+    - 必要列缺失检测
+    - 同批次 email 重复检测
+    - email 格式极简校验
+    """
+    _validate_csv_size(csv_text)
+
     batch = BatchImportRequest(
         id=str(uuid.uuid4()),
         org_id=org_id,
@@ -67,24 +102,42 @@ async def import_candidates_csv(
     await db.refresh(batch)
 
     reader = csv.DictReader(io.StringIO(csv_text))
+    missing_cols = _check_missing_columns(reader, REQUIRED_CANDIDATE_COLS)
     errors: list = []
     imported = 0
     failed = 0
     total = 0
+    seen_emails: set[str] = set()
+
+    if missing_cols:
+        batch.status = BatchImportStatus.FAILED
+        batch.total_rows = 0
+        batch.errors = [{"row": 1, "error": f"缺少必要列: {missing_cols}"}]
+        batch.completed_at = _now()
+        await db.commit()
+        await db.refresh(batch)
+        return batch, ImportResult(total=0, imported=0, failed=0, errors=[batch.errors[0]])
+
     for row_num, row in enumerate(reader, start=2):
         total += 1
         try:
             missing = [c for c in REQUIRED_CANDIDATE_COLS if not row.get(c)]
             if missing:
-                raise ValueError(f"missing required columns: {missing}")
+                raise ValueError(f"缺少必要字段: {missing}")
+
+            email = row["email"].strip()
+            if not _validate_email(email):
+                raise ValueError(f"无效 email: {email}")
+            if email in seen_emails:
+                raise ValueError(f"同批次重复 email: {email}")
+            seen_emails.add(email)
+
             cand = Candidate(
                 id=str(uuid.uuid4()),
                 org_id=org_id,
                 name=row["name"].strip(),
-                email=row["email"].strip(),
+                email=email,
                 phone=(row.get("phone") or "").strip() or None,
-                location=(row.get("location") or "").strip() or None,
-                source=(row.get("source") or "csv_import").strip(),
             )
             db.add(cand)
             imported += 1
@@ -112,7 +165,15 @@ async def import_candidates_csv(
 async def import_jobs_csv(
     db: AsyncSession, org_id: str, user_id: str, csv_text: str
 ) -> tuple[BatchImportRequest, ImportResult]:
-    """CSV 格式: title, department?, location?, description?, requirements?"""
+    """CSV 格式: title, department?, location?, description?, requirements?
+
+    安全防护：
+    - 文件大小上限 10 MB
+    - 必要列缺失检测
+    - 同批次 title 重复检测
+    """
+    _validate_csv_size(csv_text)
+
     batch = BatchImportRequest(
         id=str(uuid.uuid4()),
         org_id=org_id,
@@ -126,20 +187,38 @@ async def import_jobs_csv(
     await db.refresh(batch)
 
     reader = csv.DictReader(io.StringIO(csv_text))
+    missing_cols = _check_missing_columns(reader, REQUIRED_JOB_COLS)
     errors: list = []
     imported = 0
     failed = 0
     total = 0
+    seen_titles: set[str] = set()
+
+    if missing_cols:
+        batch.status = BatchImportStatus.FAILED
+        batch.total_rows = 0
+        batch.errors = [{"row": 1, "error": f"缺少必要列: {missing_cols}"}]
+        batch.completed_at = _now()
+        await db.commit()
+        await db.refresh(batch)
+        return batch, ImportResult(total=0, imported=0, failed=0, errors=[batch.errors[0]])
+
     for row_num, row in enumerate(reader, start=2):
         total += 1
         try:
             missing = [c for c in REQUIRED_JOB_COLS if not row.get(c)]
             if missing:
-                raise ValueError(f"missing required columns: {missing}")
+                raise ValueError(f"缺少必要字段: {missing}")
+
+            title = row["title"].strip()
+            if title in seen_titles:
+                raise ValueError(f"同批次重复 title: {title}")
+            seen_titles.add(title)
+
             job = JobPosition(
                 id=str(uuid.uuid4()),
                 org_id=org_id,
-                title=row["title"].strip(),
+                title=title,
                 department=(row.get("department") or "").strip() or None,
                 location=(row.get("location") or "").strip() or None,
                 description=(row.get("description") or "").strip() or None,
@@ -260,4 +339,15 @@ async def get_health_score(db: AsyncSession, org_id: str) -> Optional[CustomerHe
 async def list_all_health_scores(db: AsyncSession) -> list[CustomerHealthScore]:
     return (await db.execute(
         select(CustomerHealthScore).order_by(CustomerHealthScore.total_score.asc())
+    )).scalars().all()
+
+
+async def list_imports(
+    db: AsyncSession, org_id: str, limit: int = 50
+) -> list[BatchImportRequest]:
+    return (await db.execute(
+        select(BatchImportRequest)
+        .where(BatchImportRequest.org_id == org_id)
+        .order_by(BatchImportRequest.created_at.desc())
+        .limit(limit)
     )).scalars().all()

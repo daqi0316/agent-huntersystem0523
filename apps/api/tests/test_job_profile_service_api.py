@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.api.job_profiles import router as job_profiles_router
 from app.core.database import get_db
 from app.core.org_context import OrgContext, org_scoped_db
-from app.models.job_profile import JobProfile
+from app.models.job_profile import JobProfile, JobProfileVersion
 from app.schemas.job_profile import JobProfileCreate, JobProfileVersionCreate
 from app.services.job_profile import JobProfileService
 
@@ -252,3 +252,39 @@ class TestJobProfileVersionService:
         )
 
         assert got is None
+
+    async def test_create_active_version_archives_only_active_not_draft(self, service) -> None:
+        profile = Mock(spec=JobProfile)
+        profile.id = "profile-1"
+        profile.hard_requirements = ["5年Java"]
+        profile.soft_requirements = ["团队协作"]
+        profile.evaluation_dimensions = []
+        service.get_by_id = AsyncMock(return_value=profile)
+
+        # max version query → scalar() → 2
+        max_result = Mock()
+        max_result.scalar.return_value = 2
+        service.db.execute.return_value = max_result
+
+        got = await service.create_version(
+            "profile-1",
+            JobProfileVersionCreate(change_reason="新版", status="active"),
+            created_by="test-user",
+        )
+
+        assert got is not None
+        assert got.status.value == "active"
+
+    async def test_activate_version_archives_only_active_not_draft(self, service) -> None:
+        draft_version = Mock(spec=JobProfileVersion)
+        draft_version.id = "ver-1"
+        draft_version.job_profile_id = "profile-1"
+        draft_version.status.value = "draft"
+        service.get_version = AsyncMock(return_value=draft_version)
+
+        service.db.execute.return_value = Mock()
+
+        got = await service.activate_version("profile-1", "ver-1", activated_by="test-user")
+
+        assert got is not None
+        assert got.status.value == "active"

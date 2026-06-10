@@ -214,3 +214,54 @@ async def audit_required_tables(
     else:
         logger.info("schema_audit: all %d expected tables exist in DB", len(expected))
     return missing
+
+
+async def audit_check_constraints(
+    fail_on_mismatch: bool = True,
+    *,
+    engine_arg=None,
+) -> list[str]:
+    """验证 DB 中必须存在的不变量 CHECK 约束未被遗漏或删除。
+
+    检查列表（对应 m2_8 migration）：
+
+    - ck_scorecard_templates_weight_sum
+    - ck_dimension_scores_evidence_not_empty
+    - ck_dimension_scores_low_high_confidence
+
+    与 **weight invariants / evidence non‑empty / confidence required**
+    形成 DB 级第二道门禁（第一道：Schema 层 Pydantic validator）。
+    """
+    required: dict[str, str] = {
+        "ck_scorecard_templates_weight_sum": "scorecard_templates",
+        "ck_dimension_scores_evidence_not_empty": "interview_scorecard_dimension_scores",
+        "ck_dimension_scores_low_high_confidence": "interview_scorecard_dimension_scores",
+    }
+    missing: list[str] = []
+
+    try:
+        eng = engine_arg or engine
+        async with eng.connect() as conn:
+            for conname, relname in required.items():
+                row = await conn.execute(
+                    text(
+                        "SELECT 1 FROM pg_constraint "
+                        "WHERE conname = :name AND conrelid = :rel::regclass AND contype = 'c'"
+                    ),
+                    {"name": conname, "rel": relname},
+                )
+                if row.scalar() is None:
+                    missing.append(conname)
+    except SQLAlchemyError as e:
+        logger.warning("schema_audit: check-constraint audit skipped (DB unreachable): %s", e)
+        return []
+
+    if missing:
+        msg = f"Missing CHECK constraints in DB: {missing}. Run `alembic upgrade head`."
+        logger.error("schema_audit: " + msg)
+        if fail_on_mismatch:
+            raise RuntimeError(msg)
+    else:
+        logger.info("schema_audit: all %d CHECK constraints present in DB", len(required))
+
+    return missing

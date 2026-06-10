@@ -19,6 +19,7 @@ import {
   Server,
   Settings,
   ChevronLeft,
+  Upload,
 } from "lucide-react";
 
 const iconMap: Record<string, React.ElementType> = {
@@ -34,6 +35,7 @@ const iconMap: Record<string, React.ElementType> = {
   Library,
   Server,
   Settings,
+  Upload,
 };
 
 export function Sidebar() {

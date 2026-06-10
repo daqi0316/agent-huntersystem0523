@@ -6,7 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
@@ -77,6 +77,19 @@ class JobProfileVersion(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    requirements: Mapped[list[JobProfileRequirementItem]] = relationship(
+        "JobProfileRequirementItem",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    dimensions: Mapped[list[JobProfileDimension]] = relationship(
+        "JobProfileDimension",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
 
 class JobProfileRequirementItem(Base):
     __tablename__ = "job_profile_requirement_items"
@@ -97,6 +110,8 @@ class JobProfileRequirementItem(Base):
     red_flag_if_missing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    version: Mapped[JobProfileVersion] = relationship("JobProfileVersion", back_populates="requirements")
+
 
 class JobProfileDimension(Base):
     __tablename__ = "job_profile_dimensions"
@@ -113,3 +128,5 @@ class JobProfileDimension(Base):
     key_questions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     red_flags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    version: Mapped[JobProfileVersion] = relationship("JobProfileVersion", back_populates="dimensions")

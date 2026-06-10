@@ -108,6 +108,7 @@ async def create_operation(
         "id": op.id,
         "action": op.action,
         "status": op.status.value,
+        "trace_id": op.trace_id or "",
         "created_at": op.created_at.isoformat() if op.created_at else "",
     })
 
@@ -138,6 +139,7 @@ async def list_operations(
                 "output_summary": op.output_summary,
                 "error_message": op.error_message,
                 "duration_ms": op.duration_ms,
+                "trace_id": op.trace_id or "",
                 "created_at": op.created_at.isoformat() if op.created_at else "",
                 "updated_at": op.updated_at.isoformat() if op.updated_at else "",
             }
@@ -169,6 +171,7 @@ async def get_operation(
         "output_summary": op.output_summary,
         "error_message": op.error_message,
         "duration_ms": op.duration_ms,
+        "trace_id": op.trace_id or "",
         "created_at": op.created_at.isoformat() if op.created_at else "",
         "updated_at": op.updated_at.isoformat() if op.updated_at else "",
     })

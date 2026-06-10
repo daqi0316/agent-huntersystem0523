@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, DateTime, Enum as SAEnum, Float, Integer, String
+from sqlalchemy import CheckConstraint, JSON, DateTime, Enum as SAEnum, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -19,6 +19,9 @@ class BatchImportStatus(str, enum.Enum):
     COMPLETED = "completed"
     PARTIAL = "partial"
     FAILED = "failed"
+
+
+VALID_RISK_LEVELS = ("healthy", "at_risk", "high_risk", "unknown")
 
 
 class RiskLevel(str, enum.Enum):
@@ -61,7 +64,21 @@ class BatchImportRequest(Base):
 
 class CustomerHealthScore(Base):
     __tablename__ = "customer_health_score"
-    __table_args__ = ({"extend_existing": True},)
+    __table_args__ = (
+        CheckConstraint(
+            "login_score BETWEEN 0 AND 100 "
+            "AND feature_score BETWEEN 0 AND 100 "
+            "AND support_score BETWEEN 0 AND 100 "
+            "AND referral_score BETWEEN 0 AND 100 "
+            "AND total_score BETWEEN 0 AND 100",
+            name="chk_health_score_range",
+        ),
+        CheckConstraint(
+            "risk_level IN ('healthy', 'at_risk', 'high_risk', 'unknown')",
+            name="chk_health_risk_level",
+        ),
+        {"extend_existing": True},
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

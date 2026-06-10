@@ -128,6 +128,12 @@ class CandidateRejectionRecord(Base):
     related_dimension_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=False), ForeignKey("scorecard_dimensions.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    evidence_ref_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("evidence_refs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     operator_id: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

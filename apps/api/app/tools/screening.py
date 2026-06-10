@@ -49,7 +49,24 @@ async def _handle_get_candidate(candidate_id=""):
 async def _handle_screen_resume(candidate_id="", job_id=""):
     from app.services.screening import ScreeningService
     svc = ScreeningService()
-    return await svc.screen_resume(candidate_id=candidate_id, job_id=job_id)
+    result = await svc.screen_resume(candidate_id=candidate_id, job_id=job_id)
+    try:
+        from app.agentops.events import get_event_emitter, BusinessEventType
+        await get_event_emitter().emit(
+            event_type=BusinessEventType.SCREENING_COMPLETED,
+            entity_type="candidate",
+            entity_id=candidate_id,
+            domain_fields={
+                "overall_score": result.get("overall_score"),
+                "gate_passed": result.get("gate_passed"),
+                "needs_human_review": result.get("needs_human_review"),
+                "recommendation": result.get("recommendation", "")[:200],
+            },
+            tags=["screening", "ai"],
+        )
+    except Exception:
+        pass
+    return result
 
 
 async def _handle_list_jobs(status="", limit=10):

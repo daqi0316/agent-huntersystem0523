@@ -10,9 +10,11 @@ from fastapi.testclient import TestClient
 from app.api.candidates import router as candidates_router
 from app.core.database import get_db
 from app.core.org_context import OrgContext, org_scoped_db
+from app.models.ai_decision_audit import AiDecisionType
 from app.models.application import ApplicationStatus
 from app.models.candidate import CandidateStatus
 from app.models.candidate_state import RecruitmentCandidateState
+from app.models.evidence_ref import EvidenceCreatedByType, EvidenceSourceType
 from app.models.interview import InterviewStatus, InterviewType
 from app.models.interview_evaluation import EvaluationVerdict, InterviewRound
 
@@ -71,16 +73,44 @@ def _rejection_reason():
     )
 
 
+class EvidenceRefMock:
+    id = "ev1"
+    candidate_id = "11111111-1111-1111-1111-111111111111"
+    source_type = EvidenceSourceType.SCORECARD
+    source_id = "s1"
+    quote = "能解释 JVM 调优取舍"
+    normalized_claim = "候选人具备 JVM 调优能力"
+    confidence = 0.8
+    created_by_type = EvidenceCreatedByType.AI
+    created_by_id = "ai-agent"
+    created_at = datetime(2026, 6, 8, tzinfo=UTC)
+
+
+class AiAuditMock:
+    id = "aa1"
+    candidate_id = "11111111-1111-1111-1111-111111111111"
+    decision_type = AiDecisionType.SCORECARD_ASSIST
+    model_name = "claude-3.5"
+    output_summary = "建议 hire"
+    confidence = 0.85
+    human_confirmed = False
+    created_at = datetime(2026, 6, 8, tzinfo=UTC)
+
+
 class TestCandidateDecisionChainApi:
     def test_decision_chain_empty_sections(self) -> None:
         db = AsyncMock()
         db.execute.side_effect = [
-            _execute_result([]),
-            _execute_result([]),
-            _execute_result([]),
-            _execute_result([]),
-            _execute_result([]),
-            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),
+            _execute_result([]),   # state_history
+            _execute_result([]),   # applications
+            _execute_result([]),   # interviews
+            _execute_result([]),   # rejections
+            _execute_result([]),   # timeline events
+            _execute_result([]),   # evidence_refs
+            _execute_result([]),   # ai_audits
+            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),  # fallback profile
+            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),  # compensation expectation
+            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),  # offer negotiation record
         ]
         app = _make_app_with_org_override(db)
         service = MagicMock()
@@ -95,23 +125,31 @@ class TestCandidateDecisionChainApi:
         assert data["state_history"] == []
         assert data["job_profiles"] == []
         assert data["rejections"] == []
+        assert data["evidence_refs"] == []
+        assert data["ai_audits"] == []
         assert data["missing_sections"] == [
             "state_history",
             "job_profiles",
             "rejections",
             "interviews",
             "interview_feedback",
+            "evidence_refs",
+            "ai_audits",
         ]
 
     def test_decision_chain_uses_java_p7_fallback_profile(self) -> None:
         db = AsyncMock()
         db.execute.side_effect = [
-            _execute_result([]),
-            _execute_result([]),
-            _execute_result([]),
-            _execute_result([]),
-            _execute_result([]),
-            MagicMock(scalar_one_or_none=MagicMock(return_value=_java_p7_profile())),
+            _execute_result([]),   # state_history
+            _execute_result([]),   # applications
+            _execute_result([]),   # interviews
+            _execute_result([]),   # rejections
+            _execute_result([]),   # timeline events
+            _execute_result([]),   # evidence_refs
+            _execute_result([]),   # ai_audits
+            MagicMock(scalar_one_or_none=MagicMock(return_value=_java_p7_profile())),  # fallback profile
+            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),  # compensation expectation
+            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),  # offer negotiation record
         ]
         app = _make_app_with_org_override(db)
         service = MagicMock()
@@ -191,6 +229,7 @@ class TestCandidateDecisionChainApi:
             score=4,
             evidence="能解释 JVM 调优取舍",
             confidence=0.8,
+            evidence_ref_id=None,
         )
         scorecard_dimension = SimpleNamespace(id="d1", name="技术深度")
         scorecard_template = SimpleNamespace(
@@ -214,20 +253,27 @@ class TestCandidateDecisionChainApi:
         )
         profile = _java_p7_profile()
         db = AsyncMock()
+        active_version_result = MagicMock()
+        active_version_result.all.return_value = []
         db.execute.side_effect = [
-            _execute_result([history]),
-            _execute_result([application]),
-            _execute_result([job]),
-            _execute_result([interview]),
-            _execute_result([feedback]),
-            _execute_result([scorecard]),
-            _execute_result([dimension_score]),
-            _execute_result([scorecard_dimension]),
-            _execute_result([scorecard_template]),
-            _execute_result([rejection]),
-            _execute_result([_rejection_reason()]),
-            _execute_result([]),
-            _execute_result([profile]),
+            _execute_result([history]),           # state_history
+            _execute_result([application]),        # applications
+            _execute_result([job]),                # job positions
+            _execute_result([interview]),          # interviews
+            _execute_result([feedback]),           # interview feedback
+            _execute_result([scorecard]),          # scorecard submissions
+            _execute_result([dimension_score]),    # dimension scores
+            _execute_result([scorecard_dimension]),# dimensions
+            _execute_result([scorecard_template]), # templates
+            active_version_result,                 # latest active profile versions
+            _execute_result([rejection]),          # rejections
+            _execute_result([_rejection_reason()]),# rejection reasons
+            _execute_result([]),                   # timeline events
+            _execute_result([EvidenceRefMock()]),  # evidence_refs
+            _execute_result([AiAuditMock()]),      # ai_audits
+            _execute_result([profile]),            # job profiles
+            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),  # compensation expectation
+            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),  # offer negotiation record
         ]
         app = _make_app_with_org_override(db)
         service = MagicMock()
@@ -252,4 +298,8 @@ class TestCandidateDecisionChainApi:
         assert data["rejections"][0]["evidence"] == "三年三跳"
         assert data["rejections"][0]["severity"] == "high"
         assert data["rejections"][0]["preventable_by"] == "screening"
+        assert data["evidence_refs"][0]["source_type"] == "scorecard"
+        assert data["evidence_refs"][0]["normalized_claim"] == "候选人具备 JVM 调优能力"
+        assert data["ai_audits"][0]["decision_type"] == "scorecard_assist"
+        assert data["ai_audits"][0]["output_summary"] == "建议 hire"
         assert data["missing_sections"] == []

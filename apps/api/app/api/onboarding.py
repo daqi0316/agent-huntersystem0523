@@ -19,6 +19,7 @@ from app.services.onboarding import (
     import_candidates_csv,
     import_jobs_csv,
     list_all_health_scores,
+    list_imports,
 )
 
 router = APIRouter()
@@ -89,6 +90,29 @@ async def import_jobs(
         "failed": result.failed,
         "errors": result.errors[:10],
     })
+
+
+@router.get("/onboarding/imports")
+async def import_history(
+    ctx: tuple[OrgContext, AsyncSession] = Depends(org_scoped_db),
+    limit: int = Query(50, ge=1, le=200),
+):
+    org_ctx, db = ctx
+    rows = await list_imports(db, org_ctx.org_id, limit)
+    return success([
+        {
+            "id": r.id,
+            "entity_type": r.entity_type,
+            "status": r.status.value,
+            "file_name": r.file_name,
+            "total": r.total_rows,
+            "imported": r.imported_rows,
+            "failed": r.failed_rows,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+        }
+        for r in rows
+    ])
 
 
 @router.get("/onboarding/import/{batch_id}")

@@ -21,6 +21,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.runnables import RunnableConfig
 
 from app.agents.router_agent import RouterAgent
+from app.agentops.tracing import agent_span
 
 logger = logging.getLogger(__name__)
 
@@ -310,14 +311,15 @@ async def _intent_recognition(state: OrchestratorState) -> dict:
     if _is_multi_stage_text(text):
         return {"multi_stage": True, "status": "running"}
 
-    try:
-        from app.agents.bootstrap import get_router
-        router = get_router()
-        intent = await router.classify({"text": text})
-    except Exception as e:
-        logger.warning("Router classify failed (%s), falling back to 'chat'", e)
-        intent = "chat"
-    return {"intent": intent, "multi_stage": False, "status": "running"}
+    async with agent_span("intent_recognition", input={"text": text[:500]}):
+        try:
+            from app.agents.bootstrap import get_router
+            router = get_router()
+            intent = await router.classify({"text": text})
+        except Exception as e:
+            logger.warning("Router classify failed (%s), falling back to 'chat'", e)
+            intent = "chat"
+        return {"intent": intent, "multi_stage": False, "status": "running"}
 
 
 async def _execute_agent(state: OrchestratorState, agent_type: str) -> dict:
@@ -325,16 +327,19 @@ async def _execute_agent(state: OrchestratorState, agent_type: str) -> dict:
     if not agent:
         return {"error": f"Agent '{agent_type}' not found", "status": "failed"}
 
-    try:
-        result = await agent.run({
-            "user_id": state.get("user_id", ""),
-            "job_id": state.get("job_id", ""),
-            "input_text": state.get("input_text", ""),
-        })
-        return {"agent_result": result, "status": "completed"}
-    except Exception as e:
-        logger.error("Agent %s failed: %s", agent_type, e)
-        return {"error": str(e), "status": "failed"}
+    input_data = {
+        "user_id": state.get("user_id", ""),
+        "job_id": state.get("job_id", ""),
+        "input_text": state.get("input_text", ""),
+    }
+    span_name = f"agent.{agent_type}"
+    async with agent_span(span_name, input=input_data, tags=[agent_type]):
+        try:
+            result = await agent.run(input_data)
+            return {"agent_result": result, "status": "completed"}
+        except Exception as e:
+            logger.error("Agent %s failed: %s", agent_type, e)
+            return {"error": str(e), "status": "failed"}
 
 
 async def execute_resume_parser(state: OrchestratorState) -> dict:
@@ -422,57 +427,58 @@ async def _run_sub_task(
     2. AgentRegistry.resolve → agent.run()，构造 shared_context-aware input
     3. 写回 shared_context
     4. 命中 _needs_human_review → HumanLoopAgent.create_proposal → awaiting_approval
-       此时把 graph 的 thread_id 透传给 create_proposal，写入 Redis 索引
-       （appr:graph_thread:{approval_id} → thread_id），让 PR-V.2 的 /resume 端点
-       能从 approval_id 反查 thread_id，恢复 graph 状态。
+        此时把 graph 的 thread_id 透传给 create_proposal，写入 Redis 索引
+        （appr:graph_thread:{approval_id} → thread_id），让 PR-V.2 的 /resume 端点
+        能从 approval_id 反查 thread_id，恢复 graph 状态。
     """
     task_type = sub_task.get("type", "chat")
     agent_name = _TYPE_TO_AGENT.get(task_type, task_type)
 
-    try:
-        from app.agents.registry import AgentRegistry
+    async with agent_span(f"sub_task.{task_type}", input=sub_task, tags=[task_type, "multi_stage"]):
+        try:
+            from app.agents.registry import AgentRegistry
 
-        agent = AgentRegistry.resolve(agent_name)
-        if agent:
-            input_data = _build_sub_task_input(task_type, sub_task, shared_context)
-            agent_out = await agent.run(input_data)
+            agent = AgentRegistry.resolve(agent_name)
+            if agent:
+                input_data = _build_sub_task_input(task_type, sub_task, shared_context)
+                agent_out = await agent.run(input_data)
 
-            # 写回 shared_context
-            _update_shared_context(shared_context, task_type, agent_out)
+                # 写回 shared_context
+                _update_shared_context(shared_context, task_type, agent_out)
 
-            # 检查是否需要人工审批
-            if _needs_human_review(agent_out, task_type):
-                try:
-                    from app.agents.human_loop import HumanLoopAgent
-                    hl = HumanLoopAgent()
-                    proposal = await hl.create_proposal(
-                        user_id=user_id,
-                        action_type=task_type,
-                        params={
-                            "description": sub_task.get("description", ""),
+                # 检查是否需要人工审批
+                if _needs_human_review(agent_out, task_type):
+                    try:
+                        from app.agents.human_loop import HumanLoopAgent
+                        hl = HumanLoopAgent()
+                        proposal = await hl.create_proposal(
+                            user_id=user_id,
+                            action_type=task_type,
+                            params={
+                                "description": sub_task.get("description", ""),
+                                "result": agent_out.get("result", {}),
+                            },
+                            thread_id=thread_id,
+                        )
+                        return {
+                            "agent": task_type,
+                            "status": "awaiting_approval",
+                            "summary": f"{task_type} 需人工审批",
                             "result": agent_out.get("result", {}),
-                        },
-                        thread_id=thread_id,
-                    )
-                    return {
-                        "agent": task_type,
-                        "status": "awaiting_approval",
-                        "summary": f"{task_type} 需人工审批",
-                        "result": agent_out.get("result", {}),
-                        "details": {"approval": proposal},
-                    }
-                except Exception as e:
-                    logger.warning("HumanLoop pause failed for %s: %s", task_type, e)
+                            "details": {"approval": proposal},
+                        }
+                    except Exception as e:
+                        logger.warning("HumanLoop pause failed for %s: %s", task_type, e)
 
-            return _normalize_sub_task_result(task_type, agent_out)
-    except Exception as e:
-        logger.warning("Sub-task %s via AgentRegistry failed: %s", task_type, e)
+                return _normalize_sub_task_result(task_type, agent_out)
+        except Exception as e:
+            logger.warning("Sub-task %s via AgentRegistry failed: %s", task_type, e)
 
-    # Fallback — 失败时仍返回结构化结果
-    return {
-        "agent": task_type,
-        "status": "failed",
-        "summary": f"{task_type} 处理失败",
+        # Fallback — 失败时仍返回结构化结果
+        return {
+            "agent": task_type,
+            "status": "failed",
+            "summary": f"{task_type} 处理失败",
         "result": {},
         "details": {"error": "agent_not_found_or_failed"},
     }

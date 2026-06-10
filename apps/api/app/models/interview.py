@@ -9,6 +9,8 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 import enum
 
+from app.models._base import enum_column
+
 
 class InterviewStatus(str, enum.Enum):
     # 同 ApplicationStatus：DB label 大写、value 小写，保留裸 SAEnum（写 name）。
@@ -65,6 +67,19 @@ class Interview(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    job_profile_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("job_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    profile_version_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("job_profile_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     candidate = relationship("Candidate", back_populates="interviews")

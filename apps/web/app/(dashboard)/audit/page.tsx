@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Shield, Activity } from "lucide-react";
+import { Shield, Activity, Brain } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import AuditPanel from "@/components/features/audit/audit-panel";
 import AuditLogPanel from "@/components/features/audit/audit-log-panel";
+import AiAuditPanel from "@/components/features/audit/ai-audit-panel";
 
-type TabKey = "operation" | "audit";
+type TabKey = "operation" | "audit" | "ai";
 
 export default function AuditPage() {
   const [tab, setTab] = useState<TabKey>("operation");
@@ -48,6 +49,17 @@ export default function AuditPage() {
           <Shield className="h-3 w-3" />
           审计日志 (P5-1)
         </button>
+        <button
+          onClick={() => setTab("ai")}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition ${
+            tab === "ai"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Brain className="h-3 w-3" />
+          AI 决策审计
+        </button>
       </div>
 
       {tab === "operation" ? (
@@ -56,8 +68,10 @@ export default function AuditPage() {
             <AuditPanel />
           </CardContent>
         </Card>
-      ) : (
+      ) : tab === "audit" ? (
         <AuditLogPanel />
+      ) : (
+        <AiAuditPanel />
       )}
     </div>
   );

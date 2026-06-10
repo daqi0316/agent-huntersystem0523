@@ -107,6 +107,17 @@ class Settings(BaseSettings):
     invite_max_per_device_24h: int = 5
     llm_circuit_breaker_enabled: bool = True
 
+    agentops_enabled: bool = False
+    agentops_provider: str = "noop"
+    agentops_environment: str = "local"
+    agentops_queue_max_size: int = 1000
+    agentops_flush_timeout_seconds: float = 2.0
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = ""
+    langfuse_capture_input: bool = False
+    langfuse_capture_output: bool = False
+
     wechat_pay_merchant_id: str = ""
     wechat_pay_api_key: str = ""
     wechat_pay_cert_path: str = ""

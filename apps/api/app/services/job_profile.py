@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job_profile import (
@@ -89,9 +90,13 @@ class JobProfileService:
         status = JobProfileVersionStatus(data.status)
         now = datetime.now(timezone.utc)
         if status == JobProfileVersionStatus.ACTIVE:
+            now = datetime.now(timezone.utc)
             await self.db.execute(
                 update(JobProfileVersion)
-                .where(JobProfileVersion.job_profile_id == profile_id)
+                .where(
+                    JobProfileVersion.job_profile_id == profile_id,
+                    JobProfileVersion.status == JobProfileVersionStatus.ACTIVE,
+                )
                 .values(status=JobProfileVersionStatus.ARCHIVED, archived_at=now)
             )
         version = JobProfileVersion(
@@ -129,6 +134,8 @@ class JobProfileService:
             )
         await self.db.commit()
         await self.db.refresh(version)
+        # 预加载 relationship，供 version_to_dict 直接使用（避免 N+1）
+        await self.db.refresh(version, attribute_names=["requirements", "dimensions"])
         return version
 
     async def list_versions(self, profile_id: str) -> list[dict]:
@@ -136,6 +143,7 @@ class JobProfileService:
             return []
         result = await self.db.execute(
             select(JobProfileVersion)
+            .options(selectinload(JobProfileVersion.requirements), selectinload(JobProfileVersion.dimensions))
             .where(JobProfileVersion.job_profile_id == profile_id)
             .order_by(JobProfileVersion.version.desc())
         )
@@ -155,7 +163,10 @@ class JobProfileService:
             return None
         await self.db.execute(
             update(JobProfileVersion)
-            .where(JobProfileVersion.job_profile_id == profile_id)
+            .where(
+                JobProfileVersion.job_profile_id == profile_id,
+                JobProfileVersion.status == JobProfileVersionStatus.ACTIVE,
+            )
             .values(status=JobProfileVersionStatus.ARCHIVED, archived_at=datetime.now(timezone.utc))
         )
         now = datetime.now(timezone.utc)
@@ -166,6 +177,7 @@ class JobProfileService:
         version.archived_at = None
         await self.db.commit()
         await self.db.refresh(version)
+        await self.db.refresh(version, attribute_names=["requirements", "dimensions"])
         return version
 
     async def template_library(self) -> list[dict]:
@@ -185,16 +197,8 @@ class JobProfileService:
         ]
 
     async def version_to_dict(self, version: JobProfileVersion) -> dict:
-        requirements_result = await self.db.execute(
-            select(JobProfileRequirementItem)
-            .where(JobProfileRequirementItem.profile_version_id == version.id)
-            .order_by(JobProfileRequirementItem.type.asc(), JobProfileRequirementItem.order_index.asc())
-        )
-        dimensions_result = await self.db.execute(
-            select(JobProfileDimension)
-            .where(JobProfileDimension.profile_version_id == version.id)
-            .order_by(JobProfileDimension.order_index.asc())
-        )
+        reqs = sorted(version.requirements, key=lambda r: (r.type.value, r.order_index))
+        dims = sorted(version.dimensions, key=lambda d: d.order_index)
         return {
             "id": version.id,
             "job_profile_id": version.job_profile_id,
@@ -209,8 +213,8 @@ class JobProfileService:
             "activated_by": version.activated_by,
             "activated_at": version.activated_at,
             "archived_at": version.archived_at,
-            "requirements": [self._requirement_to_dict(item) for item in requirements_result.scalars().all()],
-            "dimensions": [self._dimension_to_dict(item) for item in dimensions_result.scalars().all()],
+            "requirements": [self._requirement_to_dict(item) for item in reqs],
+            "dimensions": [self._dimension_to_dict(item) for item in dims],
         }
 
     @staticmethod

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.interview import Interview, InterviewStatus, InterviewType
 from app.models.interview_evaluation import InterviewEvaluation, InterviewRound, EvaluationVerdict
+from app.models.job_position import JobPosition
 
 
 class InterviewService:
@@ -86,6 +87,35 @@ class InterviewService:
                         "conflict_time": interview.scheduled_at.isoformat(),
                     }
 
+        # 从 job_id (JobPosition) 解析岗位画像版本，冻结在面试记录上
+        job_profile_id = None
+        profile_version_id = None
+        if job_id:
+            try:
+                uuid.UUID(job_id)
+                job_pos = await self.db.get(JobPosition, job_id)
+                if job_pos:
+                    job_profile_id = job_pos.job_profile_id
+                    profile_version_id = job_pos.profile_version_id
+            except (ValueError, AttributeError):
+                pass
+        elif application_id:
+            # fallback: 通过 application 解析 job → job_position
+            try:
+                uuid.UUID(application_id)
+                from app.models.application import Application
+                app_result = await self.db.execute(
+                    select(Application).where(Application.id == application_id)
+                )
+                app = app_result.scalar_one_or_none()
+                if app and app.job_id:
+                    job_pos = await self.db.get(JobPosition, app.job_id)
+                    if job_pos:
+                        job_profile_id = job_pos.job_profile_id
+                        profile_version_id = job_pos.profile_version_id
+            except (ValueError, AttributeError):
+                pass
+
         # Create interview
         interview = Interview(
             id=str(uuid.uuid4()),
@@ -97,6 +127,8 @@ class InterviewService:
             duration_minutes=duration,
             location=location or None,
             notes=notes or None,
+            job_profile_id=job_profile_id,
+            profile_version_id=profile_version_id,
         )
         self.db.add(interview)
         await self.db.commit()
@@ -302,6 +334,8 @@ class InterviewService:
             "location": interview.location or "",
             "notes": interview.notes or "",
             "feedback": interview.feedback or "",
+            "job_profile_id": interview.job_profile_id or "",
+            "profile_version_id": interview.profile_version_id or "",
             "created_at": interview.created_at.isoformat() if interview.created_at else "",
             "updated_at": interview.updated_at.isoformat() if interview.updated_at else "",
         }
