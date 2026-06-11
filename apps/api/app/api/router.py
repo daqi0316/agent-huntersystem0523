@@ -188,6 +188,40 @@ api_router.include_router(interviewer_calibration_router, prefix="/interviewer-c
 api_router.include_router(evidence_refs_router, prefix="/evidence-refs", tags=["Evidence Refs"])
 api_router.include_router(red_flag_rules_router, prefix="/red-flag-rules", tags=["Red Flag Rules"])
 
+# P2-C Stage 11: 用户反馈 API
+from app.agentops.feedback.router import router as feedback_router  # noqa: E402
+api_router.include_router(feedback_router, prefix="/feedback", tags=["Feedback"])
+
+# P2-C Stage 14: AgentOps 看板
+from app.agentops.dashboards.router import router as dashboards_router  # noqa: E402
+api_router.include_router(dashboards_router)
+
+# P2-C Stage 12: Dataset / Experiment / 回归闭环
+from app.agentops.dataset.router import router as dataset_router  # noqa: E402
+api_router.include_router(dataset_router)
+
+from app.agentops.dataset.experiment_router import router as experiment_router  # noqa: E402
+api_router.include_router(experiment_router)
+
+# P2-C Stage 15: LLM 成本追踪
+from app.agentops.cost.router import router as cost_router  # noqa: E402
+api_router.include_router(cost_router)
+
 # A1: Admin 运维端点 (限流状态查询/重置)
 from app.api.admin import router as admin_router  # noqa: E402
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
+
+# ── P0: Sourcing 寻源模块 ──
+from app.sourcing.api.tasks import router as sourcing_tasks_router  # noqa: E402
+from app.sourcing.api.platforms import router as sourcing_platforms_router  # noqa: E402
+from app.sourcing.api.candidates import router as sourcing_candidates_router  # noqa: E402
+from app.sourcing.api.stats import router as sourcing_stats_router  # noqa: E402
+from app.sourcing.api.health import router as sourcing_health_router  # noqa: E402
+from app.sourcing.api.ws import router as sourcing_ws_router  # noqa: E402
+
+api_router.include_router(sourcing_tasks_router, prefix="/sourcing/tasks", tags=["Sourcing"])
+api_router.include_router(sourcing_platforms_router, prefix="/sourcing/platforms", tags=["Sourcing"])
+api_router.include_router(sourcing_candidates_router, prefix="/sourcing/candidates", tags=["Sourcing"])
+api_router.include_router(sourcing_stats_router, prefix="/sourcing/stats", tags=["Sourcing"])
+api_router.include_router(sourcing_health_router, prefix="", tags=["Sourcing"])
+api_router.include_router(sourcing_ws_router, prefix="", tags=["Sourcing"])

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { NAV_ITEMS, APP_NAME } from "@/lib/constants";
 import { useUIStore } from "@/stores/ui-store";
 import {
+  Activity,
   LayoutDashboard,
   Briefcase,
   Users,
@@ -16,13 +17,16 @@ import {
   FilePen,
   BarChart3,
   Library,
+  Search,
   Server,
   Settings,
   ChevronLeft,
   Upload,
+  DollarSign,
 } from "lucide-react";
 
 const iconMap: Record<string, React.ElementType> = {
+  Activity,
   LayoutDashboard,
   Briefcase,
   Users,
@@ -33,16 +37,18 @@ const iconMap: Record<string, React.ElementType> = {
   FilePen,
   BarChart3,
   Library,
+  Search,
   Server,
   Settings,
   Upload,
+  DollarSign,
 };
 
 export function Sidebar() {
   const pathname = usePathname();
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
 
-  const isAgentPage = pathname?.startsWith("/agent") ?? false;
+  const isAgentPage = (pathname?.startsWith("/agent") && !pathname?.startsWith("/agentops")) ?? false;
   const effectivelyCollapsed = isAgentPage || sidebarCollapsed;
 
   return (

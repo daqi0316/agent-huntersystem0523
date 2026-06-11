@@ -20,3 +20,56 @@ groups:
         annotations:
           summary: "API P95 延迟 > 2s (2min 滑窗)"
           description: "当前 P95: {{ $value }}s, 阈值 2s"
+
+  - name: sourcing
+    interval: 30s
+    rules:
+      - alert: SourcingHighFailureRate
+        expr: rate(sourcing_crawl_total{status="failed"}[15m]) / clamp_min(rate(sourcing_crawl_total[15m]), 1e-9) > 0.6
+        for: 5m
+        labels:
+          severity: warning
+          service: sourcing
+        annotations:
+          summary: "寻源采集失败率 > 60%"
+          description: "平台 {{ $labels.platform }} 15min 采集失败率 {{ $value | humanizePercentage }}"
+
+      - alert: SourcingNoProxyAvailable
+        expr: sourcing_proxy_pool_size{tier="premium"} < 5
+        for: 2m
+        labels:
+          severity: critical
+          service: sourcing
+        annotations:
+          summary: "代理池枯竭 (premium < 5)"
+          description: "premium 代理剩余 {{ $value }} 个, 需要补充"
+
+      - alert: SourcingAccountsExhausted
+        expr: sourcing_account_active{status="active"} < 2
+        for: 2m
+        labels:
+          severity: critical
+          service: sourcing
+        annotations:
+          summary: "可用账号不足 (< 2)"
+          description: "平台 {{ $labels.platform }} 可用账号仅 {{ $value }} 个"
+
+      - alert: SourcingQuotaHigh
+        expr: sourcing_account_active{status="limited"} > sourcing_account_active{status="active"} * 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: sourcing
+        annotations:
+          summary: "账号配额使用率 > 80%"
+          description: "limited 账号数已达活跃账号的 80%"
+
+      - alert: SourcingTaskQueueDeep
+        expr: sourcing_task_queue_depth > 20
+        for: 5m
+        labels:
+          severity: info
+          service: sourcing
+        annotations:
+          summary: "寻源任务队列深度 > 20"
+          description: "当前排队 {{ $value }} 个任务"

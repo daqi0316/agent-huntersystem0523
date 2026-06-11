@@ -148,6 +148,12 @@ from app.models.ai_decision_audit import (  # noqa: F401
     AiDecisionType,
 )
 
+# ── P0: Sourcing 模型 ──
+from app.sourcing.models.sourcing_task import SourcingTask  # noqa: F401
+from app.sourcing.models.crawl_log import CrawlLog  # noqa: F401
+from app.sourcing.models.platform_config import PlatformConfig  # noqa: F401
+from app.sourcing.models.platform_account import PlatformAccount  # noqa: F401
+
 __all__ = [
     "Candidate", "CandidateStateHistory", "RecruitmentCandidateState", "JobPosition", "JobProfile",
     "JobProfileVersion", "JobProfileRequirementItem", "JobProfileDimension",

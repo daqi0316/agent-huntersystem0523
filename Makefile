@@ -50,6 +50,13 @@ os.execv('.venv/bin/python',['../apps/api/.venv/bin/python','-m','uvicorn','app.
 api:migrate:	## Run Alembic migrations
 	cd apps/api && alembic upgrade head
 
+api:archive:	## Archive stale candidates (180d) — dry-run first
+	python scripts/archive_candidates.py --dry-run --days 180
+	@echo "Run without --dry-run to execute."
+
+api:archive:run:	## Archive stale candidates (180d) — execute
+	python scripts/archive_candidates.py --days 180
+
 api:check-schema:	## Compare SQLAlchemy models with current DB schema (alembic check)
 	cd apps/api && alembic check
 

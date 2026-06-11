@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, Integer, DateTime, Enum as SAEnum
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy import String, Text, Integer, Float, DateTime, Enum as SAEnum
+from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -52,6 +52,35 @@ class Candidate(Base):
         default=RecruitmentCandidateState.NEW_APPLICATION,
         index=True,
     )
+    # === NEW: 寻源扩展 (全 nullable, 无损兼容) ===
+    sourcing_task_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, comment="来源采集任务ID"
+    )
+    source_platforms: Mapped[list | None] = mapped_column(
+        ARRAY(String), nullable=True, comment="来源平台列表"
+    )
+    source_urls: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="各平台 URL {boss_zhipin: url, ...}"
+    )
+    raw_data: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="各平台原始解析数据 {boss_zhipin: {...}}"
+    )
+    ai_analysis: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="AI 分析结果缓存"
+    )
+    match_scores: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="按岗位匹配分 {job_id: score}"
+    )
+    data_quality_score: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="数据质量评分 0-1"
+    )
+    dedup_fingerprint: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, index=True, comment="去重指纹"
+    )
+    last_crawled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="上次采集时间"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

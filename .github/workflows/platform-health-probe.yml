@@ -1,0 +1,256 @@
+name: Platform Health Probe
+
+on:
+  schedule:
+    # 每天 UTC 02:00 (北京时间 10:00)
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    # 手动触发调试
+
+concurrency:
+  group: platform-health-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.14"
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_recruitment
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/healthz || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Python setup ──
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+
+      - name: Install uv + Python deps
+        run: |
+          pip install uv
+          uv pip install -r ../../apps/api/requirements.txt --system
+        working-directory: apps/web
+
+      # ── Node.js setup ──
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Get pnpm store directory
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      # ── Alembic migration ──
+      - name: Run Alembic migration
+        run: |
+          cd ${{ github.workspace }}/apps/api
+          alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment
+          REDIS_URL: redis://localhost:6379/0
+          QDRANT_URL: http://localhost:6333
+          LLM_PROVIDER: omlx
+          LLM_BASE_URL: http://localhost:8001/v1
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY || 'test-key' }}
+          LLM_MODEL: qwen3.6
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'probe-jwt-secret' }}
+          JWT_ALGORITHM: HS256
+          JWT_EXPIRATION_MINUTES: 60
+          API_PORT: 8000
+          CORS_ORIGINS: '["http://localhost:3000"]'
+
+      # ── Run platform health probe (backend) ──
+      - name: Run backend platform health probe
+        run: |
+          cd ${{ github.workspace }}/apps/api
+          python -c "
+import asyncio
+from app.core.database import AsyncSessionLocal
+from app.sourcing.health_probe import probe_platform_health
+
+async def run():
+    async with AsyncSessionLocal() as db:
+        results = await probe_platform_health(db)
+        import json
+        print(json.dumps(results, indent=2, default=str))
+
+asyncio.run(run())
+" > /tmp/platform-health-results.json 2>&1 || echo "Backend probe failed"
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment
+          REDIS_URL: redis://localhost:6379/0
+          QDRANT_URL: http://localhost:6333
+          LLM_PROVIDER: omlx
+          LLM_BASE_URL: http://localhost:8001/v1
+          LLM_API_KEY: test-key
+          LLM_MODEL: qwen3.6
+          JWT_SECRET: probe-jwt-secret
+          JWT_ALGORITHM: HS256
+          JWT_EXPIRATION_MINUTES: 60
+          API_PORT: 8000
+          CORS_ORIGINS: '["http://localhost:3000"]'
+        continue-on-error: true
+
+      - name: Cat backend probe results
+        run: cat /tmp/platform-health-results.json || echo "(no results)"
+
+      # ── Start API server ──
+      - name: Start API server
+        run: |
+          cd ${{ github.workspace }}/apps/api
+          nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/api-probe.log 2>&1 &
+          for i in $(seq 1 15); do
+            curl -s -o /dev/null http://localhost:8000/docs && echo "API ready" && break
+            sleep 2
+          done
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment
+          REDIS_URL: redis://localhost:6379/0
+          QDRANT_URL: http://localhost:6333
+          LLM_PROVIDER: omlx
+          LLM_BASE_URL: http://localhost:8001/v1
+          LLM_API_KEY: test-key
+          LLM_MODEL: qwen3.6
+          JWT_SECRET: probe-jwt-secret
+          JWT_ALGORITHM: HS256
+          JWT_EXPIRATION_MINUTES: 60
+          API_PORT: 8000
+          CORS_ORIGINS: '["http://localhost:3000"]'
+
+      # ── Build and start frontend production server ──
+      - name: Build frontend (production)
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_WS_URL: ws://localhost:8000
+
+      - name: Start frontend production server
+        run: |
+          nohup npx next start --port 3000 > /tmp/web-probe.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -s -o /dev/null http://localhost:3000/login && echo "Web ready" && break
+            sleep 2
+          done
+
+      # ── Run Playwright health probe ──
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 0
+
+      - name: Run Playwright health probe
+        id: playwright
+        run: |
+          npx playwright test e2e/platform-health-probe.spec.ts --reporter=list,json 2>&1 | tee /tmp/playwright-probe.log
+          echo "EXIT_CODE=$?" >> $GITHUB_OUTPUT
+        env:
+          API_URL: http://localhost:8000/api/v1
+        continue-on-error: true
+
+      # ── Generate aggregation report ──
+      - name: Generate health probe report
+        id: report
+        run: |
+          python3 ${{ github.workspace }}/scripts/platform-health-report.py \
+            --playwright-log /tmp/playwright-probe.log \
+            --backend-results /tmp/platform-health-results.json \
+            --output /tmp/health-report.md \
+            --api-base http://localhost:8000/api/v1
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment
+          REDIS_URL: redis://localhost:6379/0
+        continue-on-error: true
+
+      - name: Show health report
+        run: cat /tmp/health-report.md || echo "(no report generated)"
+
+      # ── Upload artifacts ──
+      - name: Upload health probe artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-probe-results
+          path: |
+            /tmp/platform-health-results.json
+            /tmp/playwright-probe.log
+            /tmp/health-report.md
+            /tmp/api-probe.log
+            /tmp/web-probe.log
+          retention-days: 30
+
+      # ── Slack notification on failure ──
+      - name: Notify on probe failure
+        if: failure() && github.ref == 'refs/heads/main'
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "⚠️ Platform health probe failed on main branch\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+            }
+        continue-on-error: true

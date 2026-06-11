@@ -1,0 +1,160 @@
+{
+  "title": "寻源 Agent — P3 采集监控",
+  "uid": "sourcing-overview",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "tags": ["ai-recruit", "sourcing", "phase-c"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "采集成功率 (rate, by platform)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(sourcing_crawl_total{status=\"success\"}[15m]) / clamp_min(rate(sourcing_crawl_total[15m]), 1e-9) * 100",
+          "legendFormat": "{{platform}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "percent", "label": "%", "max": 100, "min": 0},
+        {"format": "short"}
+      ],
+      "thresholds": [
+        {"value": 60, "colorMode": "critical", "op": "lt", "fill": true, "line": true}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "采集耗时 P95 (秒, by platform)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, platform) (rate(sourcing_crawl_duration_seconds_bucket[15m])))",
+          "legendFormat": "{{platform}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "s", "label": "秒", "max": 120, "min": 0},
+        {"format": "short"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "代理池数量 (by tier)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 8, "w": 8, "h": 8},
+      "targets": [
+        {
+          "expr": "sourcing_proxy_pool_size",
+          "legendFormat": "{{tier}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "short", "label": "数量", "min": 0},
+        {"format": "short"}
+      ],
+      "thresholds": [
+        {"value": 5, "colorMode": "critical", "op": "lt", "fill": true, "line": true}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "活跃账号数 (by platform)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 8, "y": 8, "w": 8, "h": 8},
+      "targets": [
+        {
+          "expr": "sourcing_account_active{status=\"active\"}",
+          "legendFormat": "{{platform}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "short", "label": "数量", "min": 0},
+        {"format": "short"}
+      ],
+      "thresholds": [
+        {"value": 2, "colorMode": "critical", "op": "lt", "fill": true, "line": true}
+      ]
+    },
+    {
+      "id": 5,
+      "title": "验证码触发率 (rate, by platform)",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 16, "y": 8, "w": 8, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(sourcing_crawl_total{captcha=\"true\"}[15m]) / clamp_min(rate(sourcing_crawl_total[15m]), 1e-9) * 100",
+          "legendFormat": "{{platform}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "percent", "label": "%", "min": 0},
+        {"format": "short"}
+      ]
+    },
+    {
+      "id": 6,
+      "title": "任务队列深度",
+      "type": "singlestat",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 16, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "sourcing_task_queue_depth",
+          "refId": "A"
+        }
+      ],
+      "valueName": "current",
+      "format": "short",
+      "thresholds": "5,20",
+      "colors": ["green", "yellow", "red"]
+    },
+    {
+      "id": 7,
+      "title": "高质代理数 (premium_high_quality)",
+      "type": "singlestat",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 4, "y": 16, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "sourcing_proxy_pool_size{tier=\"premium_high_quality\"}",
+          "refId": "A"
+        }
+      ],
+      "valueName": "current",
+      "format": "short",
+      "thresholds": "3,10",
+      "colors": ["red", "yellow", "green"]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "meta": {
+    "phase": "C3",
+    "estimated_d": 0.5,
+    "kpi": "P3-4 sourcing Grafana 面板 (7 图: 成功率/延迟/代理池/账号/验证码/队列深度/高质代理)",
+    "note": "P3-4 sourcing Grafana 面板. alert 规则见 prometheus-alerts.yml sourcing group."
+  }
+}
