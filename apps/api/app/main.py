@@ -17,6 +17,7 @@ from app.core.rate_limit import create_rate_limit_middleware
 from app.core.redis import close_redis
 from app.core.qdrant import close_qdrant
 from app.core.sentry_setup import init_sentry
+from app.agentops.core.context import AgentOpsContext, set_context
 from app.core.telemetry import api_request_total, record_http_request, render_prometheus
 from app.api.router import api_router
 from app.agents.bootstrap import init_agents
@@ -99,6 +100,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Agent initialization failed: %s", e)
 
+    # ── 浏览器引擎生命周期 ──
+    engine_lifecycle: EngineLifecycleManager | None = None
+    try:
+        from app.tools.browser_engine.manager.lifecycle import EngineLifecycleManager
+        engine_lifecycle = EngineLifecycleManager()
+        await engine_lifecycle.startup()
+        await engine_lifecycle.health_check_loop(interval=60)
+        logger.info("Browser engines initialized")
+    except Exception as e:
+        logger.warning("Browser engine init skipped (non-fatal): %s", e)
+
     # ── 启动推荐扫描定时器 ──
     scheduler_task = asyncio.create_task(recommendation_scheduler_loop())
     logger.info("Recommendation scheduler started in background")
@@ -106,10 +118,21 @@ async def lifespan(app: FastAPI):
     aggregation_task = asyncio.create_task(aggregation_loop())
     logger.info("Operation stats aggregation loop started in background")
 
+    # ── LLM 模型健康检查后台任务 ──
+    llm_health_task: asyncio.Task | None = None
+    try:
+        from app.llm.admin.health_task import start_health_check
+        llm_health_task = start_health_check()
+        logger.info("LLM health check started in background")
+    except Exception as e:
+        logger.warning("LLM health check init skipped: %s", e)
+
     yield
 
     scheduler_task.cancel()
     aggregation_task.cancel()
+    if llm_health_task is not None:
+        llm_health_task.cancel()
     try:
         await scheduler_task
     except asyncio.CancelledError:
@@ -118,6 +141,14 @@ async def lifespan(app: FastAPI):
         await aggregation_task
     except asyncio.CancelledError:
         logger.info("Aggregation loop cancelled")
+    # 关闭浏览器引擎
+    if engine_lifecycle is not None:
+        try:
+            await engine_lifecycle.shutdown()
+            logger.info("Browser engines shut down")
+        except Exception as e:
+            logger.warning("Browser engine shutdown warning: %s", e)
+
     await close_redis()
     await close_qdrant()
     try:
@@ -180,6 +211,25 @@ async def request_logging_middleware(request: Request, call_next):
             status_code,
             elapsed * 1000,
         )
+
+
+@app.middleware("http")
+async def agentops_context_middleware(request: Request, call_next):
+    """为每个请求创建 AgentOpsContext（trace_id/request_id），供下游继承。"""
+    import uuid
+    trace_id = str(uuid.uuid4())
+    request_id = str(uuid.uuid4())
+    token = set_context(AgentOpsContext(
+        trace_id=trace_id,
+        request_id=request_id,
+    ))
+    try:
+        response = await call_next(request)
+        response.headers["X-Trace-ID"] = trace_id
+        return response
+    finally:
+        from app.agentops.core.context import reset_context
+        reset_context(token)
 
 
 app.add_middleware(
@@ -245,6 +295,18 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "ai-recruitment-api"}
+
+
+@app.get("/health/browser-engines")
+async def browser_engines_health():
+    """浏览器引擎健康状态"""
+    try:
+        from app.tools.browser_engine.monitoring.health import get_engine_health
+        result = await get_engine_health()
+        return {"status": "ok", **result}
+    except Exception as e:
+        logger.warning("browser-engines health check failed: %s", e)
+        return {"status": "degraded", "engines": {}, "error": str(e)}
 
 
 @app.get("/metrics")

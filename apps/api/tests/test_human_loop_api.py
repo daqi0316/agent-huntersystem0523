@@ -54,7 +54,7 @@ class TestScheduleInterview:
         mock_agent.run.assert_awaited_once_with({
             "action_type": "schedule_interview",
             "params": {"candidate_name": "张三"},
-            "user_id": "user-1",
+            "user_id": "test-user-id",
         })
 
     async def test_schedule_none_params(self, client, mock_agent):
@@ -85,7 +85,7 @@ class TestApproveAction:
         assert body["success"] is True
         assert body["status"] == "approved"
         mock_agent.confirm.assert_awaited_once_with(
-            approval_id="appr_xxx", approved=True, feedback="好的", user_id="user-1"
+            approval_id="appr_xxx", approved=True, feedback="好的", user_id="test-user-id"
         )
 
     async def test_approve_rejected(self, client, mock_agent):

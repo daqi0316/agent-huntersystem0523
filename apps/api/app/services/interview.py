@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agentops.instrumentation.recruitment import RecruitmentEvents
 from app.models.interview import Interview, InterviewStatus, InterviewType
 from app.models.interview_evaluation import InterviewEvaluation, InterviewRound, EvaluationVerdict
 from app.models.job_position import JobPosition
@@ -133,6 +134,15 @@ class InterviewService:
         self.db.add(interview)
         await self.db.commit()
         await self.db.refresh(interview)
+
+        # P2-C Stage 9: 发射面试安排业务事件
+        import asyncio
+        asyncio.create_task(RecruitmentEvents.on_interview_scheduled(
+            candidate_id=candidate_id,
+            job_id=job_id,
+            schedule_success=True,
+            conflict_detected=False,
+        ))
 
         return self._to_dict(interview)
 

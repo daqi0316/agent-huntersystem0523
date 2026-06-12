@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, DollarSign, TrendingUp, AlertTriangle, BarChart3 } from "lucide-react";
+import { Search, TrendingUp, AlertTriangle, BarChart3 } from "lucide-react";
 
 interface Benchmark {
   id: string;
@@ -124,12 +124,9 @@ export default function CompensationPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center gap-2">
-        <DollarSign className="h-7 w-7" />
-        <div>
-          <h1 className="text-3xl font-bold">薪酬数据库</h1>
-          <p className="text-muted-foreground">市场薪酬基准 · 候选人期望 · Offer 谈判分析</p>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold">薪酬数据库</h1>
+        <p className="text-muted-foreground">市场薪酬基准 · 候选人期望 · Offer 谈判分析</p>
       </div>
 
       <Tabs defaultValue="benchmarks">

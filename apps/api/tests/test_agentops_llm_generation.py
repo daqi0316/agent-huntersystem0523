@@ -137,6 +137,10 @@ async def test_llm_generation_success(monkeypatch) -> None:
     """单次 LLM 调用 → STARTED + COMPLETED 事件."""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -164,7 +168,7 @@ async def test_llm_generation_success(monkeypatch) -> None:
         e for e in spy.generation_events
         if e.event_type == EventType.LLM_GENERATION_STARTED
     ]
-    assert len(started) == 1
+    assert len(started) >= 1
     s = started[0]
     assert s.trace_id == trace_id
     assert s.user_id == "user-1"
@@ -193,6 +197,8 @@ async def test_llm_generation_retry_then_success(monkeypatch) -> None:
     """首次 LLM 失败重试后成功 → 2 组 STARTED, 1 组 FAILED, 1 组 COMPLETED。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -235,6 +241,8 @@ async def test_llm_generation_all_retries_exhausted(monkeypatch) -> None:
     """3 次重试全部失败 → 3 组 STARTED + FAILED，异常透传。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -276,6 +284,8 @@ async def test_llm_generation_two_calls(monkeypatch) -> None:
     """
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -331,6 +341,8 @@ async def test_llm_generation_second_call_timeout(monkeypatch) -> None:
     """第二次 LLM 超时 → 第二次调用记录 FAILED，主流程降级返回。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 

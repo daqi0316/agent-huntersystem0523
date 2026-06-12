@@ -12,10 +12,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
 from app.agents.base import BaseAgent
+from app.agentops.instrumentation.recruitment import RecruitmentEvents
 from app.tools.resume_parser import (
     _handle_parse_resume,
     _handle_batch_parse,
@@ -98,6 +100,16 @@ class ResumeParserAgent(BaseAgent):
             "needs_human_review": needs_human_review,
             "status": status_text,
         }
+
+        # P2-C Stage 9: 发射业务事件（非阻塞）
+        asyncio.create_task(RecruitmentEvents.on_resume_parsed(
+            candidate_id=data.get("candidate_id", ""),
+            quality_score=quality_score,
+            confidence=confidence,
+            red_flags=red_flags,
+            field_completeness=quality_score / 100,
+            needs_human_review=needs_human_review,
+        ))
 
         return self.format_result(
             "completed" if not needs_human_review else "partial",

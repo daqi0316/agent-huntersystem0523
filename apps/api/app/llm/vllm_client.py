@@ -1,3 +1,4 @@
+# @deprecated Use app.llm.provider (OpenAICompatProvider/AnthropicProvider) instead
 import logging
 
 from openai import AsyncOpenAI

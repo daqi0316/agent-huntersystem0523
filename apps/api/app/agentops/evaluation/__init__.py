@@ -16,6 +16,15 @@ from .evaluators import (
     ToolSuccessEvaluator,
     run_all_evaluators,
 )
+from .llm_judge import (
+    HeuristicJudge,
+    LLMJudgeBackend,
+    LLMJudgeFactory,
+    MockJudge,
+    PromptBasedJudge,
+    get_rubric,
+    register_rubric,
+)
 from .schemas import EvaluationResult, ScoreType
 from .writer import ScoreWriter
 
@@ -33,4 +42,11 @@ __all__ = [
     "JDQualityEvaluator",
     "ConversationHelpfulnessEvaluator",
     "run_all_evaluators",
+    "LLMJudgeBackend",
+    "LLMJudgeFactory",
+    "PromptBasedJudge",
+    "HeuristicJudge",
+    "MockJudge",
+    "get_rubric",
+    "register_rubric",
 ]

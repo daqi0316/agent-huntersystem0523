@@ -23,17 +23,21 @@ from app.mcp.manager import mcp_manager
 from app.skills import all_handlers as all_skill_handlers, all_tools as all_skill_tools
 from app.skills.gallery import get_gallery_tools, get_gallery_handlers
 from app.tools import all_handlers as all_builtin_handlers, all_tools as all_builtin_tools
+from app.sourcing.tools import get_tools as get_sourcing_tools, get_handlers as get_sourcing_handlers
 from app.tools.metadata import get_metadata, get_max_retries, should_escalate, EscalationMode
 
 from app.commands import CommandContext, CommandResult, CommandErrorCode
 from app.commands.executor import CommandExecutor
 from app.commands.registry import get_default_registry
 
-from app.agentops.core.schemas import EventType, LLMGenerationEvent, SpanEvent, ToolInvocationEvent, TraceEvent
+from app.agentops.core.schemas import EventType, SpanEvent, ToolInvocationEvent, TraceEvent
 from app.agentops.core.context import AgentOpsContext, set_context, reset_context
 from app.agentops.privacy.sanitizer import sanitize_payload
 from app.agentops.runtime import get_agentops_provider
 from app.agentops.tracing import agent_span
+from app.agentops.tracing.llm_generation import trace_llm_generation
+from app.core.telemetry import tool_call_total
+from app.tools.metadata import EscalationMode, detect_tool_category
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +89,16 @@ def _adapt_graph_result_to_legacy(graph_state: dict) -> dict:
             "agent": intent,
             "status": "failed",
             "summary": f"Graph execution failed: {error}",
+            "result": {},
+        }
+
+    # Graph 结束但没有执行任何 agent 节点 → 让 LLM tool loop 接管
+    # 这发生在意图路由到 "end" 时（chat / candidate_search / settings / knowledge_query）
+    if not graph_state.get("agent_result") and status == "running":
+        return {
+            "agent": intent,
+            "status": "no_handler",
+            "summary": "",
             "result": {},
         }
 
@@ -237,7 +251,7 @@ def _get_tools() -> list[dict]:
       4. gallery skills
       5. 按需的 load_skill 元工具
     """
-    tools = _BUILTIN_TOOLS + mcp_manager.get_all_tools() + all_skill_tools() + get_gallery_tools()
+    tools = _BUILTIN_TOOLS + mcp_manager.get_all_tools() + all_skill_tools() + get_gallery_tools() + get_sourcing_tools()
     if SKILLS_ENABLED:
         tools = tools + _get_skill_tool_schemas()
     return tools
@@ -254,6 +268,7 @@ def _get_handlers() -> dict[str, callable]:
     handlers = dict(_BUILTIN_HANDLERS)
     handlers.update(all_skill_handlers())
     handlers.update(get_gallery_handlers())
+    handlers.update(get_sourcing_handlers())
     for sid, state in mcp_manager._servers.items():
         for tool in state.tools_cache:
             name = tool.get("name")
@@ -798,10 +813,14 @@ async def chat_with_tools(
 
     _trace_provider = get_agentops_provider()
     _trace_id = str(uuid.uuid4())
+    _request_id = str(uuid.uuid4())
+    _operation_id = f"chat_{_trace_id[:8]}"
     _trace_token = set_context(AgentOpsContext(
         trace_id=_trace_id,
         user_id=user_id or "",
         session_id=session_id or "",
+        request_id=_request_id,
+        operation_id=_operation_id,
     ))
     _trace_active = False
 
@@ -983,62 +1002,52 @@ async def chat_with_tools(
         tools = _get_tools()
         handlers = _get_handlers()
 
-        async def _trace_completion(kwargs: dict):
-            """Record LLM generation trace around a chat completion call."""
-            start = time.monotonic()
-            base = LLMGenerationEvent(
-                name="llm.chat",
-                trace_id=_trace_id,
-                session_id=session_id or "",
-                user_id=user_id or "",
-                model=kwargs.get('model', llm.model),
+        async def _llm_generate(span_name: str, messages: list, **kwargs) -> Any:
+            """标准化 LLM 生成 — 使用 trace_llm_generation() 包裹单次 LLM 调用。
+            
+            替代旧的 _trace_completion，使用统一的 trace_llm_generation context manager。
+            支持标准化 generation 命名：tool_planning / final_response / intent 等。
+            """
+            model = kwargs.pop("model", llm.model)
+            temp = kwargs.pop("temperature", None)
+            max_tk = kwargs.pop("max_tokens", None)
+            extra_body = kwargs.pop("extra_body", None)
+            
+            create_kwargs = dict(model=model, messages=messages, **kwargs)
+            if temp is not None:
+                create_kwargs["temperature"] = temp
+            if max_tk is not None:
+                create_kwargs["max_tokens"] = max_tk
+            if extra_body is not None:
+                create_kwargs["extra_body"] = extra_body
+
+            async with trace_llm_generation(
+                model=model,
                 provider=getattr(llm, 'provider', ''),
-                parameters={'temperature': kwargs.get('temperature'), 'max_tokens': kwargs.get('max_tokens')},
-                input=sanitize_payload({"messages": kwargs.get('messages', [])}),
-            )
-            with contextlib.suppress(Exception):
-                await _trace_provider.record_generation(base)
-            try:
-                resp = await llm.client.chat.completions.create(**kwargs)
-            except Exception as e:
-                with contextlib.suppress(Exception):
-                    await _trace_provider.record_generation(LLMGenerationEvent(
-                        name="llm.chat",
-                        event_type=EventType.LLM_GENERATION_FAILED,
-                        trace_id=_trace_id,
-                        session_id=session_id or "",
-                        user_id=user_id or "",
-                        duration_ms=(time.monotonic() - start) * 1000,
-                        error=str(e),
-                    ))
-                raise
-            duration_ms = (time.monotonic() - start) * 1000
-            usage = resp.usage
-            with contextlib.suppress(Exception):
-                await _trace_provider.record_generation(LLMGenerationEvent(
-                    name="llm.chat",
-                    event_type=EventType.LLM_GENERATION_COMPLETED,
-                    trace_id=_trace_id,
-                    session_id=session_id or "",
-                    user_id=user_id or "",
-                    model=resp.model or kwargs.get('model', llm.model),
-                    provider=getattr(llm, 'provider', ''),
-                    prompt_tokens=usage.prompt_tokens if usage else 0,
-                    completion_tokens=usage.completion_tokens if usage else 0,
-                    total_tokens=usage.total_tokens if usage else 0,
-                    duration_ms=duration_ms,
-                    output=sanitize_payload({
-                        "content": resp.choices[0].message.content if resp.choices else "",
-                        "tool_calls": [
-                            {"name": tc.function.name, "args": tc.function.arguments}
-                            for tc in (resp.choices[0].message.tool_calls or [])
-                        ],
-                    }),
-                ))
-            return resp
+                input=sanitize_payload({"messages": messages}),
+                parameters={"temperature": temp, "max_tokens": max_tk} if (temp or max_tk) else {},
+                span_name=span_name,
+            ) as span:
+                try:
+                    resp = await llm.client.chat.completions.create(**create_kwargs)
+                except Exception:
+                    raise  # trace_llm_generation handles _fail() via __exit__
+
+                span.set_usage(resp.usage)
+                span.set_output(sanitize_payload({
+                    "content": resp.choices[0].message.content if resp.choices else "",
+                    "tool_calls": [
+                        {"name": tc.function.name, "args": tc.function.arguments}
+                        for tc in (resp.choices[0].message.tool_calls or [])
+                    ],
+                }))
+                return resp
 
         async def _trace_tool_call(tc):
             """Record tool invocation trace around a tool call with retry loop.
+
+            记录 ToolInvocationEvent（STARTED → COMPLETED/FAILED）+ Prometheus 指标。
+            工具错误分类: network_error / validation_error / business_error / unknown。
             
             Returns (succeeded, last_error, result, args).
             """
@@ -1047,6 +1056,7 @@ async def chat_with_tools(
             meta = get_metadata(tool_name)
             max_retries = get_max_retries(tool_name)
             escalation = should_escalate(tool_name)
+            tool_category = detect_tool_category(tool_name)
             start = time.monotonic()
 
             base = ToolInvocationEvent(
@@ -1056,7 +1066,7 @@ async def chat_with_tools(
                 session_id=session_id or "",
                 user_id=user_id or "",
                 tool_name=tool_name,
-                tool_category=meta.capability.value,
+                tool_category=tool_category,
                 needs_human=escalation != EscalationMode.NONE,
                 input=sanitize_payload({"arguments": fn.arguments}),
             )
@@ -1105,6 +1115,18 @@ async def chat_with_tools(
 
             duration_ms = (time.monotonic() - start) * 1000
 
+            # 工具错误分类
+            if succeeded or not last_error:
+                error_type = ""
+            elif any(kw in (last_error or "").lower() for kw in ["timeout", "connection", "refused", "reset"]):
+                error_type = "network_error"
+            elif any(kw in (last_error or "").lower() for kw in ["invalid", "required", "validation", "format"]):
+                error_type = "validation_error"
+            elif any(kw in (last_error or "").lower() for kw in ["not found", "permission", "forbidden", "unauthorized"]):
+                error_type = "business_error"
+            else:
+                error_type = "unknown"
+
             if succeeded:
                 with contextlib.suppress(Exception):
                     await _trace_provider.record_tool_call(ToolInvocationEvent(
@@ -1114,7 +1136,7 @@ async def chat_with_tools(
                         session_id=session_id or "",
                         user_id=user_id or "",
                         tool_name=tool_name,
-                        tool_category=meta.capability.value,
+                        tool_category=tool_category,
                         success=True,
                         retry_count=retry_count,
                         needs_human=escalation != EscalationMode.NONE,
@@ -1130,13 +1152,23 @@ async def chat_with_tools(
                         session_id=session_id or "",
                         user_id=user_id or "",
                         tool_name=tool_name,
-                        tool_category=meta.capability.value,
+                        tool_category=tool_category,
                         success=False,
                         retry_count=retry_count,
                         needs_human=escalation != EscalationMode.NONE,
                         duration_ms=duration_ms,
                         error=last_error or "",
                     ))
+
+            # Prometheus 指标
+            try:
+                tool_call_total.labels(
+                    tool_name=tool_name,
+                    tool_category=tool_category,
+                    status="success" if succeeded else f"error:{error_type}" if error_type else "error",
+                ).inc()
+            except Exception:
+                pass
 
             return succeeded, last_error, result, args
 
@@ -1177,15 +1209,16 @@ async def chat_with_tools(
         last_err: Exception | None = None
         for attempt in range(3):
             try:
-                response = await _trace_completion({
-                    "model": llm.model,
-                    "messages": msgs,
-                    "tools": tools,
-                    "tool_choice": "auto",
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "extra_body": {"thinking": {"type": "disabled"}},
-                })
+                response = await _llm_generate(
+                    "tool_planning",
+                    msgs,
+                    model=llm.model,
+                    tools=tools,
+                    tool_choice="auto",
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    extra_body={"thinking": {"type": "disabled"}},
+                )
                 break
             except Exception as e:
                 last_err = e
@@ -1228,13 +1261,14 @@ async def chat_with_tools(
                 msgs2 = _build_tool_messages_manually(msgs, reply, tool_calls, tool_results)
             try:
                 final = await asyncio.wait_for(
-                    _trace_completion({
-                        "model": llm.model,
-                        "messages": msgs2,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "extra_body": {"thinking": {"type": "disabled"}},
-                    }),
+                    _llm_generate(
+                        "final_response",
+                        msgs2,
+                        model=llm.model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        extra_body={"thinking": {"type": "disabled"}},
+                    ),
                     timeout=20.0,
                 )
                 reply = final.choices[0].message.content or ""

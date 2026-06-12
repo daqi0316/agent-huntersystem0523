@@ -27,11 +27,17 @@ def mock_db():
 
 @pytest.fixture
 def override_auth(app):
-    """Override auth dependency to return a fixed user_id."""
+    """Override auth + org_scoped_db to return fixed context and a mock db."""
     from app.core.dependencies import get_current_user_id
+    from app.core.org_context import OrgContext, org_scoped_db
     app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+    mock_db = AsyncMock()
+    async def _fake_org_scoped_db():
+        yield OrgContext(org_id="test-org-id", user_id="user-1", role="hr"), mock_db
+    app.dependency_overrides[org_scoped_db] = _fake_org_scoped_db
     yield
     app.dependency_overrides.pop(get_current_user_id, None)
+    app.dependency_overrides.pop(org_scoped_db, None)
 
 
 def _fake_candidate(**kwargs):

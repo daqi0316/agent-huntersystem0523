@@ -1,6 +1,7 @@
 """JD 生成服务 — 使用 Gen-Eval 循环迭代生成职位描述。"""
 
 from app.agents.gen_eval_loop import GenEvalLoop
+from app.agentops.instrumentation.recruitment import RecruitmentEvents
 from app.core.config import settings
 
 
@@ -54,6 +55,18 @@ class JDGeneratorService:
                 "passed": True,
                 "threshold": settings.jd_gen_threshold,
             }
+
+        # P2-C Stage 9: 发射 JD 生成业务事件
+        import asyncio
+        asyncio.create_task(RecruitmentEvents.on_jd_generated(
+            job_id=title,
+            iteration_count=result.get("total_iterations", 1),
+            final_score=(
+                result.get("final_score", 0) if isinstance(result.get("final_score"), (int, float))
+                else (result.get("threshold", 7) if result.get("passed") else 0)
+            ),
+            passed_threshold=result.get("passed", False),
+        ))
 
         return result
 

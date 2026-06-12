@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Upload, RefreshCw, AlertCircle, CheckCircle2, Clock, FileText, Users, BarChart3 } from "lucide-react";
+import { RefreshCw, AlertCircle, CheckCircle2, Clock, FileText, Users, BarChart3 } from "lucide-react";
 
 type ImportRecord = {
   id: string;
@@ -69,7 +69,7 @@ export default function OnboardingDashboardPage() {
   async function refreshHealthScore() {
     setRefreshing(true);
     try {
-      const res = await api.post<{ data: HealthScore }>("/onboarding/health-score/refresh");
+      const res = await api.post<{ data: HealthScore }>("/onboarding/health-score/refresh", {});
       setHealthScore(res.data || null);
     } finally {
       setRefreshing(false);
@@ -84,8 +84,7 @@ export default function OnboardingDashboardPage() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-3xl font-bold">
-            <Upload className="h-7 w-7" />
+          <h1 className="text-3xl font-bold">
             客户导入中心
           </h1>
           <p className="text-muted-foreground">

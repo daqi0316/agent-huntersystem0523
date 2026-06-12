@@ -10,6 +10,8 @@ class TaskCreate(BaseModel):
     filters: dict[str, Any] = Field(default_factory=dict, description="筛选条件")
     priority: int = Field(default=50, ge=0, le=100, description="优先级 0-100")
     scheduled_at: datetime | None = Field(default=None, description="定时执行时间")
+    org_id: str | None = Field(default=None, description="组织 ID")
+    created_by: str | None = Field(default=None, description="创建者")
 
 
 class TaskResponse(BaseModel):

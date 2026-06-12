@@ -82,7 +82,7 @@ export default function ScorecardDetailPage() {
   const activateTemplate = async () => {
     setActivating(true);
     try {
-      const res = await api.post<{ success: boolean; data: ScorecardTemplate }>(`/scorecards/templates/${params.id}/activate`);
+      const res = await api.post<{ success: boolean; data: ScorecardTemplate }>(`/scorecards/templates/${params.id}/activate`, {});
       setTemplate(res.data);
       toast.success("评分卡已激活");
     } catch {
@@ -95,7 +95,7 @@ export default function ScorecardDetailPage() {
   const archiveTemplate = async () => {
     setArchiving(true);
     try {
-      const res = await api.post<{ success: boolean; data: ScorecardTemplate }>(`/scorecards/templates/${params.id}/archive`);
+      const res = await api.post<{ success: boolean; data: ScorecardTemplate }>(`/scorecards/templates/${params.id}/archive`, {});
       setTemplate(res.data);
       toast.success("评分卡已归档");
     } catch {

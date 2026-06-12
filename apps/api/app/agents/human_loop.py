@@ -6,6 +6,8 @@ import json
 import logging
 import re
 import uuid
+
+from app.agentops.tracing import agent_span
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -142,24 +144,25 @@ class HumanLoopAgent(BaseAgent):
             await session.close()
 
     async def run(self, input_data: dict) -> dict:
-        action_type = input_data.get("action_type", "schedule_interview")
-        params = input_data.get("params", {})
-        user_id = input_data.get("user_id", "")
+        async with agent_span("human_loop.run", input=input_data, tags=["human_loop"]):
+            action_type = input_data.get("action_type", "schedule_interview")
+            params = input_data.get("params", {})
+            user_id = input_data.get("user_id", "")
 
-        if input_data.get("confirm"):
-            return await self.confirm(
-                input_data["approval_id"],
-                user_id or input_data.get("resolver_id", ""),
-                input_data.get("approved", False),
-                input_data.get("feedback"),
-            )
+            if input_data.get("confirm"):
+                return await self.confirm(
+                    input_data["approval_id"],
+                    user_id or input_data.get("resolver_id", ""),
+                    input_data.get("approved", False),
+                    input_data.get("feedback"),
+                )
 
-        proposal = await self.create_proposal(user_id, action_type, params)
-        return {
-            "agent": self.name,
-            "status": "awaiting_approval",
-            "approval": proposal,
-        }
+            proposal = await self.create_proposal(user_id, action_type, params)
+            return {
+                "agent": self.name,
+                "status": "awaiting_approval",
+                "approval": proposal,
+            }
 
     async def _generate_proposal(self, action_type: str, params: dict) -> dict:
         if action_type == "schedule_interview":

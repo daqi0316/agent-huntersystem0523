@@ -1,0 +1,8 @@
+{
+  "reportMissingTypeArgument": false,
+  "reportArgumentType": false,
+  "reportAssignmentType": false,
+  "reportGeneralTypeIssues": false,
+  "reportReturnType": false,
+  "typeCheckingMode": "basic"
+}

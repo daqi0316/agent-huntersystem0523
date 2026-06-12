@@ -48,8 +48,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
 
-  const isAgentPage = (pathname?.startsWith("/agent") && !pathname?.startsWith("/agentops")) ?? false;
-  const effectivelyCollapsed = isAgentPage || sidebarCollapsed;
+  const effectivelyCollapsed = sidebarCollapsed;
 
   return (
     <aside

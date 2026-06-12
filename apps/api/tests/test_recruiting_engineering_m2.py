@@ -300,6 +300,7 @@ class TestTemplateLifecycleApi:
         tpl = self._mock_template("active")
         svc = AsyncMock()
         svc.get_template.return_value = tpl
+        svc.activate_template.side_effect = ValueError("评分卡已是 active 状态")
 
         with patch("app.api.scorecards.ScorecardService", return_value=svc):
             resp = TestClient(app).post("/scorecards/templates/tpl-1/activate")

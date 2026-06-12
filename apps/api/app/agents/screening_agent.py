@@ -13,6 +13,7 @@ from typing import Any
 
 from app.agents.base import BaseAgent
 from app.agents.pipeline import PipelineAgent
+from app.agentops.instrumentation.recruitment import RecruitmentEvents
 from app.llm import get_llm_client
 
 logger = logging.getLogger(__name__)
@@ -268,6 +269,18 @@ class ScreeningAgent(BaseAgent):
 
         risks = self._detect_risks(screen_result["parsed_resume"], screen_result["dimensions"])
         gate = screen_result.get("gate", {})
+
+        # P2-C Stage 9: 发射筛选业务事件
+        dims = screen_result["dimensions"]
+        await RecruitmentEvents.on_screening_completed(
+            candidate_id=candidate_id,
+            job_id=job_id,
+            match_score=screen_result["final_score"] / 100,  # 0-100 → 0-1
+            decision="advance" if screen_result["gate_passed"] else "reject",
+            dimension_scores=dims.get("dimension_scores") if isinstance(dims, dict) else None,
+            reason_codes=[r.get("type", "") for r in risks] if risks else None,
+            needs_human_review=screen_result["needs_human_review"],
+        )
 
         return {
             "candidate_id": candidate_id,

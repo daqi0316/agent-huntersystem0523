@@ -67,7 +67,7 @@ class TestSearchCandidates:
         assert result["skip"] == 0
         assert result["limit"] == 20
         assert result["items"][0]["candidate_id"] == "c1"
-        mock_svc.list.assert_awaited_once_with(skip=0, limit=20, search=None, status=None)
+        mock_svc.list.assert_awaited_once_with(skip=0, limit=20, search=None, status=None, skills=None)
 
     @pytest.mark.asyncio
     async def test_with_query_and_status(self) -> None:
@@ -83,7 +83,7 @@ class TestSearchCandidates:
         assert result["total"] == 0
         assert result["skip"] == 10
         assert result["limit"] == 5
-        mock_svc.list.assert_awaited_once_with(skip=10, limit=5, search="python", status="active")
+        mock_svc.list.assert_awaited_once_with(skip=10, limit=5, search="python", status="active", skills=None)
 
     @pytest.mark.asyncio
     async def test_pii_masking_applied(self) -> None:

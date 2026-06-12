@@ -103,7 +103,7 @@ export default function JobProfileDetailPage() {
   const activateVersion = async (versionId: string) => {
     setActivatingId(versionId);
     try {
-      await api.post(`/job-profiles/${profileId}/versions/${versionId}/activate`);
+      await api.post(`/job-profiles/${profileId}/versions/${versionId}/activate`, {});
       setVersions((prev) =>
         prev.map((v) => ({
           ...v,

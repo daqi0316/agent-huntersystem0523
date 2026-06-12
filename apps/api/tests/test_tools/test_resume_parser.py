@@ -45,14 +45,14 @@ def test_detect_red_flags_inexperienced():
     assert flags[0]["type"] == "inexperienced"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_handle_parse_resume_no_input():
     result = await _handle_parse_resume()
     assert result["status"] == "failed"
     assert "content or file_url required" in result["error"]["message"]
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_handle_parse_resume_extraction_fails():
     with patch("app.tools.resume_parser.extract_from_text") as mock_extract:
         mock_extract.side_effect = Exception("LLM unavailable")
@@ -61,7 +61,7 @@ async def test_handle_parse_resume_extraction_fails():
     assert result["error"]["code"] == "LOW_CONFIDENCE"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_handle_parse_resume_success():
     fake = FakeExtractedCandidate(
         name="张三", email="zhang@test.com", phone="13800138000",
@@ -79,19 +79,19 @@ async def test_handle_parse_resume_success():
     assert data["confidence"] > 0.8
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_handle_batch_parse_no_files():
     result = await _handle_batch_parse()
     assert result["status"] == "failed"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_handle_batch_parse_empty_files():
     result = await _handle_batch_parse(files=[])
     assert result["status"] == "failed"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_handle_batch_parse_mixed():
     fake = FakeExtractedCandidate(
         name="李四", email="li@test.com", phone="13900139000",
@@ -109,7 +109,7 @@ async def test_handle_batch_parse_mixed():
     assert result["data"]["fail_count"] == 1
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_handle_get_profile_no_id():
     result = await _handle_get_profile()
     assert result["status"] == "failed"

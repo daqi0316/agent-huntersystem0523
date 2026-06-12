@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from app.core.database import AsyncSessionLocal
 
-router = APIRouter(prefix="/stats", tags=["sourcing/stats"])
+router = APIRouter(tags=["sourcing/stats"])
 
 
 @router.get("")

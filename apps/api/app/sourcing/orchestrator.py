@@ -189,7 +189,11 @@ class SourcingOrchestrator:
 
     async def create_task(self, task_data: dict[str, object]) -> SourcingTask:
         """创建任务（不投递队列，兼容旧调用方）"""
-        task = SourcingTask(**task_data)
+        # 兼容前端未传 org_id/created_by 时的兜底
+        safe_data = {k: v for k, v in task_data.items() if v is not None}
+        safe_data.setdefault("org_id", "00000000-0000-0000-0000-000000000000")
+        safe_data.setdefault("created_by", "system")
+        task = SourcingTask(**safe_data)
         self.db.add(task)
         await self.db.commit()
         await self.db.refresh(task)

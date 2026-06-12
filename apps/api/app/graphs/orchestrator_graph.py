@@ -62,7 +62,7 @@ _INTENT_TO_NODE = {
     "interview": "execute_interview",
     "sourcing": "execute_sourcing",
     "jd_generation": "execute_sourcing",
-    "candidate_search": "execute_sourcing",
+    "candidate_search": "end",
     "offering": "execute_offering",
     "onboarding": "execute_onboarding",
     "analytics": "execute_analytics",
@@ -386,33 +386,29 @@ async def _multi_stage_decompose(state: OrchestratorState) -> dict:
     if not text:
         return {"error": "no input_text for multi-stage", "status": "failed"}
 
-    try:
-        sub_tasks = await decompose_task(text, context=None)
-        if not sub_tasks:
+    async with agent_span("multi_stage_decompose", input={"text": text[:300]}, tags=["orchestrator"]):
+        try:
+            sub_tasks = await decompose_task(text, context=None)
+            if not sub_tasks:
+                sub_tasks = [{"type": "screening", "description": text, "depends_on": []}]
+            levels = build_dag(sub_tasks)
+            if not levels:
+                levels = [list(range(len(sub_tasks)))]
+        except Exception as e:
+            logger.warning("multi_stage_decompose failed (%s), using single-task fallback", e)
             sub_tasks = [{"type": "screening", "description": text, "depends_on": []}]
-        levels = build_dag(sub_tasks)
-        if not levels:
-            # build_dag on empty/tiny sub_tasks can return []; rebuild trivially
-            levels = [list(range(len(sub_tasks)))]
-    except Exception as e:
-        logger.warning("multi_stage_decompose failed (%s), using single-task fallback", e)
-        sub_tasks = [{"type": "screening", "description": text, "depends_on": []}]
-        levels = [[0]]
+            levels = [[0]]
 
-    logger.info(
-        "multi_stage_decompose: %d sub_tasks, %d levels",
-        len(sub_tasks), len(levels),
-    )
-    return {
-        "sub_tasks": sub_tasks,
-        "levels": levels,
-        "current_level": 0,
-        "results": [None] * len(sub_tasks),
-        "shared_context": {},
-        "paused_at_level": None,
-        "multi_stage": True,
-        "status": "running",
-    }
+        return {
+            "sub_tasks": sub_tasks,
+            "levels": levels,
+            "current_level": 0,
+            "results": [None] * len(sub_tasks),
+            "shared_context": {},
+            "paused_at_level": None,
+            "multi_stage": True,
+            "status": "running",
+        }
 
 
 async def _run_sub_task(
@@ -509,61 +505,60 @@ async def _execute_level(
     if config and isinstance(config, dict):
         thread_id = (config.get("configurable") or {}).get("thread_id")
 
-    # 边界处理
-    if not levels or not sub_tasks or current_level >= len(levels):
-        return {"status": "completed", "results": existing_results}
+    async with agent_span(f"execute_level.{current_level}", input={
+        "level": current_level, "sub_task_count": len(levels[current_level]) if levels else 0,
+    }, tags=["orchestrator", "multi_stage"]):
+        if not levels or not sub_tasks or current_level >= len(levels):
+            return {"status": "completed", "results": existing_results}
 
-    if len(existing_results) != len(sub_tasks):
-        # 修复长度不一致（防止上游出错）
-        existing_results = [None] * len(sub_tasks)
+        if len(existing_results) != len(sub_tasks):
+            existing_results = [None] * len(sub_tasks)
 
-    level_indices = levels[current_level]
-    level_sub_tasks = [sub_tasks[i] for i in level_indices]
+        level_indices = levels[current_level]
+        level_sub_tasks = [sub_tasks[i] for i in level_indices]
 
-    # 并行执行当前 level 的所有子任务
-    coros = [
-        _run_sub_task(st, shared_context, user_id, thread_id=thread_id)
-        for st in level_sub_tasks
-    ]
-    level_outputs = await asyncio.gather(*coros, return_exceptions=True)
+        coros = [
+            _run_sub_task(st, shared_context, user_id, thread_id=thread_id)
+            for st in level_sub_tasks
+        ]
+        level_outputs = await asyncio.gather(*coros, return_exceptions=True)
 
-    # 合并到 results
-    new_results = list(existing_results)
-    has_awaiting = False
-    has_failed = False
-    for idx, raw in zip(level_indices, level_outputs):
-        if isinstance(raw, Exception):
-            new_results[idx] = {
-                "agent": sub_tasks[idx].get("type", "unknown"),
-                "status": "failed",
-                "summary": f"执行异常: {str(raw)[:100]}",
-                "result": {},
-                "details": {"error": str(raw)},
-            }
-            has_failed = True
-        else:
-            new_results[idx] = raw
-            status = raw.get("status") if isinstance(raw, dict) else ""
-            if status == "awaiting_approval":
-                has_awaiting = True
-            elif status == "failed":
+        new_results = list(existing_results)
+        has_awaiting = False
+        has_failed = False
+        for idx, raw in zip(level_indices, level_outputs):
+            if isinstance(raw, Exception):
+                new_results[idx] = {
+                    "agent": sub_tasks[idx].get("type", "unknown"),
+                    "status": "failed",
+                    "summary": f"执行异常: {str(raw)[:100]}",
+                    "result": {},
+                    "details": {"error": str(raw)},
+                }
                 has_failed = True
+            else:
+                new_results[idx] = raw
+                status = raw.get("status") if isinstance(raw, dict) else ""
+                if status == "awaiting_approval":
+                    has_awaiting = True
+                elif status == "failed":
+                    has_failed = True
 
-    next_state: dict[str, Any] = {
-        "results": new_results,
-        "shared_context": shared_context,
-        "current_level": current_level + 1,
-    }
+        next_state: dict[str, Any] = {
+            "results": new_results,
+            "shared_context": shared_context,
+            "current_level": current_level + 1,
+        }
 
-    if has_awaiting:
-        next_state["paused_at_level"] = current_level
-        next_state["status"] = "awaiting_approval"
-    elif has_failed and current_level + 1 >= len(levels):
-        next_state["status"] = "partial"
-    else:
-        next_state["status"] = "running"
+        if has_awaiting:
+            next_state["paused_at_level"] = current_level
+            next_state["status"] = "awaiting_approval"
+        elif has_failed and current_level + 1 >= len(levels):
+            next_state["status"] = "partial"
+        else:
+            next_state["status"] = "running"
 
-    return next_state
+        return next_state
 
 
 def _should_continue_or_pause(state: OrchestratorState) -> str:

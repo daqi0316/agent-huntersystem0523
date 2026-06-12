@@ -41,6 +41,7 @@ class AgentChatResponse(BaseModel):
     success: bool = True
     reply: str = ""
     model: str = ""
+    trace_id: str = ""
     tool_calls: list[AgentToolCallInfo] = []
     agent_actions: list[AgentActionInfo] = Field(default_factory=list, description="Orchestrator 编排的子任务执行记录")
 
@@ -84,6 +85,7 @@ async def agent_chat(
     return AgentChatResponse(
         reply=result["reply"],
         model=result.get("model", ""),
+        trace_id=result.get("trace_id", ""),
         tool_calls=[
             AgentToolCallInfo(**tc) for tc in tool_calls_payload
         ],

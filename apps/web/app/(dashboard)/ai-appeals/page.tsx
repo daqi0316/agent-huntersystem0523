@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock, CheckCircle, XCircle, Loader2, Inbox } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Inbox } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -111,8 +111,7 @@ export default function AppealsListPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="flex items-center gap-2 text-3xl font-bold">
-          <Clock className="h-7 w-7" />
+        <h1 className="text-3xl font-bold">
           AI 评分申诉
         </h1>
         <p className="text-muted-foreground">处理用户的 AI 评分申诉 (7 天 SLA)</p>

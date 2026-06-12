@@ -11,7 +11,7 @@ from app.sourcing.models.crawl_log import CrawlLog
 from app.sourcing.orchestrator import SourcingOrchestrator
 from app.sourcing.schemas.task import TaskCreate, TaskResponse
 
-router = APIRouter(prefix="/tasks", tags=["sourcing/tasks"])
+router = APIRouter(tags=["sourcing/tasks"])
 
 
 async def _get_orchestrator(db: AsyncSession = Depends(get_db)):

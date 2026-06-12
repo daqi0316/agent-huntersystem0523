@@ -25,49 +25,53 @@ _HTML_EMPTY = "<html><body><p>no results</p></body></html>"
 
 
 class TestWebSearch:
-    @patch("app.skills.web_search.skill.httpx.AsyncClient")
-    async def test_success(self, mock_client_cls):
-        mock_client = AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
-        mock_resp = Mock()
-        mock_resp.text = _HTML_WITH_RESULTS
-        mock_client.get.return_value = mock_resp
+    @patch("tavily.TavilyClient")
+    async def test_success(self, mock_tavily_cls):
+        mock_tavily = Mock()
+        mock_tavily_cls.return_value = mock_tavily
+        mock_tavily.search.return_value = {
+            "answer": "This is the direct answer",
+            "results": [
+                {"title": "Result One", "content": "This is the first result snippet", "url": "https://example.com/1"},
+                {"title": "Result Two", "content": "Second result description", "url": "https://example.com/2"},
+            ],
+        }
 
         results = await _web_search("test query")
-        assert len(results) == 2
-        assert results[0]["title"] == "Result One"
-        assert results[1]["title"] == "Result Two"
+        assert len(results) == 1
+        assert "Result One" in results[0]["answer"]
 
-    @patch("app.skills.web_search.skill.httpx.AsyncClient")
-    async def test_max_results(self, mock_client_cls):
-        mock_client = AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
-        mock_resp = Mock()
-        mock_resp.text = _HTML_WITH_RESULTS
-        mock_client.get.return_value = mock_resp
+    @patch("tavily.TavilyClient")
+    async def test_max_results(self, mock_tavily_cls):
+        mock_tavily = Mock()
+        mock_tavily_cls.return_value = mock_tavily
+        mock_tavily.search.return_value = {
+            "answer": "Answer",
+            "results": [
+                {"title": "R1", "content": "C1", "url": "https://example.com/1"},
+            ],
+        }
 
         results = await _web_search("test", max_results=1)
         assert len(results) == 1
 
-    @patch("app.skills.web_search.skill.httpx.AsyncClient")
-    async def test_empty_results(self, mock_client_cls):
-        mock_client = AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
-        mock_resp = Mock()
-        mock_resp.text = _HTML_EMPTY
-        mock_client.get.return_value = mock_resp
+    @patch("tavily.TavilyClient")
+    async def test_empty_results(self, mock_tavily_cls):
+        mock_tavily = Mock()
+        mock_tavily_cls.return_value = mock_tavily
+        mock_tavily.search.return_value = {"answer": "", "results": []}
 
         results = await _web_search("nothing")
-        assert results == [{"info": "未找到相关结果，请尝试修改关键词。"}]
+        assert results == [{"info": "未找到相关结果，请尝试其他关键词。"}]
 
-    @patch("app.skills.web_search.skill.httpx.AsyncClient")
-    async def test_http_error(self, mock_client_cls):
-        mock_client = AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
-        mock_client.get.side_effect = Exception("network error")
+    @patch("tavily.TavilyClient")
+    async def test_http_error(self, mock_tavily_cls):
+        mock_tavily = Mock()
+        mock_tavily_cls.return_value = mock_tavily
+        mock_tavily.search.side_effect = Exception("network error")
 
-        with pytest.raises(Exception):
-            await _web_search("fail")
+        results = await _web_search("fail")
+        assert "error" in results[0]
 
 
 class TestWebSearchSkill:

@@ -24,8 +24,10 @@ def client(app):
 def override_auth(app):
     """Override auth deps for /chat (uses get_current_user) and /generate-jd, /knowledge-query (use get_current_user_id)."""
     from app.core.dependencies import get_current_user_id, get_current_user
+    from app.core.org_context import OrgContext, org_scoped_db
     app.dependency_overrides[get_current_user_id] = lambda: "user-1"
     app.dependency_overrides[get_current_user] = lambda: {"user_id": "user-1", "role": "user"}
+    app.dependency_overrides[org_scoped_db] = lambda: (OrgContext(org_id="test-org-id", user_id="user-1", role="hr"), AsyncMock())
     yield
     app.dependency_overrides.clear()
 

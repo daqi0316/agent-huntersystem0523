@@ -38,7 +38,7 @@ def setup_logging(service: str = "api", level: str = "INFO") -> None:
         processors=[
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.TimeStamper(fmt="iso", key="ts"),
             structlog.processors.StackInfoRenderer(),
             _add_service(service),
             structlog.processors.dict_tracebacks,

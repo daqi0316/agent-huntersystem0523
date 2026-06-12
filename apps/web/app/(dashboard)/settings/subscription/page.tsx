@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CreditCard, Check, Loader2, QrCode, X, Sparkles, Crown } from "lucide-react";
+import { Check, Loader2, QrCode, X, Sparkles, Crown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -151,8 +151,7 @@ export default function SubscriptionPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="flex items-center gap-2 text-3xl font-bold">
-          <CreditCard className="h-7 w-7" />
+        <h1 className="text-3xl font-bold">
           订阅与计费
         </h1>
         <p className="text-muted-foreground">管理您的订阅计划与支付方式</p>

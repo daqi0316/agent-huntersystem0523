@@ -234,15 +234,16 @@ class SourcingAgent(BaseAgent):
 
     async def run(self, input_data: dict) -> dict:
         agent_type = input_data.get("agent_type", input_data.get("action", "talent_map"))
+        # 注意: candidate_search 不再路由到此 agent（orchestrator_graph 已改为 "end"），
+        # 由 LLM tool loop 通过 search_platform 工具处理。
         summary_map = {
             "talent_map": "人才 Mapping 完成",
-            "candidate_search": "候选人搜索完成",
             "channel_strategy": "渠道策略推荐完成",
             "outreach": "触达话术生成完成",
             "jd_generation": "JD 生成完成",
         }
 
-        if agent_type in ("talent_map", "candidate_search"):
+        if agent_type == "talent_map":
             result = await self.build_talent_map(
                 target_companies=input_data.get("target_companies", []),
                 target_roles=input_data.get("target_roles", []),

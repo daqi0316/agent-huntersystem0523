@@ -9,6 +9,7 @@ import { TelemetryBoot } from "@/components/common/telemetry-boot";
 // 等项目装包后恢复：import { SentryBoot } from "@/components/common/sentry-boot";
 // 并加 <SentryBoot />
 import { AgentProvider } from "@/hooks/chat/agent-context";
+import { QueryProvider } from "@/components/common/query-provider";
 import { CookieConsent } from "@/components/common/cookie-consent";
 import { RateLimitToast } from "@/components/common/rate-limit-toast";
 
@@ -22,6 +23,7 @@ export default function DashboardLayout({
       <TelemetryBoot />
       {/* <SentryBoot /> 暂禁用（见上注释）*/}
       <AuthGuard>
+        <QueryProvider>
         <AgentProvider>
           <div className="flex h-screen overflow-hidden">
             <Sidebar />
@@ -33,6 +35,7 @@ export default function DashboardLayout({
             </div>
           </div>
         </AgentProvider>
+        </QueryProvider>
       </AuthGuard>
       <Toaster
         position="top-right"

@@ -45,6 +45,8 @@ function getStoredToken(): string | null {
 function storeToken(token: string) {
   try {
     localStorage.setItem(TOKEN_KEY, token);
+    // middleware.ts 读 cookie，所以也要写 cookie
+    document.cookie = `${TOKEN_KEY}=${token}; path=/; max-age=86400; SameSite=Lax`;
   } catch {
     /* noop */
   }
@@ -53,6 +55,7 @@ function storeToken(token: string) {
 function clearToken() {
   try {
     localStorage.removeItem(TOKEN_KEY);
+    document.cookie = `${TOKEN_KEY}=; path=/; max-age=0`;
   } catch {
     /* noop */
   }

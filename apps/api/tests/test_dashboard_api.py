@@ -91,6 +91,8 @@ class TestDashboardStats:
             _count_result(12),                     # total_jobs
             _count_result(5),                      # active_interviews
             _count_result(3),                      # monthly_onboards
+            _count_result(0),                      # overdue_followups
+            _count_result(0),                      # compensation_risks
             _rows_result([cand_row]),              # recent_activities.candidates
             _rows_result([job_row]),               # recent_activities.jobs
         ]
@@ -113,6 +115,9 @@ class TestDashboardStats:
         assert kpis["onboards"]["value"] == 3
         assert kpis["candidates"]["label"] == "候选人总数"
         assert kpis["jobs"]["label"] == "招聘职位"
+        kpi_keys = {k["key"] for k in data["kpis"]}
+        assert "overdue_followups" in kpi_keys
+        assert "compensation_risks" in kpi_keys
         # 动态: 2 条
         assert len(data["recent_activities"]) == 2
         # 趋势: 30 天每 2 天一个点 = 15 个点
@@ -125,6 +130,8 @@ class TestDashboardStats:
             _count_result(None),                   # total_jobs → 0
             _count_result(None),                   # active_interviews → 0
             _count_result(None),                   # monthly_onboards → 0
+            _count_result(None),                   # overdue_followups
+            _count_result(None),                   # compensation_risks
             _rows_result([]),                      # candidates activities
             _rows_result([]),                      # jobs activities
         ]
@@ -167,6 +174,8 @@ class TestDashboardStats:
             _count_result(1),
             _count_result(0),
             _count_result(0),
+            _count_result(0),
+            _count_result(0),
             _rows_result([cand_row]),
             _rows_result([job_row]),
         ]
@@ -191,6 +200,8 @@ class TestDashboardStats:
         job_row = ("job", "高级工程师", now)
 
         results = [
+            _count_result(0),
+            _count_result(0),
             _count_result(0),
             _count_result(0),
             _count_result(0),
@@ -222,6 +233,8 @@ class TestDashboardStats:
             _count_result(0),
             _count_result(0),
             _count_result(0),
+            _count_result(0),
+            _count_result(0),
             _rows_result([cand_row1]),
             _rows_result([job_row]),
         ]
@@ -247,6 +260,8 @@ class TestDashboardStats:
             _count_result(0),  # jobs
             _count_result(0),  # interviews
             _count_result(0),  # onboards
+            _count_result(0),  # overdue_followups
+            _count_result(0),  # compensation_risks
             _rows_result([]),  # candidates activities
             _rows_result([]),  # jobs activities
         ]
@@ -266,6 +281,7 @@ class TestDashboardStats:
         """趋势只取偶数天(i % 2 == 0)."""
         results = [
             _count_result(0), _count_result(0), _count_result(0), _count_result(0),
+            _count_result(0), _count_result(0),
             _rows_result([]), _rows_result([]),
         ]
         # 30 天 trend, 都返回 1

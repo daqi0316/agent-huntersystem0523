@@ -150,6 +150,8 @@ async def test_tool_invocation_success(monkeypatch) -> None:
     """单次工具调用成功 → STARTED + COMPLETED 事件."""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -185,7 +187,7 @@ async def test_tool_invocation_success(monkeypatch) -> None:
     assert s.user_id == "user-1"
     assert s.session_id == "session-1"
     assert s.tool_name == "get_current_time"
-    assert s.tool_category == "read"  # ToolMetadata().capability 默认值
+    assert s.tool_category == "system"  # detect_tool_category("get_current_time")
 
     # TOOL_INVOCATION_COMPLETED
     completed = [
@@ -215,6 +217,8 @@ async def test_tool_invocation_not_retriable(monkeypatch) -> None:
     """工具返回非 retriable 错误 → 不重试，直接 FAILED。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -270,6 +274,8 @@ async def test_tool_invocation_retry_then_success(monkeypatch) -> None:
     """工具重试后成功 → retry_count > 0，最终 COMPLETED。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -328,6 +334,8 @@ async def test_tool_invocation_all_retries_exhausted(monkeypatch) -> None:
     """工具所有重试耗尽 → 只有 STARTED + FAILED。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -383,6 +391,8 @@ async def test_tool_invocation_unknown_tool(monkeypatch) -> None:
     """未知工具 → STARTED + FAILED。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -427,6 +437,8 @@ async def test_tool_invocation_exception(monkeypatch) -> None:
     """工具 handler 抛异常 → STARTED + FAILED，不重试（exception 只对 retryable 重试）。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 
@@ -473,6 +485,8 @@ async def test_tool_invocation_retriable_exception(monkeypatch) -> None:
     """工具 handler 抛异常且工具可重试 → 重试后成功。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orchestrator_fallback(monkeypatch)
 

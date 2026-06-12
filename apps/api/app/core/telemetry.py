@@ -122,6 +122,13 @@ llm_failure_total = Counter(
     labelnames=("model", "error_type"),
 )
 
+# P2-C Stage 7: 工具调用指标
+tool_call_total = Counter(
+    "tool_call_total",
+    "Tool invocation count",
+    labelnames=("tool_name", "tool_category", "status"),
+)
+
 # P5-7: 业务告警 (LLM token 配额剩余)
 llm_token_quota_remaining = Gauge(
     "llm_token_quota_remaining",

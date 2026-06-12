@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Shield, Download, Trash2, AlertTriangle, Loader2, CheckCircle, Clock } from "lucide-react";
+import { Download, Trash2, AlertTriangle, Loader2, CheckCircle, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -196,8 +196,7 @@ export default function PrivacyPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="flex items-center gap-2 text-3xl font-bold">
-          <Shield className="h-7 w-7" />
+        <h1 className="text-3xl font-bold">
           隐私与数据
         </h1>
         <p className="text-muted-foreground">

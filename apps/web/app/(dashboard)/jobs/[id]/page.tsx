@@ -10,7 +10,7 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { notFound, useRouter } from "next/navigation";
-import { ArrowLeft, Briefcase, MapPin, DollarSign, Sparkles, AlertCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, MapPin, DollarSign, Sparkles, AlertCircle, RefreshCw } from "lucide-react";
 
 import { api, ApiError } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -123,8 +123,7 @@ export default function JobDetailPage({ params }: PageProps) {
             <ArrowLeft className="mr-1 h-4 w-4" />
             返回
           </Button>
-          <h1 id="page-title" className="text-2xl font-bold flex items-center gap-2">
-            <Briefcase className="h-6 w-6" />
+          <h1 id="page-title" className="text-2xl font-bold">
             {job.title}
           </h1>
           <Badge variant={STATUS_VARIANT[job.status] || "outline"}>

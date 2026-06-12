@@ -109,7 +109,7 @@ class TestMockLoginEndpoint:
                  "unionid": "u1", "openid": "o1", "nickname": "n", "avatar_url": "a",
              })), \
              patch("app.api.auth.find_or_create_user", new=AsyncMock(return_value=mock_user)), \
-             patch("app.core.auto_org.get_or_create_default_org", new=AsyncMock(return_value="org-1")):
+             patch("app.api.auth.get_or_create_default_org", new=AsyncMock(return_value="org-1")):
             resp = client.post(f"{self.ROUTE}?code=mockcode_001")
         assert resp.status_code == 200
         data = resp.json()["data"]

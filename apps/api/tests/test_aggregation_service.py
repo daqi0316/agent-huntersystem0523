@@ -271,6 +271,7 @@ class TestRunAggregation:
 class TestAggregationLoop:
     async def test_loop_stops_on_exception(self):
         with patch("app.services.aggregation_service.run_aggregation", side_effect=RuntimeError("stop")), \
+             patch("app.services.aggregation_service._ensure_target_table_exists", return_value=True), \
              patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             mock_sleep.side_effect = RuntimeError("stop loop")
             with pytest.raises(RuntimeError, match="stop loop"):

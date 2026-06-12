@@ -27,6 +27,70 @@ class EscalationMode(str, enum.Enum):
     REQUIRES_APPROVAL = "requires_approval"
 
 
+class ToolCategory(str, enum.Enum):
+    """工具领域分类 (P2-C Stage 7)。
+
+    用于观测面板按类别聚合工具调用指标。
+    """
+    SCHEDULE = "schedule"         # 面试安排/日历
+    CANDIDATE = "candidate"       # 候选人 CRUD
+    JOB = "job"                   # 职位 CRUD
+    RESUME = "resume"             # 简历解析/管理
+    SEARCH = "search"             # 搜索/查询
+    MCP = "mcp"                   # MCP 外部工具
+    MEMORY = "memory"             # 记忆/上下文
+    APPROVAL = "approval"         # 审批流
+    CALC = "calc"                 # 计算
+    SYSTEM = "system"             # 系统管理
+
+
+# tool_name → ToolCategory 默认映射（按前缀匹配）
+_TOOL_CATEGORY_MAP: dict[str, ToolCategory] = {
+    "schedule_": ToolCategory.SCHEDULE,
+    "list_interviews": ToolCategory.SCHEDULE,
+    "get_interview": ToolCategory.SCHEDULE,
+    "cancel_interview": ToolCategory.SCHEDULE,
+    "get_candidate": ToolCategory.CANDIDATE,
+    "list_candidates": ToolCategory.CANDIDATE,
+    "search_candidates": ToolCategory.CANDIDATE,
+    "create_candidate": ToolCategory.CANDIDATE,
+    "update_candidate": ToolCategory.CANDIDATE,
+    "get_job": ToolCategory.JOB,
+    "list_jobs": ToolCategory.JOB,
+    "create_job": ToolCategory.JOB,
+    "parse_resume": ToolCategory.RESUME,
+    "get_profile": ToolCategory.RESUME,
+    "batch_parse": ToolCategory.RESUME,
+    "web_search": ToolCategory.SEARCH,
+    "search_knowledge": ToolCategory.SEARCH,
+    "get_knowledge": ToolCategory.SEARCH,
+    "mcp_": ToolCategory.MCP,
+    "get_memories": ToolCategory.MEMORY,
+    "save_memory": ToolCategory.MEMORY,
+    "approve_": ToolCategory.APPROVAL,
+    "calc": ToolCategory.CALC,
+    "get_current_time": ToolCategory.SYSTEM,
+    "get_current_datetime": ToolCategory.SYSTEM,
+    "install_skill": ToolCategory.SYSTEM,
+    "drop_cache": ToolCategory.SYSTEM,
+}
+
+
+def detect_tool_category(tool_name: str) -> str:
+    """根据 tool_name 检测领域分类。
+
+    先查精确匹配，再查前缀匹配，默认返回 'unknown'。
+    """
+    # 精确匹配
+    if tool_name in _TOOL_CATEGORY_MAP:
+        return _TOOL_CATEGORY_MAP[tool_name].value
+    # 前缀匹配
+    for prefix, cat in _TOOL_CATEGORY_MAP.items():
+        if tool_name.startswith(prefix):
+            return cat.value
+    return "unknown"
+
+
 class Capability(str, enum.Enum):
     """工具能力分级（V-3 RBAC 依据）。"""
 

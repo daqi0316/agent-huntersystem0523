@@ -8,7 +8,7 @@ from sqlalchemy import select, delete
 from app.core.database import AsyncSessionLocal
 from app.sourcing.schemas.candidate import CandidateMergeRequest, SourcingCandidateDetailResponse
 
-router = APIRouter(prefix="/candidates", tags=["sourcing/candidates"])
+router = APIRouter(tags=["sourcing/candidates"])
 
 
 @router.get("")

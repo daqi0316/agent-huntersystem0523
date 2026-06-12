@@ -46,6 +46,10 @@ class BusinessEventType(StrEnum):
     EVALUATION_COMPLETED = "evaluation.completed"
     EVALUATION_FAILED = "evaluation.failed"
 
+    # P2-C Stage 11: 用户反馈
+    FEEDBACK_SUBMITTED = "feedback.submitted"
+    """用户/标注员/自动规则提交了一条反馈。"""
+
 
 @dataclass(slots=True)
 class BusinessEvent(BaseEvent):

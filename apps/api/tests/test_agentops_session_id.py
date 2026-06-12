@@ -129,6 +129,8 @@ async def test_session_id_flow_on_success(monkeypatch) -> None:
     """
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orch_fallback(monkeypatch)
 
@@ -219,6 +221,8 @@ async def test_session_id_flow_on_trace_failure(monkeypatch) -> None:
     """异常路径 TRACE_FAILED 也携带 session_id。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
 
     # command 路径抛异常
@@ -259,6 +263,8 @@ async def test_session_id_with_empty_session(monkeypatch) -> None:
     """空 session_id 时，trace 事件不崩且 session_id 为空字符串。"""
     spy = SpyProvider()
     monkeypatch.setattr("app.services.agent_service.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.runtime.get_agentops_provider", lambda: spy)
+    monkeypatch.setattr("app.agentops.tracing.llm_generation.get_agentops_provider", lambda: spy)
     monkeypatch.setattr("app.services.agent_service._register_builtins", AsyncMock())
     await _mock_orch_fallback(monkeypatch)
 

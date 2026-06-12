@@ -134,13 +134,14 @@ class TestInstallSkill:
 
 
 class TestInstalledList:
-    def test_returns_skills(self):
+    @pytest.mark.asyncio
+    async def test_returns_skills(self):
         mock_skill = MagicMock()
         mock_skill.description = "A mock skill"
         mock_skill.get_tools.return_value = [{"function": {"name": "mock_tool"}}]
 
         with patch("app.skills.discover_skills", return_value={"mock": mock_skill}):
-            result = installed_list()
+            result = await installed_list()
 
         assert len(result) == 1
         assert result[0]["name"] == "mock"

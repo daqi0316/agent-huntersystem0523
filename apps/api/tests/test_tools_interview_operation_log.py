@@ -89,10 +89,11 @@ class TestHandleCancelInterview:
 class TestHandleScheduleInterview:
     async def test_schedule_success(self):
         mock_result = make_result_mock([])
-        mock_db = MagicMock()
+        mock_db = AsyncMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
+        mock_db.get = AsyncMock(return_value=None)
 
         with patch("app.tools.interview.AsyncSessionLocal", return_value=FakeAsyncSession(mock_db)):
             result = await _handle_schedule_interview(
@@ -106,10 +107,11 @@ class TestHandleScheduleInterview:
         assert result["status"] == "scheduled"
 
     async def test_schedule_returns_conflict_error(self):
-        mock_db = MagicMock()
+        mock_db = AsyncMock()
         mock_db.execute = AsyncMock(return_value=make_result_mock([]))
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
+        mock_db.get = AsyncMock(return_value=None)
 
         with patch("app.tools.interview.AsyncSessionLocal", return_value=FakeAsyncSession(mock_db)):
             result = await _handle_schedule_interview(
@@ -124,19 +126,28 @@ class TestHandleScheduleInterview:
 
 class TestHandleRecordFeedback:
     async def test_record_success(self):
-        mock_db = MagicMock()
+        mock_db = AsyncMock()
         mock_db.add = MagicMock()
         mock_db.commit = AsyncMock()
+        mock_db.get = AsyncMock(return_value=None)
+        mock_db.execute = AsyncMock()
 
-        with patch("app.tools.interview.AsyncSessionLocal", return_value=FakeAsyncSession(mock_db)):
-            result = await _handle_record_feedback(
-                interview_id=str(uuid.uuid4()), score=8, evaluation="good performance",
-            )
+        with patch("app.services.interview.InterviewService") as mock_svc_cls:
+            mock_svc = AsyncMock()
+            mock_ev = MagicMock()
+            mock_ev.id = "ev-1"
+            mock_ev.interview_id = "interview-1"
+            mock_ev.overall_score = 8.0
+            mock_svc.save_evaluation = AsyncMock(return_value=mock_ev)
+            mock_svc_cls.return_value = mock_svc
 
-        assert result["id"]
-        assert result["status"] == "recorded"
-        mock_db.add.assert_called_once()
-        mock_db.commit.assert_awaited_once()
+            with patch("app.tools.interview.AsyncSessionLocal", return_value=FakeAsyncSession(mock_db)):
+                result = await _handle_record_feedback(
+                    interview_id=str(uuid.uuid4()), score=8, evaluation="good performance",
+                )
+
+        assert result["status"] == "success"
+        assert result["data"]["id"] == "ev-1"
 
 
 class TestInterviewToolsModule:
@@ -168,7 +179,7 @@ class TestHandleLogOperation:
         mock_svc = AsyncMock()
         mock_svc.create = AsyncMock(return_value=mock_op)
 
-        with patch("app.tools.operation_log.OperationService", return_value=mock_svc):
+        with patch("app.services.operation_service.OperationService", return_value=mock_svc):
             result = await _handle_log_operation(action="screen_resume", status="pending")
 
         assert result["status"] == "success"
@@ -188,7 +199,7 @@ class TestHandleLogOperation:
         mock_svc.create = AsyncMock(return_value=mock_op)
         mock_svc.transition = AsyncMock(return_value=mock_op)
 
-        with patch("app.tools.operation_log.OperationService", return_value=mock_svc):
+        with patch("app.services.operation_service.OperationService", return_value=mock_svc):
             result = await _handle_log_operation(
                 action="screen_resume", status="completed",
                 output_summary="processed 50 resumes",
@@ -209,7 +220,7 @@ class TestHandleLogOperation:
         mock_svc.create = AsyncMock(return_value=mock_op)
         mock_svc.transition = AsyncMock(return_value=mock_op)
 
-        with patch("app.tools.operation_log.OperationService", return_value=mock_svc):
+        with patch("app.services.operation_service.OperationService", return_value=mock_svc):
             result = await _handle_log_operation(
                 action="screen_resume", status="failed",
                 error_message="LLM timeout", error_category="system",
@@ -230,7 +241,7 @@ class TestHandleLogOperation:
         mock_svc.create = AsyncMock(return_value=mock_op)
         mock_svc.transition = AsyncMock(return_value=mock_op)
 
-        with patch("app.tools.operation_log.OperationService", return_value=mock_svc):
+        with patch("app.services.operation_service.OperationService", return_value=mock_svc):
             result = await _handle_log_operation(action="screen_resume", status="invalid_status")
 
         assert result["status"] == "success"

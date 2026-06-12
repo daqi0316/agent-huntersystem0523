@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { UserCheck, AlertTriangle, Users, BarChart3 } from "lucide-react";
+import { AlertTriangle, Users, BarChart3 } from "lucide-react";
 
 interface OnboardingTracking {
   id: string;
@@ -123,12 +123,9 @@ export default function OnboardingTrackingPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center gap-2">
-        <UserCheck className="h-7 w-7" />
-        <div>
-          <h1 className="text-3xl font-bold">入职后跟踪</h1>
-          <p className="text-muted-foreground">候选人入职管理 · 试用期跟踪 · 检查点看板</p>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold">入职后跟踪</h1>
+        <p className="text-muted-foreground">候选人入职管理 · 试用期跟踪 · 检查点看板</p>
       </div>
 
       {/* Analytics */}

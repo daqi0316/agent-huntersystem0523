@@ -70,10 +70,10 @@ class TestToolDefinitions:
         # combined into the full list only via _get_tools() (agent_service.py:137).
         all_tools = _get_tools()
         names = {t["function"]["name"] for t in all_tools if "function" in t}
-        for required in ["search_candidates", "get_candidate", "screen_resume",
+        for required in ["search_candidates", "get_candidate_detail", "screen_resume",
                          "list_jobs", "generate_jd", "schedule_interview",
                          "get_dashboard_stats", "search_knowledge", "get_evaluations",
-                         "install_skill", "list_skills"]:
+                         "install_skill_from_url", "list_skills"]:
             assert required in names, f"Missing builtin tool: {required}"
 
     @pytest.mark.xfail(strict=False, reason="Phase R: _get_tools signature changed; needs patch target update")
@@ -115,7 +115,7 @@ class TestRegisterBuiltins:
     @pytest.mark.asyncio
     async def test_all_key_handlers_present(self):
         await _register_builtins()
-        for key in ["search_candidates", "get_candidate", "screen_resume",
+        for key in ["search_candidates", "get_candidate_detail", "screen_resume",
                      "list_jobs", "generate_jd", "schedule_interview",
                      "get_dashboard_stats", "search_knowledge", "get_evaluations",
                      "install_skill", "list_skills"]:

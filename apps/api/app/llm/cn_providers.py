@@ -1,3 +1,4 @@
+# @deprecated Use app.llm.provider (OpenAICompatProvider/AnthropicProvider) instead
 """P6-8 跨 phase 技术债: 国内 LLM 接入 — 4 provider, OpenAI-compatible 模式。
 
 PIPL 合规: 客户数据不向境外传输。

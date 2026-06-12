@@ -8,7 +8,7 @@ from typing import Protocol, cast
 from app.core.config import settings
 
 from .providers.base import AgentOpsProvider
-from .providers.noop import NoopProvider
+from .providers.composite import CompositeProvider
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,15 @@ def get_agentops_provider() -> AgentOpsProvider:
 
 
 def build_agentops_provider() -> AgentOpsProvider:
+    from app.agentops.cost.recorder import CostRecordingProvider
+
+    # CostRecordingProvider 始终激活 — 即使 agentops 全局关闭
+    cost_provider = CostRecordingProvider()
+
     if not settings.agentops_enabled:
-        return NoopProvider()
+        return CompositeProvider(providers=[cost_provider])
     if settings.agentops_provider.lower() != "langfuse":
-        return NoopProvider()
+        return CompositeProvider(providers=[cost_provider])
 
     exporters_module = import_module("app.agentops.exporters.langfuse_exporter")
     reliability_module = import_module("app.agentops.reliability.queue")
@@ -52,7 +57,7 @@ def build_agentops_provider() -> AgentOpsProvider:
     )
     queue = queue_cls(exporter=exporter.export, max_size=settings.agentops_queue_max_size)
     set_agentops_queue(queue)
-    provider = composite_provider_cls(providers=[exporter_provider_cls(queue=queue)])
+    provider = composite_provider_cls(providers=[exporter_provider_cls(queue=queue), cost_provider])
     return cast(AgentOpsProvider, provider)
 
 

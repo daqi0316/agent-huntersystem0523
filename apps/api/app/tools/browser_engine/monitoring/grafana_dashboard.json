@@ -1,0 +1,159 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "title": "浏览器引擎监控",
+  "tags": ["browser-engine", "crawler"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "title": "引擎状态",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "engine_status{engine=\"invisible_playwright\"}",
+          "legendFormat": "invisible_playwright"
+        },
+        {
+          "expr": "engine_status{engine=\"browser_use\"}",
+          "legendFormat": "browser_use"
+        },
+        {
+          "expr": "engine_status{engine=\"http\"}",
+          "legendFormat": "http"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "unit": "bool",
+          "min": 0,
+          "max": 1
+        }
+      }
+    },
+    {
+      "title": "请求速率 (1m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 4, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by(engine) (rate(engine_requests_total[1m]))",
+          "legendFormat": "{{engine}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rps",
+          "min": 0
+        }
+      }
+    },
+    {
+      "title": "请求成功率",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by(engine) (rate(engine_requests_total{status=\"success\"}[5m])) / sum by(engine) (rate(engine_requests_total[5m])) * 100",
+          "legendFormat": "{{engine}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "title": "请求延迟 p50",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(engine_request_duration_seconds_bucket[5m])) by (le, engine))",
+          "legendFormat": "{{engine}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        }
+      }
+    },
+    {
+      "title": "请求延迟 p95",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(engine_request_duration_seconds_bucket[5m])) by (le, engine))",
+          "legendFormat": "{{engine}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        }
+      }
+    },
+    {
+      "title": "请求延迟 p99",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(engine_request_duration_seconds_bucket[5m])) by (le, engine))",
+          "legendFormat": "{{engine}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        }
+      }
+    },
+    {
+      "title": "引擎降级次数",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum by(from_engine, to_engine) (rate(engine_fallback_total[5m]))",
+          "legendFormat": "{{from_engine}} → {{to_engine}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        }
+      }
+    },
+    {
+      "title": "各平台请求分布",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum by(platform) (rate(engine_requests_total[24h]))",
+          "legendFormat": "{{platform}}"
+        }
+      ]
+    }
+  ]
+}

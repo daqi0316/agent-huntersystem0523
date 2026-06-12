@@ -118,6 +118,15 @@ class Settings(BaseSettings):
     langfuse_capture_input: bool = False
     langfuse_capture_output: bool = False
 
+    # LLM Judge — 独立于生产 LLM 的评估模型配置
+    llm_judge_enabled: bool = False
+    llm_judge_provider: str = "omlx"
+    llm_judge_model: str = "gpt-4o-mini"
+    llm_judge_base_url: str = ""
+    llm_judge_api_key: str = ""
+    llm_judge_timeout: float = 15.0
+    llm_judge_fallback: str = "heuristic"
+
     wechat_pay_merchant_id: str = ""
     wechat_pay_api_key: str = ""
     wechat_pay_cert_path: str = ""

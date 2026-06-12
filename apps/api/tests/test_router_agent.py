@@ -90,12 +90,10 @@ class TestRouterAgent:
     async def test_classify_llm_success(self):
         """classify uses LLM when available and returns correct intent."""
         agent = RouterAgent()
-        mock_llm = AsyncMock()
-        mock_llm.chat = AsyncMock(return_value="interview")
-        agent._llm = mock_llm
+        agent._llm_json_chat = AsyncMock(return_value={"intent": "screening"})
 
-        intent = await agent.classify({"text": "安排明天面试", "use_llm": True})
-        assert intent == "interview"
+        intent = await agent.classify({"text": "请帮我查一下张三的简历", "use_llm": True})
+        assert intent == "screening"
 
     @pytest.mark.asyncio
     async def test_classify_llm_fallback_to_rule(self):

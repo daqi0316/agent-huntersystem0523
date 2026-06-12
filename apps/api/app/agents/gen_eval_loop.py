@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents.base import BaseAgent
+from app.agentops.tracing import agent_span
 from app.llm import get_llm_client
 
 
@@ -156,37 +157,37 @@ class GenEvalLoop(BaseAgent):
 
     async def run(self, input_data: dict) -> dict:
         """运行 Gen-Eval 循环。"""
-        iterations: list[GenEvalResult] = []
-        final_output: str | None = None
-        feedback: str | None = None
+        async with agent_span("gen_eval_loop.run", input=input_data, tags=["gen_eval"]):
+            iterations: list[GenEvalResult] = []
+            final_output: str | None = None
+            feedback: str | None = None
 
-        for i in range(1, self.max_iterations + 1):
-            # GENERATE step
-            generated = await self.generate(input_data, feedback=feedback)
+            for i in range(1, self.max_iterations + 1):
+                async with agent_span(f"gen_eval_loop.iteration_{i}",
+                                      input={"iteration": i, "feedback": feedback},
+                                      tags=["gen_eval", f"iteration_{i}"]):
+                    generated = await self.generate(input_data, feedback=feedback)
+                    score, fb = await self.evaluate(generated)
 
-            # EVALUATE step
-            score, fb = await self.evaluate(generated)
+                    passed = score >= self.threshold
+                    result = GenEvalResult(
+                        iteration=i,
+                        generated=generated,
+                        score=score,
+                        feedback=fb,
+                        passed=passed,
+                    )
+                    iterations.append(result)
 
-            passed = score >= self.threshold
-            result = GenEvalResult(
-                iteration=i,
-                generated=generated,
-                score=score,
-                feedback=fb,
-                passed=passed,
-            )
-            iterations.append(result)
+                    if passed:
+                        final_output = generated
+                        break
 
-            if passed:
-                final_output = generated
-                break
+                    feedback = fb
+                    if i == self.max_iterations:
+                        final_output = generated
 
-            feedback = fb
-            # Last iteration — use the last generated output even if not passing
-            if i == self.max_iterations:
-                final_output = generated
-
-        return {
+            return {
             "agent": self.name,
             "status": "completed",
             "final_output": final_output or iterations[-1].generated,

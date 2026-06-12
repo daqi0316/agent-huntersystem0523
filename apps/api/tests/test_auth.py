@@ -28,13 +28,19 @@ def mock_db():
 @pytest.fixture
 def override_db(app, mock_db):
     from app.core.database import get_db
+    from app.core.org_context import OrgContext, org_scoped_db
 
     async def _mock_db():
         yield mock_db
 
+    async def _fake_org_scoped_db():
+        yield OrgContext(org_id="test-org-id", user_id="test-user-id", role="hr"), mock_db
+
     app.dependency_overrides[get_db] = _mock_db
+    app.dependency_overrides[org_scoped_db] = _fake_org_scoped_db
     yield
     app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(org_scoped_db, None)
 
 
 @pytest.fixture
@@ -64,8 +70,14 @@ class TestRegister:
 
     def test_success(self, client, override_db):
         mock_user = _mock_user()
-        with patch("app.api.auth.UserService.register") as mock_register:
+        with (
+            patch("app.api.auth.UserService.register") as mock_register,
+            patch("app.api.auth.get_or_create_default_org") as mock_org,
+            patch("app.api.auth.create_access_token") as mock_token,
+        ):
             mock_register.return_value = (mock_user, {"access_token": "jwt-token-abc"})
+            mock_org.return_value = "test-org-id"
+            mock_token.return_value = "jwt-token-abc"
             resp = client.post(self.ROUTE, json={
                 "email": "new@test.com",
                 "password": "SecurePass123!",
@@ -108,8 +120,15 @@ class TestLogin:
     ROUTE = "/api/v1/auth/login"
 
     def test_success(self, client, override_db):
-        with patch("app.api.auth.UserService.login") as mock_login:
-            mock_login.return_value = (MagicMock(), {"access_token": "jwt-token-xyz"})
+        mock_user = _mock_user()
+        with (
+            patch("app.api.auth.UserService.login") as mock_login,
+            patch("app.api.auth.get_or_create_default_org") as mock_org,
+            patch("app.api.auth.create_access_token") as mock_token,
+        ):
+            mock_login.return_value = (mock_user, {"access_token": "jwt-token-xyz"})
+            mock_org.return_value = "test-org-id"
+            mock_token.return_value = "jwt-token-xyz"
             resp = client.post(self.ROUTE, json={
                 "email": "test@test.com",
                 "password": "Pass123!",
@@ -143,15 +162,27 @@ class TestGetMe:
     def test_with_token(self, client, override_db, override_auth):
         """GET /me returns the current user profile."""
         mock_user = _mock_user()
+        # Configure db.execute().all() for the membership query in get_me
+        from app.core.database import get_db
+        execute_result = MagicMock()
+        execute_result.all.return_value = []
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = execute_result
+
+        async def _mock_db():
+            yield mock_db
+
+        from app.core.org_context import OrgContext, org_scoped_db
+
+        async def _fake_org_scoped_db():
+            yield OrgContext(org_id="test-org-id", user_id="test-user-id", role="hr"), mock_db
+
+        client._transport.app.dependency_overrides[get_db] = _mock_db
+        client._transport.app.dependency_overrides[org_scoped_db] = _fake_org_scoped_db
+
         with patch("app.api.auth.UserService.get_by_id") as mock_get:
             mock_get.return_value = mock_user
-            with patch("app.api.auth.UserService.to_response") as mock_to_resp:
-                mock_to_resp.return_value = {
-                    "id": "user-1", "email": "test@test.com",
-                    "name": "Test User", "role": "hr",
-                    "is_active": True, "created_at": "2025-01-01",
-                }
-                resp = client.get(self.ROUTE)
+            resp = client.get(self.ROUTE)
         assert resp.status_code == 200
         data = resp.json()
         assert data["email"] == "test@test.com"

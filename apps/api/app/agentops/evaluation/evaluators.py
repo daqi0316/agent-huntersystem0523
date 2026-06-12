@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any
@@ -22,9 +23,25 @@ from app.agentops.core.schemas import (
     SpanEvent,
     ToolInvocationEvent,
 )
+from app.agentops.evaluation.llm_judge import (
+    LLMJudgeBackend,
+    _extract_overall,
+    get_rubric,
+)
 from app.agentops.evaluation.schemas import EvaluationResult, ScoreType
 
 logger = logging.getLogger(__name__)
+
+
+def _dict_or_json(value: object) -> str:
+    """将 dict 或任意值转为 JSON 字符串，供 LLM judge 消费。"""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 # ── 阈值常量 ──
 LATENCY_THRESHOLD_MS: float = 5000.0  # 5s 以上视为慢
@@ -218,12 +235,15 @@ class IntentCorrectnessEvaluator(BaseEvaluator):
 class ResumeParseQualityEvaluator(BaseEvaluator):
     """LLM judge — evaluates resume parsing quality.
 
-    Examines LLM generation output for resume parsing tasks.
-    Uses input/output text quality heuristics as a lightweight proxy.
-    Full LLM judge implementation requires LLM client integration.
+    Two modes:
+    1. LLM judge mode (judge_backend provided): uses rubric + LLM
+    2. Heuristic mode (default): field-level completeness scoring
     """
 
     version = "1"
+
+    def __init__(self, judge_backend: LLMJudgeBackend | None = None) -> None:
+        self._judge_backend = judge_backend
 
     async def evaluate(self, event: BaseEvent) -> list[EvaluationResult]:
         if not isinstance(event, LLMGenerationEvent):
@@ -237,12 +257,36 @@ class ResumeParseQualityEvaluator(BaseEvaluator):
         if not output or not isinstance(output, dict):
             return []
 
+        if self._judge_backend:
+            return await self._evaluate_with_judge(event)
+        return self._evaluate_heuristic(event, output)
+
+    async def _evaluate_with_judge(self, event: LLMGenerationEvent) -> list[EvaluationResult]:
+        input_text = _dict_or_json(event.input)
+        output_text = _dict_or_json(event.output)
+        scores, reasoning = await self._judge_backend.judge(
+            get_rubric(ScoreType.RESUME_PARSE_QUALITY), input_text, output_text,
+        )
+        overall = _extract_overall(scores)
+        return [
+            EvaluationResult(
+                score_name=ScoreType.RESUME_PARSE_QUALITY,
+                value=overall,
+                comment=reasoning or f"LLM judge: {overall:.2f}",
+                source="llm_judge",
+                evaluator_version=self.version,
+                rubric_version="v1",
+                metadata={"model": event.model, "dimensions": str(scores)},
+            )
+        ]
+
+    def _evaluate_heuristic(self, event: LLMGenerationEvent, output: dict[str, Any]) -> list[EvaluationResult]:
         score = self._score_output(output)
         return [
             EvaluationResult(
                 score_name=ScoreType.RESUME_PARSE_QUALITY,
                 value=score,
-                comment=f"Resume parse quality heuristic score: {score:.2f}",
+                comment=f"Resume parse quality heuristic: {score:.2f}",
                 source="rule",
                 evaluator_version=self.version,
                 metadata={
@@ -255,46 +299,37 @@ class ResumeParseQualityEvaluator(BaseEvaluator):
 
     @staticmethod
     def _score_output(output: dict[str, Any]) -> float:
-        """Heuristic scoring of resume parse output."""
         score = 0.0
         total = 0.0
-
         if output.get("name"):
             score += 0.15
         total += 0.15
-
         if output.get("email"):
             score += 0.15
         total += 0.15
-
         if output.get("skills"):
             if isinstance(output["skills"], list) and len(output["skills"]) > 0:
                 score += 0.25
         total += 0.25
-
         if output.get("experience_years") is not None:
             score += 0.20
         total += 0.20
-
         if output.get("education"):
             score += 0.15
         total += 0.15
-
         if output.get("current_company") or output.get("current_title"):
             score += 0.10
         total += 0.10
-
         return score / total if total > 0 else 0.0
 
 
 class ScreeningReasonabilityEvaluator(BaseEvaluator):
-    """LLM judge — evaluates screening decision reasonability.
-
-    Placeholder for LLM judge integration.
-    Current implementation uses a simple heuristic.
-    """
+    """LLM judge — evaluates screening decision reasonability."""
 
     version = "1"
+
+    def __init__(self, judge_backend: LLMJudgeBackend | None = None) -> None:
+        self._judge_backend = judge_backend
 
     async def evaluate(self, event: BaseEvent) -> list[EvaluationResult]:
         if not isinstance(event, LLMGenerationEvent):
@@ -302,11 +337,29 @@ class ScreeningReasonabilityEvaluator(BaseEvaluator):
         if "screen" not in (event.name or "").lower():
             return []
 
+        if self._judge_backend:
+            input_text = _dict_or_json(event.input)
+            output_text = _dict_or_json(event.output)
+            scores, reasoning = await self._judge_backend.judge(
+                get_rubric(ScoreType.SCREENING_REASONABILITY), input_text, output_text,
+            )
+            overall = _extract_overall(scores)
+            return [
+                EvaluationResult(
+                    score_name=ScoreType.SCREENING_REASONABILITY,
+                    value=overall,
+                    comment=reasoning or f"LLM judge: {overall:.2f}",
+                    source="llm_judge",
+                    evaluator_version=self.version,
+                    rubric_version="v1",
+                )
+            ]
+
         return [
             EvaluationResult(
                 score_name=ScoreType.SCREENING_REASONABILITY,
                 value=0.5,
-                comment="LLM judge not yet integrated; default score",
+                comment="No LLM judge backend; default score",
                 source="rule",
                 evaluator_version=self.version,
             )
@@ -314,12 +367,12 @@ class ScreeningReasonabilityEvaluator(BaseEvaluator):
 
 
 class JDQualityEvaluator(BaseEvaluator):
-    """LLM judge — evaluates JD generation quality.
-
-    Placeholder for LLM judge integration.
-    """
+    """LLM judge — evaluates JD generation quality."""
 
     version = "1"
+
+    def __init__(self, judge_backend: LLMJudgeBackend | None = None) -> None:
+        self._judge_backend = judge_backend
 
     async def evaluate(self, event: BaseEvent) -> list[EvaluationResult]:
         if not isinstance(event, LLMGenerationEvent):
@@ -327,11 +380,29 @@ class JDQualityEvaluator(BaseEvaluator):
         if "jd" not in (event.name or "").lower():
             return []
 
+        if self._judge_backend:
+            input_text = _dict_or_json(event.input)
+            output_text = _dict_or_json(event.output)
+            scores, reasoning = await self._judge_backend.judge(
+                get_rubric(ScoreType.JD_QUALITY), input_text, output_text,
+            )
+            overall = _extract_overall(scores)
+            return [
+                EvaluationResult(
+                    score_name=ScoreType.JD_QUALITY,
+                    value=overall,
+                    comment=reasoning or f"LLM judge: {overall:.2f}",
+                    source="llm_judge",
+                    evaluator_version=self.version,
+                    rubric_version="v1",
+                )
+            ]
+
         return [
             EvaluationResult(
                 score_name=ScoreType.JD_QUALITY,
                 value=0.5,
-                comment="LLM judge not yet integrated; default score",
+                comment="No LLM judge backend; default score",
                 source="rule",
                 evaluator_version=self.version,
             )
@@ -339,12 +410,12 @@ class JDQualityEvaluator(BaseEvaluator):
 
 
 class ConversationHelpfulnessEvaluator(BaseEvaluator):
-    """LLM judge — evaluates overall conversation helpfulness.
-
-    Placeholder for LLM judge integration.
-    """
+    """LLM judge — evaluates overall conversation helpfulness."""
 
     version = "1"
+
+    def __init__(self, judge_backend: LLMJudgeBackend | None = None) -> None:
+        self._judge_backend = judge_backend
 
     async def evaluate(self, event: BaseEvent) -> list[EvaluationResult]:
         if not isinstance(event, LLMGenerationEvent):
@@ -354,11 +425,29 @@ class ConversationHelpfulnessEvaluator(BaseEvaluator):
         if "helpful" not in (event.name or "").lower() and "response" not in (event.name or "").lower():
             return []
 
+        if self._judge_backend:
+            input_text = _dict_or_json(event.input)
+            output_text = _dict_or_json(event.output)
+            scores, reasoning = await self._judge_backend.judge(
+                get_rubric(ScoreType.CONVERSATION_HELPFULNESS), input_text, output_text,
+            )
+            overall = _extract_overall(scores)
+            return [
+                EvaluationResult(
+                    score_name=ScoreType.CONVERSATION_HELPFULNESS,
+                    value=overall,
+                    comment=reasoning or f"LLM judge: {overall:.2f}",
+                    source="llm_judge",
+                    evaluator_version=self.version,
+                    rubric_version="v1",
+                )
+            ]
+
         return [
             EvaluationResult(
                 score_name=ScoreType.CONVERSATION_HELPFULNESS,
                 value=0.5,
-                comment="LLM judge not yet integrated; default score",
+                comment="No LLM judge backend; default score",
                 source="rule",
                 evaluator_version=self.version,
             )

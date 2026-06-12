@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.core.config import settings
 from app.core.database import Base
 from app.models import User, Organization, Membership, Invitation, Candidate, JobPosition, Application, Interview, SessionSummary, MemoryFact, MCPServer, InterviewEvaluation, ConversationSession, ConversationMessage  # noqa: F401
+from app.llm.models import LlmProvider  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

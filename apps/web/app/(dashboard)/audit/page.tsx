@@ -16,8 +16,7 @@ export default function AuditPage() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-3xl font-bold">
-            <Shield className="h-7 w-7" />
+          <h1 className="text-3xl font-bold">
             审计中心
           </h1>
           <p className="text-muted-foreground">

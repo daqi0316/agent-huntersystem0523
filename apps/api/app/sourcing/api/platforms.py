@@ -14,7 +14,7 @@ from app.sourcing.schemas.platform import (
     PlatformConfigUpdate,
 )
 
-router = APIRouter(prefix="/platforms", tags=["sourcing/platforms"])
+router = APIRouter(tags=["sourcing/platforms"])
 
 
 # ── 平台配置 ──
